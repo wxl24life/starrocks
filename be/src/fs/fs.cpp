@@ -16,6 +16,7 @@
 
 #include <fmt/format.h>
 
+#include "fs/fs_jindo.h"
 #include "fs/fs_posix.h"
 #include "fs/fs_s3.h"
 #include "fs/fs_util.h"
@@ -28,6 +29,7 @@
 namespace starrocks {
 
 static thread_local std::shared_ptr<FileSystem> tls_fs_posix;
+static thread_local std::shared_ptr<FileSystem> tls_fs_oss;
 static thread_local std::shared_ptr<FileSystem> tls_fs_s3;
 static thread_local std::shared_ptr<FileSystem> tls_fs_hdfs;
 #ifdef USE_STAROS
@@ -46,6 +48,13 @@ inline std::shared_ptr<FileSystem> get_tls_fs_posix() {
         tls_fs_posix.reset(new_fs_posix().release());
     }
     return tls_fs_posix;
+}
+
+inline std::shared_ptr<FileSystem> get_tls_fs_jindo() {
+    if (tls_fs_oss == nullptr) {
+        tls_fs_oss.reset(new_fs_jindo(FSOptions()).release());
+    }
+    return tls_fs_oss;
 }
 
 inline std::shared_ptr<FileSystem> get_tls_fs_s3() {
@@ -68,6 +77,9 @@ StatusOr<std::unique_ptr<FileSystem>> FileSystem::CreateUniqueFromString(std::st
     if (fs::is_posix_uri(uri)) {
         return new_fs_posix();
     }
+    if (fs::is_oss_uri(uri)) {
+        return new_fs_jindo(options);
+    }
     if (fs::is_s3_uri(uri)) {
         return new_fs_s3(options);
     }
@@ -89,6 +101,9 @@ StatusOr<std::unique_ptr<FileSystem>> FileSystem::CreateUniqueFromString(std::st
 StatusOr<std::shared_ptr<FileSystem>> FileSystem::CreateSharedFromString(std::string_view uri) {
     if (fs::is_posix_uri(uri)) {
         return get_tls_fs_posix();
+    }
+    if (fs::is_oss_uri(uri)) {
+        return get_tls_fs_jindo();
     }
     if (fs::is_s3_uri(uri)) {
         return get_tls_fs_s3();

@@ -111,7 +111,7 @@ struct FileWriteStat {
 
 class FileSystem {
 public:
-    enum Type { POSIX, S3, HDFS, BROKER, MEMORY, STARLET };
+    enum Type { POSIX, OSS, S3, HDFS, BROKER, MEMORY, STARLET };
 
     // Governs if/how the file is created.
     //

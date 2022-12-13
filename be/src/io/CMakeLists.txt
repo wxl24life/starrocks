@@ -22,6 +22,7 @@ add_library(IO STATIC
         compressed_input_stream.cpp
         fd_output_stream.cpp
         fd_input_stream.cpp
+        jindo_input_stream.cpp
         seekable_input_stream.cpp
         readable.cpp
         s3_input_stream.cpp

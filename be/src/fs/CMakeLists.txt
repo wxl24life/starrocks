@@ -26,6 +26,7 @@ set(EXEC_FILES
     fs_s3.cpp
     hdfs/fs_hdfs.cpp
     hdfs/hdfs_fs_cache.cpp
+    fs_jindo.cpp
     fs_util.cpp
     fs_starlet.cpp
     )

@@ -150,8 +150,12 @@ inline bool starts_with(std::string_view s, std::string_view prefix) {
     return (s.size() >= prefix.size()) && (memcmp(s.data(), prefix.data(), prefix.size()) == 0);
 }
 
+inline bool is_oss_uri(std::string_view uri) {
+    return starts_with(uri, "oss://");
+}
+
 inline bool is_s3_uri(std::string_view uri) {
-    return starts_with(uri, "oss://") || starts_with(uri, "s3n://") || starts_with(uri, "s3a://") ||
+    return starts_with(uri, "s3n://") || starts_with(uri, "s3a://") ||
            starts_with(uri, "s3://") || starts_with(uri, "cos://") || starts_with(uri, "cosn://") ||
            starts_with(uri, "obs://") || starts_with(uri, "ks3://") || starts_with(uri, "tos://");
 }
