@@ -35,6 +35,7 @@
 package com.starrocks.http.rest;
 
 import com.google.common.base.Strings;
+import com.starrocks.common.Config;
 import com.starrocks.common.DdlException;
 import com.starrocks.http.ActionController;
 import com.starrocks.http.BaseRequest;
@@ -50,9 +51,12 @@ import com.starrocks.warehouse.Warehouse;
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpMethod;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -130,7 +134,20 @@ public class LoadAction extends RestBaseAction {
             throw new DdlException("No backend or compute node alive.");
         }
 
-        TNetworkAddress redirectAddr = new TNetworkAddress(node.getHost(), node.getHttpPort());
+        String redirectHost = node.getHost();
+        if (Config.stream_load_force_use_ip) {
+            InetAddressValidator validator = InetAddressValidator.getInstance();
+            if (!validator.isValidInet4Address(redirectHost) && !validator.isValidInet6Address(redirectHost)) {
+                try {
+                    InetAddress host = InetAddress.getByName(redirectHost);
+                    redirectHost = host.getHostAddress();
+                } catch (UnknownHostException ex) {
+                    LOG.warn("get redirect host for be {} failed!", redirectHost);
+                }
+            }
+        }
+
+        TNetworkAddress redirectAddr = new TNetworkAddress(redirectHost, node.getHttpPort());
 
         LOG.info("redirect load action to destination={}, db: {}, tbl: {}, label: {}",
                 redirectAddr.toString(), dbName, tableName, label);
