@@ -25,7 +25,9 @@ import com.starrocks.analysis.StringLiteral;
 import com.starrocks.catalog.CatalogUtils;
 import com.starrocks.catalog.Replica;
 import com.starrocks.common.AnalysisException;
+import com.starrocks.common.Config;
 import com.starrocks.common.util.PropertyAnalyzer;
+import com.starrocks.mysql.privilege.Auth;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.sql.ast.AdminCancelRepairTableStmt;
 import com.starrocks.sql.ast.AdminCheckTabletsStmt;
@@ -160,6 +162,13 @@ public class AdminStmtAnalyzer {
         public Void visitAdminSetConfigStatement(AdminSetConfigStmt stmt, ConnectContext session) {
             if (stmt.getType() != AdminSetConfigStmt.ConfigType.FRONTEND) {
                 throw new SemanticException("Only support setting Frontend configs now", stmt.getPos());
+            }
+            // emr product restrictions
+            if (Config.enable_emr_product_restrictions
+                    && session.getCurrentUserIdentity() != null
+                    && !session.getCurrentUserIdentity().getUser().equals(Auth.ROOT_USER)) {
+                throw new SemanticException(
+                    "EMR Serverless StarRocks policies: only support setting configs in EMR StarRocks Console.");
             }
             return null;
         }

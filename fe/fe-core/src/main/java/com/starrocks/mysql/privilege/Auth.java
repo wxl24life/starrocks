@@ -1832,6 +1832,16 @@ public class Auth implements Writable {
             }
         } // for table in all tables
 
+        // emr product restrictions
+        if (Config.enable_emr_product_restrictions) {
+            for (UserIdentity userIdent : userIdents) {
+                if (userIdent.getUser().equals(Auth.ROOT_USER)) {
+                    userIdents.remove(userIdent);
+                    break;
+                }
+            }
+        }
+
         return userIdents;
     }
 

@@ -28,6 +28,7 @@ import com.starrocks.catalog.Table;
 import com.starrocks.catalog.View;
 import com.starrocks.catalog.system.SystemTable;
 import com.starrocks.common.AnalysisException;
+import com.starrocks.common.Config;
 import com.starrocks.common.DdlException;
 import com.starrocks.common.ErrorCode;
 import com.starrocks.common.ErrorReport;
@@ -860,11 +861,16 @@ public class AuthorizerStmtVisitor extends AstVisitor<Void, ConnectContext> {
 
     @Override
     public Void visitGrantRevokePrivilegeStatement(BaseGrantRevokePrivilegeStmt stmt, ConnectContext context) {
-        try {
-            Authorizer.checkSystemAction(context.getCurrentUserIdentity(), context.getCurrentRoleIds(), PrivilegeType.GRANT);
-        } catch (AccessDeniedException e) {
-            Authorizer.withGrantOption(context.getCurrentUserIdentity(), context.getCurrentRoleIds(), stmt.getObjectType(),
-                    stmt.getPrivilegeTypes(), stmt.getObjectList());
+        // emr product restrictions
+        if (Config.enable_emr_product_restrictions && stmt.getPrivilegeTypes().contains(PrivilegeType.GRANT)) {
+            throw new SemanticException(
+                    "EMR Serverless StarRocks policies: never grant ‘GRANT_PRIV’ privileges," +
+                            " instead you should update privileges in EMR StarRocks Manager.");
+        }
+        AuthorizationMgr authorizationManager = context.getGlobalStateMgr().getAuthorizationMgr();
+        if (!authorizationManager.allowGrant(context, stmt.getObjectType(), stmt.getPrivilegeTypes(), stmt.getObjectList())) {
+            throw new AccessDeniedException(ErrorReport.reportCommon(null,
+                    ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT"));
         }
 
         return null;
