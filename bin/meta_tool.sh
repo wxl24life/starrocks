@@ -20,6 +20,6 @@ source $STARROCKS_HOME/bin/common.sh
 jvmarch=`jvm_arch`
 export LD_LIBRARY_PATH=$STARROCKS_HOME/lib/jvm/$jvmarch/server:$STARROCKS_HOME/lib/jvm/$jvmarch:$LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=$STARROCKS_HOME/lib/hadoop/native:$LD_LIBRARY_PATH
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$STARROCKS_HOME/lib/cachelib/lib64
+export LD_LIBRARY_PATH=$STARROCKS_HOME/lib/jindosdk:$LD_LIBRARY_PATH:$STARROCKS_HOME/lib/cachelib/lib64
 
 ${STARROCKS_HOME}/lib/starrocks_be meta_tool "$@"
