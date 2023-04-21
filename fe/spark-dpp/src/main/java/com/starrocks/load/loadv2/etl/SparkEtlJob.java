@@ -17,7 +17,6 @@
 
 package com.starrocks.load.loadv2.etl;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.starrocks.common.SparkDppException;
@@ -27,13 +26,20 @@ import com.starrocks.load.loadv2.etl.EtlJobConfig.EtlColumnMapping;
 import com.starrocks.load.loadv2.etl.EtlJobConfig.EtlFileGroup;
 import com.starrocks.load.loadv2.etl.EtlJobConfig.EtlTable;
 import org.apache.commons.collections.map.MultiValueMap;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.apache.spark.SparkConf;
-import org.apache.spark.sql.Dataset;
+import org.apache.spark.deploy.SparkHadoopUtil;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
 
+import java.io.IOException;
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -57,6 +63,7 @@ public class SparkEtlJob {
     private EtlJobConfig etlJobConfig;
     private Set<Long> hiveSourceTables;
     private Map<Long, Set<String>> tableToBitmapDictColumns;
+    private final SparkConf conf;
     private SparkSession spark;
 
     private SparkEtlJob(String jobConfigFilePath) {
@@ -64,15 +71,34 @@ public class SparkEtlJob {
         this.etlJobConfig = null;
         this.hiveSourceTables = Sets.newHashSet();
         this.tableToBitmapDictColumns = Maps.newHashMap();
-    }
+        this.conf = new SparkConf();
 
-    private void initSparkEnvironment() {
-        SparkConf conf = new SparkConf();
         //serialization conf
         conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
         conf.set("spark.kryo.registrator", "com.starrocks.load.loadv2.dpp.StarRocksKryoRegistrator");
         conf.set("spark.kryo.registrationRequired", "false");
-        spark = SparkSession.builder().enableHiveSupport().config(conf).getOrCreate();
+    }
+
+    private void initSparkEnvironment() {
+        if (etlJobConfig == null || etlJobConfig.tables == null || etlJobConfig.tables.isEmpty()) {
+            // todo: complete
+            throw new IllegalArgumentException();
+        }
+
+        EtlTable table = etlJobConfig.tables.values().iterator().next();
+        if (table == null || table.fileGroups == null || table.fileGroups.isEmpty()) {
+            // todo: complete
+            throw new IllegalArgumentException();
+        }
+
+        Map<String, String> properties = table.fileGroups.get(0).hiveTableProperties;
+
+        SparkSession.Builder builder = SparkSession.builder().config(conf);
+        if ("false".equals(properties.getOrDefault("maxcompute.enable", "false"))) {
+            builder = builder.enableHiveSupport();
+        }
+
+        spark = builder.getOrCreate();
     }
 
     private void initSparkConfigs(Map<String, String> configs) {
@@ -86,11 +112,49 @@ public class SparkEtlJob {
 
     private void initConfig() {
         LOG.info("job config file path: " + jobConfigFilePath);
-        Dataset<String> ds = spark.read().textFile(jobConfigFilePath);
-        String jsonConfig = ds.first();
+        String jsonConfig = getJobConfigFileContents();
         LOG.info("rdd read json config: " + jsonConfig);
         etlJobConfig = EtlJobConfig.configFromJson(jsonConfig);
         LOG.info("etl job config: " + etlJobConfig);
+    }
+
+    private String getJobConfigFileContents() {
+        String jobConfigFileContents = null;
+
+        Configuration hadoopConfig = SparkHadoopUtil.get().newConfiguration(conf);
+        try (FileSystem fs = FileSystem.get(URI.create(jobConfigFilePath), hadoopConfig)) {
+            Path jobConfigFile = new Path(jobConfigFilePath);
+            FileStatus jobConfigFileStatus = fs.getFileStatus(jobConfigFile);
+            long jobConfigFileLength = jobConfigFileStatus.getLen();
+            if (jobConfigFileLength > Integer.MAX_VALUE) {
+                // todo: complete
+                throw new IllegalArgumentException("");
+            }
+
+            FSDataInputStream fis = fs.open(jobConfigFile);
+
+            int offset = 0;
+            int length = (int) jobConfigFileLength;
+            byte[] jobConfigFileContentBytes = new byte[length];
+            do {
+                int readBytes = fis.read(jobConfigFileContentBytes, offset, length - offset);
+                if (readBytes == -1) {
+                    break;
+                }
+                offset += readBytes;
+            } while (offset < length);
+
+            if (offset != length) {
+                // todo: complete
+                throw new IOException("");
+            }
+
+            jobConfigFileContents = new String(jobConfigFileContentBytes);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+        return jobConfigFileContents;
     }
 
     /*
@@ -145,7 +209,8 @@ public class SparkEtlJob {
         sparkDpp.doDpp();
     }
 
-    private String buildGlobalDictAndEncodeSourceTable(EtlTable table, long tableId) {
+    private String buildGlobalDictAndEncodeSourceTable(
+            EtlTable table, Map<String, String> hiveTableProperties, long tableId) {
         // dict column map
         MultiValueMap dictColumnMap = new MultiValueMap();
         for (String dictColumn : tableToBitmapDictColumns.get(tableId)) {
@@ -165,12 +230,6 @@ public class SparkEtlJob {
                 String.format(EtlJobConfig.STARROCKS_INTERMEDIATE_HIVE_TABLE_NAME, tableId, taskId);
         String sourceHiveFilter = fileGroup.where;
 
-        // others
-        List<String> mapSideJoinColumns = Lists.newArrayList();
-        int buildConcurrency = 1;
-        List<String> veryHighCardinalityColumn = Lists.newArrayList();
-        int veryHighCardinalityColumnSplitNum = 1;
-
         LOG.info("global dict builder args, dictColumnMap: " + dictColumnMap
                 + ", intermediateTableColumnList: " + intermediateTableColumnList
                 + ", sourceHiveDBTableName: " + sourceHiveDBTableName
@@ -180,10 +239,16 @@ public class SparkEtlJob {
                 + ", starrocksIntermediateHiveTable: " + starrocksIntermediateHiveTable);
         try {
             GlobalDictBuilder globalDictBuilder = new GlobalDictBuilder(
-                    dictColumnMap, intermediateTableColumnList, mapSideJoinColumns, sourceHiveDBTableName,
-                    sourceHiveFilter, starrocksHiveDB, distinctKeyTableName, globalDictTableName,
+                    dictColumnMap,
+                    intermediateTableColumnList,
+                    sourceHiveDBTableName,
+                    sourceHiveFilter,
+                    starrocksHiveDB,
+                    distinctKeyTableName,
+                    globalDictTableName,
                     starrocksIntermediateHiveTable,
-                    buildConcurrency, veryHighCardinalityColumn, veryHighCardinalityColumnSplitNum, spark);
+                    spark,
+                    hiveTableProperties);
             globalDictBuilder.checkGlobalDictTableName(dorisGlobalDictTableName);
             globalDictBuilder.createHiveIntermediateTable();
             globalDictBuilder.extractDistinctColumn();
@@ -218,7 +283,8 @@ public class SparkEtlJob {
 
             // build global dict and encode source hive table if has bitmap dict columns
             if (!tableToBitmapDictColumns.isEmpty() && tableToBitmapDictColumns.containsKey(tableId)) {
-                String starrocksIntermediateHiveDbTableName = buildGlobalDictAndEncodeSourceTable(table, tableId);
+                String starrocksIntermediateHiveDbTableName = buildGlobalDictAndEncodeSourceTable(
+                        table, fileGroup.hiveTableProperties, tableId);
                 // set with starrocksIntermediateHiveDbTable
                 fileGroup.dppHiveDbTableName = starrocksIntermediateHiveDbTableName;
             }
@@ -229,10 +295,18 @@ public class SparkEtlJob {
     }
 
     private void run() throws Exception {
-        initSparkEnvironment();
-        initConfig();
-        checkConfig();
-        processData();
+        try {
+            // Initialize config before initializing spark environment for creating suitable SparkSession.
+            initConfig();
+            initSparkEnvironment();
+            checkConfig();
+            processData();
+        } finally {
+            // SparkSession.close will close some thread in order to avoid hanging.
+            if (spark != null) {
+                spark.close();
+            }
+        }
     }
 
     public static void main(String[] args) {

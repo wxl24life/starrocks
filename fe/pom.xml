@@ -45,6 +45,7 @@ under the License.
         <log4j.version>2.19.0</log4j.version>
         <jackson.version>2.15.2</jackson.version>
         <spark.version>3.4.1</spark.version>
+        <spark.scala.version>2.12</spark.scala.version>
         <tomcat.version>8.5.70</tomcat.version>
         <parquet.version>1.10.1</parquet.version>
         <hadoop.version>3.3.6</hadoop.version>
@@ -469,7 +470,7 @@ under the License.
             <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-core_2.12 -->
             <dependency>
                 <groupId>org.apache.spark</groupId>
-                <artifactId>spark-core_2.12</artifactId>
+                <artifactId>spark-core_${spark.scala.version}</artifactId>
                 <version>${spark.version}</version>
                 <exclusions>
                     <exclusion>
@@ -490,14 +491,14 @@ under the License.
             <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-launcher_2.12 -->
             <dependency>
                 <groupId>org.apache.spark</groupId>
-                <artifactId>spark-launcher_2.12</artifactId>
+                <artifactId>spark-launcher_${spark.scala.version}</artifactId>
                 <version>${spark.version}</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-sql_2.12 -->
             <dependency>
                 <groupId>org.apache.spark</groupId>
-                <artifactId>spark-sql_2.12</artifactId>
+                <artifactId>spark-sql_${spark.scala.version}</artifactId>
                 <version>${spark.version}</version>
                 <scope>provided</scope>
             </dependency>
@@ -505,7 +506,7 @@ under the License.
             <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-catalyst -->
             <dependency>
                 <groupId>org.apache.spark</groupId>
-                <artifactId>spark-catalyst_2.12</artifactId>
+                <artifactId>spark-catalyst_${spark.scala.version}</artifactId>
                 <version>${spark.version}</version>
                 <scope>provided</scope>
             </dependency>
