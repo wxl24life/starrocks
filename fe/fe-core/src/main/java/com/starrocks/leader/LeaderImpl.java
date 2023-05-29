@@ -73,6 +73,7 @@ import com.starrocks.common.MetaNotFoundException;
 import com.starrocks.common.NotImplementedException;
 import com.starrocks.common.Pair;
 import com.starrocks.common.UserException;
+import com.starrocks.common.util.NetUtils;
 import com.starrocks.lake.LakeTablet;
 import com.starrocks.load.DeleteJob;
 import com.starrocks.load.OlapDeleteJob;
@@ -1051,7 +1052,7 @@ public class LeaderImpl {
         for (Backend backend : GlobalStateMgr.getCurrentSystemInfo().getBackends()) {
             TBackendMeta backendMeta = new TBackendMeta();
             backendMeta.setBackend_id(backend.getId());
-            backendMeta.setHost(backend.getHost());
+            backendMeta.setHost(NetUtils.getIpByHost(backend.getHost()));
             backendMeta.setBe_port(backend.getBePort());
             backendMeta.setRpc_port(backend.getBrpcPort());
             backendMeta.setHttp_port(backend.getHttpPort());

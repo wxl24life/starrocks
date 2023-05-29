@@ -37,6 +37,8 @@ package com.starrocks.common.util;
 import com.google.common.base.Strings;
 import com.starrocks.common.Pair;
 import org.apache.commons.validator.routines.InetAddressValidator;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -50,6 +52,7 @@ import java.util.Enumeration;
 import java.util.List;
 
 public class NetUtils {
+    private static final Logger LOG = LogManager.getLogger(NetUtils.class);
 
     public static List<InetAddress> getHosts() {
         Enumeration<NetworkInterface> n = null;
@@ -111,5 +114,19 @@ public class NetUtils {
             }
         }
         return accessible;
+    }
+
+    /**
+     * Return original hostname if parse ip with failure
+     * @param host
+     * @return
+     */
+    public static String getIpByHost(String host) {
+        try {
+            host = NetUtils.getIpAndFqdnByHost(host).first;
+        } catch (UnknownHostException e) {
+            LOG.warn("parsed ip for {} failed!", host);
+        }
+        return host;
     }
 }
