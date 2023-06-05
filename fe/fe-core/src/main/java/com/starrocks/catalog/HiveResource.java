@@ -65,6 +65,11 @@ public class HiveResource extends Resource {
     }
 
     @Override
+    public boolean needMappingCatalog() {
+        return !isMaxComputeResource;
+    }
+
+    @Override
     protected void setProperties(Map<String, String> properties) throws DdlException {
         Preconditions.checkState(properties != null, "properties can not be null");
         this.properties = Maps.newHashMap(properties);

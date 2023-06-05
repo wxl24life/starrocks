@@ -153,6 +153,23 @@ public class HiveTable extends Table implements HiveMetaStoreTable {
         this.hiveProperties = properties;
     }
 
+    // Notice: only used for odps
+    // TODO: when we support odps catalog, we need to remove this method
+    public HiveTable(long tableId, String name, String hiveResourceName, String hiveDbName, String hiveTableName,
+                     List<Column> columns, Map<String, String> properties) {
+        super(tableId, name, TableType.HIVE, columns);
+        this.resourceName = hiveResourceName;
+        Resource resource = GlobalStateMgr.getCurrentState().getResourceMgr().getResource(resourceName);
+        if (resource != null) {
+            HiveResource hiveResource = (HiveResource) resource;
+            isMaxComputeTable = hiveResource.isMaxComputeResource();
+        }
+        this.catalogName = "odps_non";
+        this.hiveDbName = hiveDbName;
+        this.hiveTableName = hiveTableName;
+        this.hiveProperties = properties;
+    }
+
     public String getHiveDbTable() {
         return String.format("%s.%s", hiveDbName, hiveTableName);
     }

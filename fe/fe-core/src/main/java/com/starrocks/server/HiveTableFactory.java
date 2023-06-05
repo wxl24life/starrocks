@@ -17,7 +17,9 @@ package com.starrocks.server;
 import com.google.common.base.Strings;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.Database;
+import com.starrocks.catalog.HiveResource;
 import com.starrocks.catalog.HiveTable;
+import com.starrocks.catalog.Resource;
 import com.starrocks.catalog.Table;
 import com.starrocks.catalog.Type;
 import com.starrocks.common.DdlException;
@@ -52,6 +54,25 @@ public class HiveTableFactory extends ExternalTableFactory {
                 .setCreateTime(catalogTable.getCreateTime());
     }
 
+    private static HiveTable createODPSTable(CreateTableStmt stmt) throws DdlException {
+        GlobalStateMgr gsm = GlobalStateMgr.getCurrentState();
+        String tableName = stmt.getTableName();
+        List<Column> columns = stmt.getColumns();
+        long tableId = gsm.getNextId();
+        Map<String, String> properties = stmt.getProperties();
+        HiveTable hiveTable = new HiveTable(tableId, tableName, properties.get(RESOURCE), properties.get(DB),
+                properties.get(TABLE), columns, properties);
+        // partition key, commented for show partition key
+        String partitionCmt = "PARTITION BY (" + String.join(", ",
+                hiveTable.getPartitionColumnNames()) + ")";
+        if (Strings.isNullOrEmpty(stmt.getComment())) {
+            hiveTable.setComment(partitionCmt);
+        } else {
+            hiveTable.setComment(stmt.getComment());
+        }
+        return hiveTable;
+    }
+
     @Override
     @NotNull
     public Table createTable(LocalMetastore metastore, Database database, CreateTableStmt stmt) throws DdlException {
@@ -62,9 +83,15 @@ public class HiveTableFactory extends ExternalTableFactory {
         long tableId = gsm.getNextId();
         Table table = getTableFromResourceMappingCatalog(properties, Table.TableType.HIVE, HIVE);
         if (table == null) {
-            throw new DdlException("Can not find hive table "
-                    + properties.get(DB) + "." + properties.get(TABLE)
-                    + " from the resource " + properties.get(RESOURCE));
+            Resource resource = GlobalStateMgr.getCurrentState()
+                    .getResourceMgr().getResource(properties.get(RESOURCE));
+            if (resource != null && ((HiveResource) resource).isMaxComputeResource()) {
+                return createODPSTable(stmt);
+            } else {
+                throw new DdlException("Can not find hive table "
+                        + properties.get(DB) + "." + properties.get(TABLE)
+                        + " from the resource " + properties.get(RESOURCE));
+            }
         }
         HiveTable oHiveTable = (HiveTable) table;
 
