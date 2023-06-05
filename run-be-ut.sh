@@ -213,7 +213,7 @@ else
     fi
 fi
 
-export LD_LIBRARY_PATH=$STARROCKS_HOME/lib/hadoop/native:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=${STARROCKS_THIRDPARTY}/installed/jindosdk:$STARROCKS_HOME/lib/hadoop/native:$LD_LIBRARY_PATH
 if [ "${WITH_CACHELIB}" == "ON"  ]; then
     CACHELIB_DIR=${STARROCKS_THIRDPARTY}/installed/cachelib
     export LD_LIBRARY_PATH=$CACHELIB_DIR/lib:$CACHELIB_DIR/lib64:$CACHELIB_DIR/deps/lib:$CACHELIB_DIR/deps/lib64:$LD_LIBRARY_PATH

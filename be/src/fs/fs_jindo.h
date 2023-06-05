@@ -14,20 +14,16 @@
 
 #pragma once
 
-#include "fs/fs.h"
-
 #include "common/s3_uri.h"
-#include "util/random.h"
-
+#include "fs/fs.h"
 #include "jindosdk/jdo_api.h"
 #include "jindosdk/jdo_options.h"
+#include "util/random.h"
 
 namespace starrocks {
 
-struct IsSpace: std::unary_function<int, bool> {
-    bool operator()(int ch) const {
-        return (ch == ' ' || ch == '\n' || ch == '\r' || ch == '\t');
-    }
+struct IsSpace : std::unary_function<int, bool> {
+    bool operator()(int ch) const { return (ch == ' ' || ch == '\n' || ch == '\r' || ch == '\t'); }
 };
 
 typedef std::unordered_map<std::string, std::string> HashMap;
@@ -49,7 +45,7 @@ private:
     std::string righttrim(const std::string& s);
 
     // trim from both ends
-    std::string trim(const std::string &s);
+    std::string trim(const std::string& s);
 
 private:
     std::vector<std::string> _text;
@@ -140,7 +136,9 @@ public:
         return Status::NotSupported("JindoFileSystem::iterate_dir2");
     }
 
-    Status delete_file(const std::string& path) override { return Status::NotSupported("JindoFileSystem::delete_file"); }
+    Status delete_file(const std::string& path) override {
+        return Status::NotSupported("JindoFileSystem::delete_file");
+    }
 
     Status create_dir(const std::string& dirname) override {
         return Status::NotSupported("JindoFileSystem::create_dir");

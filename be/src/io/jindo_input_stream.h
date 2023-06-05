@@ -15,11 +15,11 @@
 #pragma once
 
 #include <fmt/format.h>
+
 #include <memory>
 #include <string>
 
 #include "io/seekable_input_stream.h"
-
 #include "jindosdk/jdo_api.h"
 #include "jindosdk/jdo_defines.h"
 
@@ -33,7 +33,7 @@ inline Status check_jindo_status(JdoContext_t jdo_ctx) {
             error_msg.assign(msg);
         }
         jdo_freeContext(jdo_ctx);
-        std::string message = fmt::format("code={}, message={}", code,error_msg);
+        std::string message = fmt::format("code={}, message={}", code, error_msg);
         LOG(ERROR) << message;
         return Status::IOError(message);
     }
