@@ -1425,6 +1425,12 @@ public class DatabaseTransactionMgr {
                     throw new BeginTransactionException("current running txns on db " + dbId + " is "
                             + runningTxnNums + ", larger than limit " + Config.max_running_txn_num_per_db);
                 }
+
+                if (runningTxnNums >= Config.max_running_txn_num_per_db * 0.9) {
+                    LOG.error("Critical: current running txns on db " + dbId + " is "
+                            + runningTxnNums + ", larger than max_running_txn_num_per_db * 0.9 "
+                            + Config.max_running_txn_num_per_db * 0.9);
+                }
                 break;
         }
     }

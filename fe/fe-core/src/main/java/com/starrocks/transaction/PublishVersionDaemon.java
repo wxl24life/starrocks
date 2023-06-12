@@ -405,6 +405,10 @@ public class PublishVersionDaemon extends FrontendDaemon {
                 return true;
             }
             if (partition.getVisibleVersion() + 1 != txnVersion) {
+                String errMsg = String.format("wait for publishing partition %d version %d. self version: %d. table %d",
+                                partitionId, partition.getVisibleVersion() + 1,
+                                partitionCommitInfo.getVersion(), tableId);
+                txnState.setErrorMsg(errMsg);
                 return false;
             }
             List<MaterializedIndex> indexes = txnState.getPartitionLoadedTblIndexes(table.getId(), partition);
