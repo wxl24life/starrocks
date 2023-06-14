@@ -359,6 +359,7 @@ public class StreamLoadScanNode extends LoadScanNode {
                     rangeDesc.setJson_root(streamLoadInfo.getJsonRoot());
                 }
                 rangeDesc.setStrip_outer_array(streamLoadInfo.isStripOuterArray());
+                rangeDesc.setSkip_non_utf8_json(streamLoadInfo.isSkipNonUTF8Json());
             }
             if (rangeDesc.format_type == TFileFormatType.FORMAT_AVRO) {
                 if (!streamLoadInfo.getJsonPaths().isEmpty()) {

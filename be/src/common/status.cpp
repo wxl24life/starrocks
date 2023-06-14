@@ -217,6 +217,8 @@ std::string Status::code_as_string() const {
         return "Resource temporarily unavailable";
     case TStatusCode::REMOTE_FILE_NOT_FOUND:
         return "Remote file not found";
+    case TStatusCode::SIMDJSON_UTF8_ERROR:
+        return "JSON encoding error";
     default: {
         char tmp[30];
         snprintf(tmp, sizeof(tmp), "Unknown code(%d): ", static_cast<int>(code()));

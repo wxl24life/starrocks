@@ -170,6 +170,7 @@ struct TBrokerRangeDesc {
     11: optional bool strip_outer_array;
     12: optional string jsonpaths;
     13: optional string json_root;
+    14: optional bool skip_non_utf8_json;
 }
 
 enum TObjectStoreType {

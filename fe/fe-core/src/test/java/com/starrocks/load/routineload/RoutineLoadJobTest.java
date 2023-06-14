@@ -292,6 +292,7 @@ public class RoutineLoadJobTest {
         String timeZone = "UTC";
         String jsonPaths = "[\\\"$.category\\\",\\\"$.author\\\",\\\"$.price\\\",\\\"$.timestamp\\\"]";
         String stripOuterArray = "true";
+        String skipNonUTF8Json = "true";
         String jsonRoot = "$.RECORDS";
         String taskTimeout = "20";
         String taskConsumeTime = "3";
@@ -308,6 +309,7 @@ public class RoutineLoadJobTest {
                 "   \"timezone\" = \"" + timeZone + "\"," +
                 "   \"jsonpaths\" = \"" + jsonPaths + "\"," +
                 "   \"strip_outer_array\" = \"" + stripOuterArray + "\"," +
+                "   \"skip_non_utf8_json\" = \"" + skipNonUTF8Json + "\"," +
                 "   \"json_root\" = \"" + jsonRoot + "\"" +
                 ")";
         AlterRoutineLoadStmt stmt = (AlterRoutineLoadStmt) UtFrameUtils.parseStmtWithNewParser(originStmt, connectContext);
@@ -335,6 +337,7 @@ public class RoutineLoadJobTest {
         Assert.assertEquals(timeZone, routineLoadJob.getTimezone());
         Assert.assertEquals(jsonPaths.replace("\\", ""), routineLoadJob.getJsonPaths());
         Assert.assertEquals(Boolean.parseBoolean(stripOuterArray), routineLoadJob.isStripOuterArray());
+        Assert.assertEquals(Boolean.parseBoolean(skipNonUTF8Json), routineLoadJob.isSkipNonUTF8Json());
         Assert.assertEquals(jsonRoot, routineLoadJob.getJsonRoot());
     }
 

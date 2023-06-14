@@ -226,6 +226,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback
      */
     private static final String PROPS_FORMAT = "format";
     private static final String PROPS_STRIP_OUTER_ARRAY = "strip_outer_array";
+    private static final String PROPS_SKIP_NON_UTF8_JSON = "skip_non_utf8_json";
     private static final String PROPS_JSONPATHS = "jsonpaths";
     private static final String PROPS_JSONROOT = "json_root";
 
@@ -375,6 +376,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback
         if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
             jobProperties.put(PROPS_FORMAT, "csv");
             jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "false");
+            jobProperties.put(PROPS_SKIP_NON_UTF8_JSON, "false");
             jobProperties.put(PROPS_JSONPATHS, "");
             jobProperties.put(PROPS_JSONROOT, "");
             this.trimspace = stmt.isTrimspace();
@@ -396,6 +398,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback
                 jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "true");
             } else {
                 jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "false");
+            }
+            if (stmt.isSkipNonUTF8Json()) {
+                jobProperties.put(PROPS_SKIP_NON_UTF8_JSON, "true");
+            } else {
+                jobProperties.put(PROPS_SKIP_NON_UTF8_JSON, "false");
             }
         } else if (stmt.getFormat().equals("avro")) {
             jobProperties.put(PROPS_FORMAT, "avro");
@@ -647,6 +654,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback
 
     public boolean isStripOuterArray() {
         return Boolean.valueOf(jobProperties.get(PROPS_STRIP_OUTER_ARRAY));
+    }
+
+    public boolean isSkipNonUTF8Json() {
+        return Boolean.valueOf(jobProperties.get(PROPS_SKIP_NON_UTF8_JSON));
     }
 
     public String getJsonPaths() {

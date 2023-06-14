@@ -73,6 +73,7 @@ private:
     std::vector<std::vector<SimpleJsonPath>> _json_paths;
     std::vector<SimpleJsonPath> _root_paths;
     bool _strip_outer_array = false;
+    bool _skip_non_utf8_json = false;
 };
 
 // Reader to parse the json.

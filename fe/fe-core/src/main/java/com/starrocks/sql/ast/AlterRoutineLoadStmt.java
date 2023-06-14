@@ -56,6 +56,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             .add(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY)
             .add(CreateRoutineLoadStmt.TASK_TIMEOUT_SECOND)
             .add(CreateRoutineLoadStmt.TASK_CONSUME_SECOND)
+            .add(CreateRoutineLoadStmt.SKIP_NON_UTF_8_JSON)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
             .build();
@@ -276,6 +277,11 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         if (jobProperties.containsKey(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY)) {
             boolean stripOuterArray = Boolean.valueOf(jobProperties.get(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY));
             analyzedJobProperties.put(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY, String.valueOf(stripOuterArray));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.SKIP_NON_UTF_8_JSON)) {
+            boolean skipNonUTF8Json = Boolean.valueOf(jobProperties.get(CreateRoutineLoadStmt.SKIP_NON_UTF_8_JSON));
+            analyzedJobProperties.put(CreateRoutineLoadStmt.SKIP_NON_UTF_8_JSON, String.valueOf(skipNonUTF8Json));
         }
     }
 

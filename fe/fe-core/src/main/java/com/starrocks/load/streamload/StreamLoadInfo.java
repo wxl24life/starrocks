@@ -53,6 +53,7 @@ public class StreamLoadInfo {
     private TFileType fileType;
     private TFileFormatType formatType;
     private boolean stripOuterArray;
+    private boolean skipNonUTF8Json;
     private String jsonPaths;
     private String jsonRoot;
 
@@ -90,6 +91,7 @@ public class StreamLoadInfo {
         this.jsonPaths = "";
         this.jsonRoot = "";
         this.stripOuterArray = false;
+        this.skipNonUTF8Json = false;
     }
 
     public StreamLoadInfo(TUniqueId id, long txnId, int timeout) {
@@ -98,6 +100,7 @@ public class StreamLoadInfo {
         this.jsonPaths = "";
         this.jsonRoot = "";
         this.stripOuterArray = false;
+        this.skipNonUTF8Json = false;
         this.timeout = timeout;
     }
 
@@ -203,6 +206,14 @@ public class StreamLoadInfo {
 
     public void setStripOuterArray(boolean stripOuterArray) {
         this.stripOuterArray = stripOuterArray;
+    }
+
+    public boolean isSkipNonUTF8Json() {
+        return skipNonUTF8Json;
+    }
+
+    public void setSkipNonUTF8Json(boolean skipNonUTF8Json) {
+        this.skipNonUTF8Json = skipNonUTF8Json;
     }
 
     public String getJsonPaths() {
@@ -468,6 +479,7 @@ public class StreamLoadInfo {
             jsonRoot = routineLoadJob.getJsonRoot();
         }
         stripOuterArray = routineLoadJob.isStripOuterArray();
+        skipNonUTF8Json = routineLoadJob.isSkipNonUTF8Json();
         partialUpdate = routineLoadJob.isPartialUpdate();
         partialUpdateMode = TPartialUpdateMode.ROW_MODE;
         if (routineLoadJob.getSessionVariables().containsKey(SessionVariable.EXEC_MEM_LIMIT)) {

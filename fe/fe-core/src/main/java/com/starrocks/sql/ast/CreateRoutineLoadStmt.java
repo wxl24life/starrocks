@@ -108,6 +108,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     // the value is csv or json, default is csv
     public static final String FORMAT = "format";
     public static final String STRIP_OUTER_ARRAY = "strip_outer_array";
+    public static final String SKIP_NON_UTF_8_JSON = "skip_non_utf8_json";
     public static final String JSONPATHS = "jsonpaths";
     public static final String JSONROOT = "json_root";
 
@@ -148,6 +149,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(FORMAT)
             .add(JSONPATHS)
             .add(STRIP_OUTER_ARRAY)
+            .add(SKIP_NON_UTF_8_JSON)
             .add(JSONROOT)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
@@ -213,6 +215,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private String jsonPaths = "";
     private String jsonRoot = ""; // MUST be a jsonpath string
     private boolean stripOuterArray = false;
+    private boolean skipNonUTF8Json = false;
 
     // for csv
     private boolean trimspace = false;
@@ -383,6 +386,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public boolean isStripOuterArray() {
         return stripOuterArray;
+    }
+
+    public boolean isSkipNonUTF8Json() {
+        return skipNonUTF8Json;
     }
 
     public String getJsonPaths() {
@@ -584,6 +591,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 jsonPaths = jobProperties.get(JSONPATHS);
                 jsonRoot = jobProperties.get(JSONROOT);
                 stripOuterArray = Boolean.valueOf(jobProperties.getOrDefault(STRIP_OUTER_ARRAY, "false"));
+                skipNonUTF8Json = Boolean.valueOf(jobProperties.getOrDefault(SKIP_NON_UTF_8_JSON, "false"));
             } else if (format.equalsIgnoreCase("avro")) {
                 format = "avro";
                 jsonPaths = jobProperties.get(JSONPATHS);

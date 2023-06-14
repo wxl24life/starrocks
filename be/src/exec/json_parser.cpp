@@ -58,6 +58,11 @@ Status JsonDocumentStreamParser::get_current(simdjson::ondemand::object* row) no
         }
         return Status::EndOfFile("all documents of the stream are iterated");
     } catch (simdjson::simdjson_error& e) {
+        if (e.error() == simdjson::UTF8_ERROR) {
+            _curr_ready = true;
+            return Status::SimdJsonUTF8Error(simdjson::error_message(e.error()));
+        }
+
         std::string err_msg;
         if (e.error() == simdjson::CAPACITY) {
             // It's necessary to tell the user when they try to load json array whose payload size is beyond the simdjson::ondemand::parser's buffer.
@@ -138,6 +143,10 @@ Status JsonArrayParser::get_current(simdjson::ondemand::object* row) noexcept {
 
         return Status::OK();
     } catch (simdjson::simdjson_error& e) {
+        if (e.error() == simdjson::UTF8_ERROR) {
+            _curr_ready = true;
+            return Status::SimdJsonUTF8Error(simdjson::error_message(e.error()));
+        }
         auto err_msg = strings::Substitute("Failed to iterate json array as object. error: $0",
                                            simdjson::error_message(e.error()));
         return Status::DataQualityError(err_msg);
@@ -204,6 +213,10 @@ Status JsonDocumentStreamParserWithRoot::get_current(simdjson::ondemand::object*
 
         return Status::OK();
     } catch (simdjson::simdjson_error& e) {
+        if (e.error() == simdjson::UTF8_ERROR) {
+            _curr_ready = true;
+            return Status::SimdJsonUTF8Error(simdjson::error_message(e.error()));
+        }
         auto err_msg = strings::Substitute("Failed to iterate document stream as object with json root. error: $0",
                                            simdjson::error_message(e.error()));
         return Status::DataQualityError(err_msg);
@@ -240,6 +253,10 @@ Status JsonArrayParserWithRoot::get_current(simdjson::ondemand::object* row) noe
 
         return Status::OK();
     } catch (simdjson::simdjson_error& e) {
+        if (e.error() == simdjson::UTF8_ERROR) {
+            _curr_ready = true;
+            return Status::SimdJsonUTF8Error(simdjson::error_message(e.error()));
+        }
         auto err_msg = strings::Substitute("Failed to iterate json array as object with json root. error: $0",
                                            simdjson::error_message(e.error()));
         return Status::DataQualityError(err_msg);
@@ -307,6 +324,10 @@ Status ExpandedJsonDocumentStreamParserWithRoot::get_current(simdjson::ondemand:
 
         return Status::OK();
     } catch (simdjson::simdjson_error& e) {
+        if (e.error() == simdjson::UTF8_ERROR) {
+            _curr_ready = true;
+            return Status::SimdJsonUTF8Error(simdjson::error_message(e.error()));
+        }
         auto err_msg =
                 strings::Substitute("Failed to iterate expanded document stream as object with json root. error: $0",
                                     simdjson::error_message(e.error()));
@@ -406,6 +427,10 @@ Status ExpandedJsonArrayParserWithRoot::get_current(simdjson::ondemand::object* 
 
         return Status::OK();
     } catch (simdjson::simdjson_error& e) {
+        if (e.error() == simdjson::UTF8_ERROR) {
+            _curr_ready = true;
+            return Status::SimdJsonUTF8Error(simdjson::error_message(e.error()));
+        }
         auto err_msg = strings::Substitute("Failed to iterate json array as object with json root. error: $0",
                                            simdjson::error_message(e.error()));
         return Status::DataQualityError(err_msg);

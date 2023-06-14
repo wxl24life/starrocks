@@ -74,6 +74,10 @@ Status JsonScanner::open() {
         _strip_outer_array = range.strip_outer_array;
     }
 
+    if (range.__isset.skip_non_utf8_json) {
+        _skip_non_utf8_json = range.skip_non_utf8_json;
+    }
+
     return Status::OK();
 }
 
@@ -474,6 +478,25 @@ Status JsonReader::_read_rows(Chunk* chunk, int32_t rows_to_read, int32_t* rows_
             if (st.is_end_of_file()) {
                 return st;
             }
+            if (st.is_simdjson_utf8_error() && _scanner->_skip_non_utf8_json) {
+                LOG(WARNING) << "failed to parse json: " << st << ", skip it";
+                _state->append_error_msg_to_file(
+                        fmt::format("failed to parse json: {}", parser->left_bytes_string(MAX_ERROR_LOG_LENGTH)),
+                        st.to_string());
+
+                ++(*rows_read);
+
+                st = parser->advance();
+                if (!st.ok()) {
+                    if (st.is_end_of_file()) {
+                        return st;
+                    }
+                    _counter->num_rows_filtered++;
+                    _state->append_error_msg_to_file("", st.to_string());
+                    return st;
+                }
+                continue;
+            }
             _counter->num_rows_filtered++;
             _state->append_error_msg_to_file(
                     fmt::format("parser current location: {}", parser->left_bytes_string(MAX_ERROR_LOG_LENGTH)),
@@ -500,6 +523,7 @@ Status JsonReader::_read_rows(Chunk* chunk, int32_t rows_to_read, int32_t* rows_
             // Before continuing to process other rows, we need to first clean the fail parsed row.
             chunk->set_num_rows(chunk_row_num);
         }
+
         ++(*rows_read);
 
         st = parser->advance();
