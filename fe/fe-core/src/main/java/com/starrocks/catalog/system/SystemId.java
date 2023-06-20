@@ -99,6 +99,11 @@ public class SystemId {
     public static final long FE_METRICS_ID = 42L;
 
     public static final long SYS_DB_ID = 100L;
+
+    public static final long ROUTINE_LOAD_JOBS_ID = 40L;
+
+    public static final long STREAM_LOADS_ID = 41L;
+
     public static final long ROLE_EDGES_ID = 101L;
     public static final long GRANTS_TO_ROLES_ID = 102L;
     public static final long GRANTS_TO_USERS_ID = 103L;

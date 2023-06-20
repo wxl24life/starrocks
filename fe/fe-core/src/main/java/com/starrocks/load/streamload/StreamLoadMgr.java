@@ -56,6 +56,7 @@ import java.util.stream.Collectors;
 public class StreamLoadMgr {
     private static final Logger LOG = LogManager.getLogger(StreamLoadMgr.class);
 
+    // label -> streamLoadTask
     private Map<String, StreamLoadTask> idToStreamLoadTask;
 
     // Only used for sync stream load
@@ -384,6 +385,7 @@ public class StreamLoadMgr {
                 if (streamLoadTask.checkNeedRemove(currentMs)) {
                     unprotectedRemoveTaskFromDb(streamLoadTask);
                     iterator.remove();
+                    idToStreamLoadTask.remove(streamLoadTask.getId());
                     if (streamLoadTask.isSyncStreamLoad()) {
                         txnIdToSyncStreamLoadTasks.remove(streamLoadTask.getTxnId());
                     }
@@ -494,10 +496,22 @@ public class StreamLoadMgr {
         });
     }
 
+    // for each label, we can have only one task
     public StreamLoadTask getTaskByLabel(String label) {
         return idToStreamLoadTask.get(label);
     }
 
+    public StreamLoadTask getTaskById(long id) {
+        readLock();
+        try {
+            List<StreamLoadTask> taskList =
+                    idToStreamLoadTask.values().stream().filter(streamLoadTask -> id == streamLoadTask.getId())
+                            .collect(Collectors.toList());
+            return taskList.isEmpty() ? null : taskList.get(0);
+        } finally {
+            readUnlock();
+        }
+    }
 
     // return all of stream load task named label in all of db
     public List<StreamLoadTask> getTaskByName(String label) {
