@@ -49,6 +49,7 @@
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/exec_env.h"
+#include "runtime/health_check/thread_pool_checker.h"
 #include "storage/snapshot_manager.h"
 #include "testutil/sync_point.h"
 #include "util/phmap/phmap.h"
@@ -173,13 +174,17 @@ void AgentServer::Impl::init_or_die() {
         REGISTER_GAUGE_STARROCKS_METRIC(publish_version_queue_count,
                                         [this]() { return _thread_pool_publish_version->num_queued_tasks(); });
 #endif
+        _exec_env->thread_pool_checker()->register_thread_pool("publish_version_pool",
+                                                               _thread_pool_publish_version.get());
 
         BUILD_DYNAMIC_TASK_THREAD_POOL("drop", 1, config::drop_tablet_worker_count, std::numeric_limits<int>::max(),
                                        _thread_pool_drop);
+        _exec_env->thread_pool_checker()->register_thread_pool("drop_tablet_pool", _thread_pool_drop.get());
 
         BUILD_DYNAMIC_TASK_THREAD_POOL("create_tablet", config::create_tablet_worker_count,
                                        config::create_tablet_worker_count, std::numeric_limits<int>::max(),
                                        _thread_pool_create_tablet);
+        _exec_env->thread_pool_checker()->register_thread_pool("create_tablet_pool", _thread_pool_create_tablet.get());
 
         BUILD_DYNAMIC_TASK_THREAD_POOL("alter_tablet", 0, config::alter_tablet_worker_count,
                                        std::numeric_limits<int>::max(), _thread_pool_alter_tablet);
