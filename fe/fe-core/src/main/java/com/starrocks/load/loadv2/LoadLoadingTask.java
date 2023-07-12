@@ -196,7 +196,7 @@ public class LoadLoadingTask extends LoadTask {
             if (context.getSessionVariable().isEnableProfile()) {
                 RuntimeProfile profile = new RuntimeProfile("Load");
                 RuntimeProfile summaryProfile = new RuntimeProfile("Summary");
-                summaryProfile.addInfoString(ProfileManager.QUERY_ID, DebugUtil.printId(context.getExecutionId()));
+                summaryProfile.addInfoString(ProfileManager.QUERY_ID, DebugUtil.printId(loadId));
                 summaryProfile.addInfoString(ProfileManager.START_TIME,
                         TimeUtils.longToTimeString(createTimestamp));
 
