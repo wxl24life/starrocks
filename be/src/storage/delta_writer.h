@@ -189,6 +189,8 @@ private:
     // initial value is max value
     size_t _memtable_buffer_row = -1;
     bool _partial_schema_with_sort_key = false;
+    // flush caused by memory limit
+    size_t _mem_limit_flush_count = 0;
 };
 
 } // namespace starrocks
