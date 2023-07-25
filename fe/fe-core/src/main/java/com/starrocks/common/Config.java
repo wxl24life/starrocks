@@ -2514,4 +2514,10 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static int port_connectivity_check_timeout_ms = 10000;
+
+    @ConfField(mutable = true)
+    public static boolean enable_emr_product_restrictions = false;
+
+    @ConfField(mutable = true)
+    public static String emr_serverless_full_domain = "";
 }
