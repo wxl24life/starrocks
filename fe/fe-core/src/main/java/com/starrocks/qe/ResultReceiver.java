@@ -37,6 +37,7 @@ package com.starrocks.qe;
 import com.starrocks.common.Status;
 import com.starrocks.common.util.DebugUtil;
 import com.starrocks.metric.MetricRepo;
+import com.starrocks.mysql.privilege.Auth;
 import com.starrocks.proto.PFetchDataResult;
 import com.starrocks.proto.PUniqueId;
 import com.starrocks.rpc.BackendServiceClient;
@@ -152,6 +153,11 @@ public class ResultReceiver {
                     ConnectContext.get().getSessionVariable().getQueryTimeoutS()));
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_QUERY_TIMEOUT.increase(1L);
+                boolean isRoot = ConnectContext.get().getCurrentUserIdentity() != null &&
+                        ConnectContext.get().getCurrentUserIdentity().getQualifiedUser().equals(Auth.ROOT_USER);
+                if (isRoot) {
+                    MetricRepo.COUNTER_ROOT_QUERY_TIMEOUT.increase(1L);
+                }
             }
         } finally {
             synchronized (this) {
