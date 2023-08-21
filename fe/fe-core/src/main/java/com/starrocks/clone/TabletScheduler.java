@@ -83,6 +83,8 @@ import com.starrocks.thrift.TStatusCode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -162,6 +164,7 @@ public class TabletScheduler extends FrontendDaemon {
 
     private final TabletSchedulerStat stat;
     private final Rebalancer rebalancer;
+    private final List<Long> relocatePriorBeIds = new ArrayList<>();
 
     private final AtomicBoolean forceCleanSchedQ = new AtomicBoolean(false);
 
@@ -207,6 +210,11 @@ public class TabletScheduler extends FrontendDaemon {
             return false;
         }
 
+        String relocatePriorHosts = Config.tablet_sched_relocate_prior_hosts;
+        List<String> priorBeHosts = new ArrayList<>();
+        if (!relocatePriorHosts.isEmpty()) {
+            priorBeHosts = Arrays.asList(relocatePriorHosts.trim().split(","));
+        }
         for (Backend backend : backends.values()) {
             if (!backend.hasPathHash() && backend.isAlive()) {
                 // when upgrading, backend may not get path info yet. so return false and wait for next round.
@@ -214,6 +222,10 @@ public class TabletScheduler extends FrontendDaemon {
                 // will never report its path hash, and tablet scheduler is blocked.
                 LOG.info("not all backends have path info");
                 return false;
+            } else {
+                if (priorBeHosts.contains(backend.getHost())) {
+                    this.relocatePriorBeIds.add(backend.getId());
+                }
             }
         }
 
@@ -259,6 +271,13 @@ public class TabletScheduler extends FrontendDaemon {
             LOG.info("Going to update slots per path. delta: {}, before: {}", delta, oldSlotPerPathConfig);
             int finalDelta = delta;
             backendsWorkingSlots.forEach((beId, pathSlot) -> pathSlot.updateSlot(finalDelta));
+        }
+
+        if (backendsWorkingSlots.size() - relocatePriorBeIds.size() < relocatePriorBeIds.size()) {
+            LOG.warn("No enough prior backends to relocate replicas, relocatePriorBeIds: " +
+                    Arrays.toString(relocatePriorBeIds.toArray()) + ", backend IDs in backendsWorkingSlots: " +
+                    Arrays.toString(backendsWorkingSlots.keySet().toArray(new Long[0])));
+            relocatePriorBeIds.clear();
         }
 
         return true;
@@ -1436,10 +1455,16 @@ public class TabletScheduler extends FrontendDaemon {
         }
         List<BackendLoadStatistic> beStatistics = statistic.getSortedBeLoadStats(null /* sorted ignore medium */);
 
+        List<BackendLoadStatistic> priorBeStatistics = beStatistics.stream()
+                .filter(be -> this.relocatePriorBeIds.contains(be.getBeId()))
+                .collect(Collectors.toList());
+
+        List<BackendLoadStatistic> destBeCandidates = priorBeStatistics.size() > 0 ? priorBeStatistics : beStatistics;
+
         // get all available paths which this tablet can fit in.
         // beStatistics is sorted by mix load score in ascend order, so select from first to last.
         List<RootPathLoadStatistic> allFitPaths = Lists.newArrayList();
-        for (BackendLoadStatistic bes : beStatistics) {
+        for (BackendLoadStatistic bes : destBeCandidates) {
             if (!bes.isAvailable()) {
                 continue;
             }
@@ -1708,21 +1733,21 @@ public class TabletScheduler extends FrontendDaemon {
         }
     }
 
-    public List<List<String>> getPendingTabletsInfo(int limit) {
-        List<TabletSchedCtx> tabletCtxs = getCopiedTablets(pendingTablets, limit);
+    public List<List<String>> getPendingTabletsInfo() {
+        List<TabletSchedCtx> tabletCtxs = getCopiedTablets(pendingTablets);
         return collectTabletCtx(tabletCtxs);
     }
 
-    public List<List<String>> getRunningTabletsInfo(int limit) {
+    public List<List<String>> getRunningTabletsInfo() {
         List<TabletSchedCtx> tabletCtxs;
         synchronized (this) {
-            tabletCtxs = getCopiedTablets(runningTablets.values(), limit);
+            tabletCtxs = getCopiedTablets(runningTablets.values());
         }
         return collectTabletCtx(tabletCtxs);
     }
 
-    public List<List<String>> getHistoryTabletsInfo(int limit) {
-        List<TabletSchedCtx> tabletCtxs = getCopiedTablets(schedHistory, limit);
+    public List<List<String>> getHistoryTabletsInfo() {
+        List<TabletSchedCtx> tabletCtxs = getCopiedTablets(schedHistory);
         return collectTabletCtx(tabletCtxs);
     }
 
@@ -1742,9 +1767,9 @@ public class TabletScheduler extends FrontendDaemon {
         return result;
     }
 
-    private synchronized List<TabletSchedCtx> getCopiedTablets(Collection<TabletSchedCtx> source, int limit) {
+    private synchronized List<TabletSchedCtx> getCopiedTablets(Collection<TabletSchedCtx> source) {
         List<TabletSchedCtx> tabletCtxs = Lists.newArrayList();
-        source.stream().limit(limit).forEach(tabletCtxs::add);
+        tabletCtxs.addAll(source);
         return tabletCtxs;
     }
 

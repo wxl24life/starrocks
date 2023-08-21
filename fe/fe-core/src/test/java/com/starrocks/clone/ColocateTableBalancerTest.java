@@ -221,7 +221,7 @@ public class ColocateTableBalancerTest {
             colocateTableBalancer.runAfterCatalogReady();
             colocateTableBalancer.runAfterCatalogReady();
             TabletScheduler tabletScheduler = GlobalStateMgr.getCurrentState().getTabletScheduler();
-            List<List<String>> result = tabletScheduler.getPendingTabletsInfo(100);
+            List<List<String>> result = tabletScheduler.getPendingTabletsInfo();
             System.out.println(result);
             Assert.assertEquals(result.get(0).get(0), Long.toString(tablet.getId()));
             Assert.assertEquals(result.get(0).get(3), "COLOCATE_REDUNDANT");

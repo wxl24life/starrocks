@@ -270,7 +270,7 @@ public class FrontendOptions {
 
     public static String getLocalHostAddress() {
         if (useFqdn) {
-            if (Config.enable_emr_product_restrictions) {
+            if (!Config.emr_serverless_full_domain.isEmpty()) {
                 return localAddr.getCanonicalHostName() + Config.emr_serverless_full_domain;
             } else {
                 return localAddr.getCanonicalHostName();

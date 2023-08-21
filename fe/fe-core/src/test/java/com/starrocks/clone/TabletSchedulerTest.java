@@ -182,7 +182,7 @@ public class TabletSchedulerTest {
         Thread.sleep(2000);
         tabletScheduler.removeOneFromPendingQ();
         Thread.sleep(1000);
-        Assert.assertEquals(9, tabletScheduler.getPendingTabletsInfo(100).size());
+        Assert.assertEquals(9, tabletScheduler.getPendingTabletsInfo().size());
 
         Config.tablet_sched_max_scheduling_tablets = oldVal;
     }

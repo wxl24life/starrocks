@@ -35,7 +35,6 @@
 package com.starrocks.common.proc;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.starrocks.catalog.Replica;
 import com.starrocks.catalog.TabletInvertedIndex;
 import com.starrocks.clone.TabletScheduler;
@@ -45,10 +44,10 @@ import com.starrocks.server.GlobalStateMgr;
 import java.util.List;
 
 /*
- * show proc "/tablet_scheduler/pending_tablets";
- * show proc "/tablet_scheduler/running_tablets";
- * show proc "/tablet_scheduler/history_tablets";
- * show proc "/tablet_scheduler/all_tablets";
+ * show proc "/cluster_balance/pending_tablets";
+ * show proc "/cluster_balance/running_tablets";
+ * show proc "/cluster_balance/history_tablets";
+ * show proc "/cluster_balance/all_tablets";
  */
 public class TabletSchedulerDetailProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -72,14 +71,13 @@ public class TabletSchedulerDetailProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        // get at most 1000 tablet infos
-        List<List<String>> tabletInfos = Lists.newArrayList();
+        List<List<String>> tabletInfos;
         if (type.equals(ClusterBalanceProcDir.PENDING_TABLETS)) {
-            tabletInfos = tabletScheduler.getPendingTabletsInfo(1000);
+            tabletInfos = tabletScheduler.getPendingTabletsInfo();
         } else if (type.equals(ClusterBalanceProcDir.RUNNING_TABLETS)) {
-            tabletInfos = tabletScheduler.getRunningTabletsInfo(1000);
+            tabletInfos = tabletScheduler.getRunningTabletsInfo();
         } else if (type.equals(ClusterBalanceProcDir.HISTORY_TABLETS)) {
-            tabletInfos = tabletScheduler.getHistoryTabletsInfo(1000);
+            tabletInfos = tabletScheduler.getHistoryTabletsInfo();
         } else if (type.equals(ClusterBalanceProcDir.ALL_TABLETS)) {
             ImmutableList<String> titleNames = new ImmutableList.Builder<String>()
                     .add("TabletId")

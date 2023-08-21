@@ -1188,6 +1188,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean disable_hadoop_load = false;
 
+    @ConfField(mutable = true)
+    public static String tablet_sched_relocate_prior_hosts = "";
+
     /**
      * the default slot number per path in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
