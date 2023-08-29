@@ -105,7 +105,7 @@ public class Auth implements Writable {
 
     // root user's role is operator.
     // each starrocks system has only one root user.
-    private static final String ROOT_USER = "root";
+    public static final String ROOT_USER = "root";
     public static final String ADMIN_USER = "admin";
 
     public static final String KRB5_AUTH_CLASS_NAME = "com.starrocks.plugins.auth.KerberosAuthentication";
