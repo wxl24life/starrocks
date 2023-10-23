@@ -65,7 +65,12 @@ public class QueryDetailAction extends RestBaseAction {
             return;
         }
         long eventTime = Long.parseLong(eventTimeStr.trim());
-        List<QueryDetail> queryDetails = QueryDetailQueue.getQueryDetailsAfterTime(eventTime);
+        List<QueryDetail> queryDetails = null;
+        if (request.getSingleParameter("recapture") != null) {
+            queryDetails = QueryDetailQueue.getRecaptureQueryDetailsAfterTime(eventTime);
+        } else {
+            queryDetails = QueryDetailQueue.getQueryDetailsAfterTime(eventTime);
+        }
         Gson gson = new Gson();
         String jsonString = gson.toJson(queryDetails);
         response.getContent().append(jsonString);

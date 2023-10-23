@@ -95,4 +95,58 @@ public class QueryDetailQueueTest {
         queryDetails = QueryDetailQueue.getQueryDetailsAfterTime(startQueryDetail.getEventTime() - 1);
         Assert.assertEquals(2, queryDetails.size());
     }
+
+    @Test
+    public void testRecaptureQueryDetailQueue() {
+        QueryDetail startQueryDetail = new QueryDetail("219a2d5443c542d4-8fc938db37c892e3", false, 1, "127.0.0.1",
+                System.currentTimeMillis(), -1, -1, QueryDetail.QueryMemState.RUNNING,
+                "testDb", "select * from table1 limit 1",
+                "root", "");
+        startQueryDetail.setScanRows(100);
+        startQueryDetail.setScanBytes(10001);
+        startQueryDetail.setReturnRows(1);
+        startQueryDetail.setCpuCostNs(1002);
+        startQueryDetail.setMemCostBytes(100003);
+        QueryDetailQueue.addAndRemoveTimeoutReCaptureQueryDetail(startQueryDetail);
+
+        List<QueryDetail> queryDetails = QueryDetailQueue.getRecaptureQueryDetailsAfterTime(startQueryDetail.getEventTime() - 1);
+        Assert.assertEquals(1, queryDetails.size());
+
+        Gson gson = new Gson();
+        String jsonString = gson.toJson(queryDetails);
+        String queryDetailString = "[{\"eventTime\":" + startQueryDetail.getEventTime() + ","
+                + "\"queryId\":\"219a2d5443c542d4-8fc938db37c892e3\","
+                + "\"isQuery\":false,"
+                + "\"remoteIP\":\"127.0.0.1\","
+                + "\"connId\":1,"
+                + "\"startTime\":" + startQueryDetail.getStartTime() + ",\"endTime\":-1,\"latency\":-1,"
+                + "\"state\":\"RUNNING\",\"database\":\"testDb\","
+                + "\"sql\":\"select * from table1 limit 1\","
+                + "\"user\":\"root\","
+                + "\"scanRows\":100,"
+                + "\"scanBytes\":10001,"
+                + "\"returnRows\":1,"
+                + "\"cpuCostNs\":1002,"
+                + "\"memCostBytes\":100003"
+                + "}]";
+        Assert.assertEquals(jsonString, queryDetailString);
+
+        queryDetails = QueryDetailQueue.getRecaptureQueryDetailsAfterTime(startQueryDetail.getEventTime());
+        Assert.assertEquals(0, queryDetails.size());
+
+        QueryDetail endQueryDetail = startQueryDetail.copy();
+        endQueryDetail.setLatency(1);
+        endQueryDetail.setState(QueryDetail.QueryMemState.FINISHED);
+        QueryDetailQueue.addAndRemoveTimeoutReCaptureQueryDetail(endQueryDetail);
+
+        queryDetails = QueryDetailQueue.getRecaptureQueryDetailsAfterTime(startQueryDetail.getEventTime() - 1);
+        Assert.assertEquals(2, queryDetails.size());
+
+        //set first element eventTime to 1min ago to simulate queryDetail timeout
+        startQueryDetail.setEventTime(startQueryDetail.getEventTime() - 60000000000L);
+        //add new queryDetail, this will trigger delete
+        QueryDetailQueue.addAndRemoveTimeoutReCaptureQueryDetail(new QueryDetail());
+        queryDetails = QueryDetailQueue.getRecaptureQueryDetailsAfterTime(startQueryDetail.getEventTime() - 1);
+        Assert.assertEquals(2, queryDetails.size());
+    }
 }

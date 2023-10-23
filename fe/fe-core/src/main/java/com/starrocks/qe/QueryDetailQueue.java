@@ -45,6 +45,8 @@ import java.util.List;
 public class QueryDetailQueue {
     private static final LinkedList<QueryDetail> TOTAL_QUERIES = new LinkedList<QueryDetail>();
 
+    private static final LinkedList<QueryDetail> RECAPTURE_QUERIES = new LinkedList<QueryDetail>();
+
     //starrocks-manager pull queries every 1 second
     //metrics calculate query latency every 15 second
     //do not set cacheTime lower than these time
@@ -70,9 +72,37 @@ public class QueryDetailQueue {
         }
     }
 
+    public static synchronized void addAndRemoveTimeoutReCaptureQueryDetail(QueryDetail queryDetail) {
+        //set event time here to guarantee order
+        long now = getCurrentTimeNS();
+        queryDetail.setEventTime(now);
+        RECAPTURE_QUERIES.add(queryDetail);
+
+        Iterator<QueryDetail> it = RECAPTURE_QUERIES.iterator();
+        long deleteTime = now - CACHE_TIME_NS;
+        while (it.hasNext()) {
+            QueryDetail detail = it.next();
+            if (detail.getEventTime() < deleteTime) {
+                it.remove();
+            } else {
+                break;
+            }
+        }
+    }
+
     public static synchronized List<QueryDetail> getQueryDetailsAfterTime(long eventTime) {
         List<QueryDetail> results = Lists.newArrayList();
         for (QueryDetail queryDetail : TOTAL_QUERIES) {
+            if (queryDetail.getEventTime() > eventTime) {
+                results.add(queryDetail);
+            }
+        }
+        return results;
+    }
+
+    public static synchronized List<QueryDetail> getRecaptureQueryDetailsAfterTime(long eventTime) {
+        List<QueryDetail> results = Lists.newArrayList();
+        for (QueryDetail queryDetail : RECAPTURE_QUERIES) {
             if (queryDetail.getEventTime() > eventTime) {
                 results.add(queryDetail);
             }

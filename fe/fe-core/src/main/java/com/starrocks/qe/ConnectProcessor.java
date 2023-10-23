@@ -258,8 +258,9 @@ public class ConnectProcessor {
         return (sql.contains("--")) || sql.contains("#");
     }
 
-    private void addFinishedQueryDetail() {
-        if (!Config.enable_collect_query_detail_info) {
+    protected void addFinishedQueryDetail() {
+        if (!Config.enable_collect_query_detail_info &&
+                !ctx.getSessionVariable().isEnableRecaptureProfile()) {
             return;
         }
         QueryDetail queryDetail = ctx.getQueryDetail();
@@ -290,11 +291,18 @@ public class ConnectProcessor {
             queryDetail.setSpillBytes(statistics.spillBytes == null ? -1 : statistics.spillBytes);
         }
 
-        QueryDetailQueue.addAndRemoveTimeoutQueryDetail(queryDetail);
+        if (Config.enable_collect_query_detail_info) {
+            QueryDetailQueue.addAndRemoveTimeoutQueryDetail(queryDetail);
+        }
+        
+        if (ctx.getSessionVariable().isEnableRecaptureProfile()) {
+            QueryDetailQueue.addAndRemoveTimeoutReCaptureQueryDetail(queryDetail);
+        }
     }
 
-    protected void addRunningQueryDetail(StatementBase parsedStmt) {
-        if (!Config.enable_collect_query_detail_info) {
+    private void addRunningQueryDetail(StatementBase parsedStmt) {
+        if (!Config.enable_collect_query_detail_info &&
+                !ctx.getSessionVariable().isEnableRecaptureProfile()) {
             return;
         }
         String sql;
