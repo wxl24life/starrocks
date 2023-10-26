@@ -112,4 +112,7 @@ public class CloudConfigurationConstants {
     public static final String ALIYUN_OSS_ACCESS_KEY = "aliyun.oss.access_key";
     public static final String ALIYUN_OSS_SECRET_KEY = "aliyun.oss.secret_key";
     public static final String ALIYUN_OSS_ENDPOINT = "aliyun.oss.endpoint";
+    public static final String ALIYUN_OSS_REGION = "aliyun.oss.region";
+    public static final String ALIYUN_OSS_STS_FILE_PATH = "aliyun.oss.sts_file_path";
+    public static final String ALIYUN_OSS_USE_DEFAULT_CREDENTIAL = "aliyun.oss.use_default_credential";
 }

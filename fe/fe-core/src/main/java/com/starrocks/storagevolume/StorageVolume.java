@@ -17,10 +17,12 @@ package com.starrocks.storagevolume;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
+import com.staros.proto.AliyunCredentialInfo;
 import com.staros.proto.AwsCredentialInfo;
 import com.staros.proto.AzBlobCredentialInfo;
 import com.staros.proto.AzBlobFileStoreInfo;
 import com.staros.proto.FileStoreInfo;
+import com.staros.proto.OSSFileStoreInfo;
 import com.staros.proto.S3FileStoreInfo;
 import com.starrocks.common.io.Text;
 import com.starrocks.common.io.Writable;
@@ -51,6 +53,7 @@ public class StorageVolume implements Writable, GsonPostProcessable {
     public enum StorageVolumeType {
         UNKNOWN,
         S3,
+        OSS,
         HDFS,
         AZBLOB
     }
@@ -154,6 +157,8 @@ public class StorageVolume implements Writable, GsonPostProcessable {
         switch (svt.toLowerCase()) {
             case "s3":
                 return StorageVolumeType.S3;
+            case "oss":
+                return StorageVolumeType.OSS;
             case "hdfs":
                 return StorageVolumeType.HDFS;
             case "azblob":
@@ -171,6 +176,8 @@ public class StorageVolume implements Writable, GsonPostProcessable {
                 return cloudConfiguration.getCloudType() == CloudType.HDFS;
             case AZBLOB:
                 return cloudConfiguration.getCloudType() == CloudType.AZURE;
+            case OSS:
+                return cloudConfiguration.getCloudType() == CloudType.ALIYUN;
             default:
                 return false;
         }
@@ -246,6 +253,25 @@ public class StorageVolume implements Writable, GsonPostProcessable {
                     params.put(CloudConfigurationConstants.AWS_S3_USE_AWS_SDK_DEFAULT_BEHAVIOR, "false");
                 } else if (credentialInfo.hasDefaultCredential()) {
                     params.put(CloudConfigurationConstants.AWS_S3_USE_AWS_SDK_DEFAULT_BEHAVIOR, "true");
+                }
+                return params;
+            case OSS:
+                OSSFileStoreInfo ossFileStoreInfo = fsInfo.getOssFsInfo();
+                params.put(CloudConfigurationConstants.ALIYUN_OSS_REGION, ossFileStoreInfo.getRegion());
+                params.put(CloudConfigurationConstants.ALIYUN_OSS_ENDPOINT, ossFileStoreInfo.getEndpoint());
+                AliyunCredentialInfo aliyunCredentialInfo = ossFileStoreInfo.getCredential();
+                if (aliyunCredentialInfo.hasSimpleCredential()) {
+                    params.put(CloudConfigurationConstants.ALIYUN_OSS_ACCESS_KEY,
+                            aliyunCredentialInfo.getSimpleCredential().getAccessKey());
+                    params.put(CloudConfigurationConstants.ALIYUN_OSS_SECRET_KEY,
+                            aliyunCredentialInfo.getSimpleCredential().getAccessKeySecret());
+                    params.put(CloudConfigurationConstants.ALIYUN_OSS_USE_DEFAULT_CREDENTIAL, "false");
+                } else if (aliyunCredentialInfo.hasStsFileCredential()) {
+                    params.put(CloudConfigurationConstants.ALIYUN_OSS_STS_FILE_PATH,
+                            aliyunCredentialInfo.getStsFileCredential().getStsFilePath());
+                    params.put(CloudConfigurationConstants.ALIYUN_OSS_USE_DEFAULT_CREDENTIAL, "false");
+                } else if (aliyunCredentialInfo.hasDefaultCredential()) {
+                    params.put(CloudConfigurationConstants.ALIYUN_OSS_USE_DEFAULT_CREDENTIAL, "true");
                 }
                 return params;
             case HDFS:

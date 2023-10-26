@@ -62,4 +62,8 @@ public class AliyunCloudConfiguration extends CloudConfiguration {
         return String.format("AliyunCloudConfiguration{%s, cred=%s}", getCommonFieldsString(),
                 aliyunCloudCredential.toCredString());
     }
+
+    public AliyunCloudCredential getAliyunCloudCredential() {
+        return this.aliyunCloudCredential;
+    }
 }

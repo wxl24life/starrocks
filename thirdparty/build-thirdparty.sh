@@ -40,7 +40,7 @@ if [[ -f ${STARROCKS_HOME}/env.sh ]]; then
 fi
 
 if [[ ! -f ${TP_DIR}/download-thirdparty.sh ]]; then
-    echo "Download thirdparty script is missing".
+    echo "Download thirdparty script is missing, TP_DIR:${TP_DIR}".
     exit 1
 fi
 

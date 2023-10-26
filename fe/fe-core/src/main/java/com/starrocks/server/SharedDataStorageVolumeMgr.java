@@ -302,6 +302,23 @@ public class SharedDataStorageVolumeMgr extends StorageVolumeMgr {
                     throw new InvalidConfException("Invalid aws credential configuration.");
                 }
                 break;
+            case "oss":
+                String[] ossBucketAndPrefix = getOssBucketAndPrefix();
+                String ossBucket = ossBucketAndPrefix[0];
+                if (ossBucket.isEmpty()) {
+                    throw new InvalidConfException(
+                            String.format("The configuration item \"aliyun_oss_path = %s\" is invalid, oss bucket is empty.",
+                                    Config.aliyun_oss_path));
+                }
+                if (Config.aliyun_oss_region.isEmpty() && Config.aliyun_oss_endpoint.isEmpty()) {
+                    throw new InvalidConfException(
+                            "Both configuration item \"aliyun_oss_region\" and \"aliyun_oss_endpoint\" are empty");
+                }
+                String ossCredentialType = getOssCredentialType();
+                if (ossCredentialType == null) {
+                    throw new InvalidConfException("Invalid oss credential configuration.");
+                }
+                break;
             case "hdfs":
                 if (Config.cloud_native_hdfs_url.isEmpty()) {
                     throw new InvalidConfException("The configuration item \"cloud_native_hdfs_url\" is empty.");
@@ -355,11 +372,11 @@ public class SharedDataStorageVolumeMgr extends StorageVolumeMgr {
     private String[] getBucketAndPrefix() {
         int index = Config.aws_s3_path.indexOf('/');
         if (index < 0) {
-            return new String[] {Config.aws_s3_path, ""};
+            return new String[] { Config.aws_s3_path, "" };
         }
 
-        return new String[] {Config.aws_s3_path.substring(0, index),
-                Config.aws_s3_path.substring(index + 1)};
+        return new String[] { Config.aws_s3_path.substring(0, index),
+                Config.aws_s3_path.substring(index + 1) };
     }
 
     private String getAwsCredentialType() {
@@ -388,6 +405,29 @@ public class SharedDataStorageVolumeMgr extends StorageVolumeMgr {
         return null;
     }
 
+    private String[] getOssBucketAndPrefix() {
+        int index = Config.aliyun_oss_path.indexOf('/');
+        if (index < 0) {
+            return new String[] { Config.aliyun_oss_path, "" };
+        }
+        return new String[] { Config.aliyun_oss_path.substring(0, index),
+                Config.aliyun_oss_path.substring(index + 1) };
+    }
+    private String getOssCredentialType() {
+        if (Config.aliyun_oss_use_default_credential) {
+            return "aliyun_default";
+        }
+        if (!Config.aliyun_oss_sts_file_path.isEmpty()) {
+            return "sts_file";
+        }
+        if (Config.aliyun_oss_access_key.isEmpty() || Config.aliyun_oss_secret_key.isEmpty()) {
+            // invalid credential configuration
+            return null;
+        } else {
+            return "simple";
+        }
+    }
+
     private List<String> parseLocationsFromConfig() {
         List<String> locations = new ArrayList<>();
         switch (Config.cloud_native_storage_type.toLowerCase()) {
@@ -399,6 +439,9 @@ public class SharedDataStorageVolumeMgr extends StorageVolumeMgr {
                 break;
             case "azblob":
                 locations.add("azblob://" + Config.azure_blob_path);
+                break;
+            case "oss":
+                locations.add("oss://" + Config.aliyun_oss_path);
                 break;
             default:
                 return locations;
@@ -421,6 +464,16 @@ public class SharedDataStorageVolumeMgr extends StorageVolumeMgr {
                 params.put(CloudConfigurationConstants.AWS_S3_USE_INSTANCE_PROFILE,
                         String.valueOf(Config.aws_s3_use_instance_profile));
                 break;
+            case "oss":
+                params.put(CloudConfigurationConstants.ALIYUN_OSS_ACCESS_KEY, Config.aliyun_oss_access_key);
+                params.put(CloudConfigurationConstants.ALIYUN_OSS_SECRET_KEY, Config.aliyun_oss_secret_key);
+                params.put(CloudConfigurationConstants.ALIYUN_OSS_ENDPOINT, Config.aliyun_oss_endpoint);
+                params.put(CloudConfigurationConstants.ALIYUN_OSS_REGION, Config.aliyun_oss_region);
+                params.put(CloudConfigurationConstants.ALIYUN_OSS_STS_FILE_PATH,
+                        Config.aliyun_oss_sts_file_path);
+                params.put(CloudConfigurationConstants.ALIYUN_OSS_USE_DEFAULT_CREDENTIAL,
+                        String.valueOf(Config.aliyun_oss_use_default_credential));
+                break;
             case "hdfs":
                 // TODO
                 break;
@@ -440,6 +493,9 @@ public class SharedDataStorageVolumeMgr extends StorageVolumeMgr {
             case "s3":
                 String[] bucketAndPrefix = getBucketAndPrefix();
                 return bucketAndPrefix[0];
+            case "oss":
+                String[] ossBucketAndPrefix = getOssBucketAndPrefix();
+                return ossBucketAndPrefix[0];
             case "hdfs":
                 return Config.cloud_native_hdfs_url;
             case "azblob":

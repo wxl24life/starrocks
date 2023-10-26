@@ -254,6 +254,9 @@ absl::StatusOr<std::string> StarOSWorker::build_scheme_from_shard_info(const Sha
     case staros::FileStoreType::AZBLOB:
         scheme = "azblob://";
         break;
+    case staros::FileStoreType::OSS:
+        scheme = "oss://";
+        break;
     default:
         return absl::InvalidArgumentError("Unknown shard storage scheme!");
     }
@@ -296,6 +299,40 @@ absl::StatusOr<fslib::Configuration> StarOSWorker::build_conf_from_shard_info(co
                 conf[fslib::kS3CredentialAssumeRoleExternalId] = role_credential.external_id();
             } else {
                 conf[fslib::kS3CredentialType] = "default";
+            }
+        }
+    } break;
+    case staros::FileStoreType::OSS: {
+        auto& oss_info = info.path_info.fs_info().oss_fs_info();
+        if (!info.path_info.full_path().empty()) {
+            conf[fslib::kSysRoot] = info.path_info.full_path();
+            // use s3 fslib
+            conf[fslib::kSysFsScheme] = "s3://";
+        }
+        if (!oss_info.bucket().empty()) {
+            conf[fslib::kS3Bucket] = oss_info.bucket();
+        }
+        if (!oss_info.region().empty()) {
+            conf[fslib::kS3Region] = oss_info.region();
+        }
+        if (!oss_info.endpoint().empty()) {
+            conf[fslib::kS3OverrideEndpoint] = oss_info.endpoint();
+        }
+        if (oss_info.has_credential()) {
+            auto& credential = oss_info.credential();
+            if (credential.has_default_credential()) {
+                conf[fslib::kS3CredentialType] = "aliyun_default";
+            } else if (credential.has_simple_credential()) {
+                conf[fslib::kS3CredentialType] = "simple";
+                auto& simple_credential = credential.simple_credential();
+                conf[fslib::kS3CredentialSimpleAccessKeyId] = simple_credential.access_key();
+                conf[fslib::kS3CredentialSimpleAccessKeySecret] = simple_credential.access_key_secret();
+            } else if (credential.has_sts_file_credential()) {
+                conf[fslib::kS3CredentialType] = "sts_file";
+                auto& sts_file_credential = credential.sts_file_credential();
+                conf[fslib::kS3CredentialStsFilePath] = sts_file_credential.sts_file_path();
+            } else {
+                conf[fslib::kS3CredentialType] = "aliyun_default";
             }
         }
     } break;
