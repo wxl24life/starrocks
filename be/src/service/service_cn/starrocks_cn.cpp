@@ -87,6 +87,12 @@ void start_cn() {
 
     starrocks::wait_for_fragments_finish(exec_env, starrocks::config::loop_count_wait_fragments_finish);
 
+    // shut down abruptly
+    if (starrocks::k_starrocks_exit_quick.load()) {
+        LOG(INFO) << "BE is shutting down，will exit quickly";
+        exit(0);
+    }
+
     http_service.reset();
 
     brpc_server.Stop(0);
