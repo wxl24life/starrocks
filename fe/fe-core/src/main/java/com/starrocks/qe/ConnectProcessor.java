@@ -163,7 +163,7 @@ public class ConnectProcessor {
 
     public void auditAfterExec(String origStmt, StatementBase parsedStmt, PQueryStatistics statistics) {
         boolean isRoot = ctx.getCurrentUserIdentity() != null &&
-                ctx.getCurrentUserIdentity().getQualifiedUser().equals(Auth.ROOT_USER);
+                ctx.getCurrentUserIdentity().getUser().equals(Auth.ROOT_USER);
         // slow query
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
@@ -300,7 +300,7 @@ public class ConnectProcessor {
         }
     }
 
-    private void addRunningQueryDetail(StatementBase parsedStmt) {
+    protected void addRunningQueryDetail(StatementBase parsedStmt) {
         if (!Config.enable_collect_query_detail_info &&
                 !ctx.getSessionVariable().isEnableRecaptureProfile()) {
             return;
@@ -333,7 +333,7 @@ public class ConnectProcessor {
     // process COM_QUERY statement,
     private void handleQuery() {
         boolean isRoot = ctx.getCurrentUserIdentity() != null &&
-                ctx.getCurrentUserIdentity().getQualifiedUser().equals(Auth.ROOT_USER);
+                ctx.getCurrentUserIdentity().getUser().equals(Auth.ROOT_USER);
         MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
         if (isRoot) {
             MetricRepo.COUNTER_ROOT_REQUEST_ALL.increase(1L);

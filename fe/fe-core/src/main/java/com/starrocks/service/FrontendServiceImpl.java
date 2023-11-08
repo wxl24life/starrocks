@@ -231,7 +231,6 @@ import com.starrocks.thrift.TReportExecStatusResult;
 import com.starrocks.thrift.TReportRequest;
 import com.starrocks.thrift.TRequireSlotRequest;
 import com.starrocks.thrift.TRequireSlotResponse;
-import com.starrocks.thrift.TResourceUsage;
 import com.starrocks.thrift.TRoutineLoadJobInfo;
 import com.starrocks.thrift.TSetConfigRequest;
 import com.starrocks.thrift.TSetConfigResponse;

@@ -154,7 +154,7 @@ public class ResultReceiver {
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_QUERY_TIMEOUT.increase(1L);
                 boolean isRoot = ConnectContext.get().getCurrentUserIdentity() != null &&
-                        ConnectContext.get().getCurrentUserIdentity().getQualifiedUser().equals(Auth.ROOT_USER);
+                        ConnectContext.get().getCurrentUserIdentity().getUser().equals(Auth.ROOT_USER);
                 if (isRoot) {
                     MetricRepo.COUNTER_ROOT_QUERY_TIMEOUT.increase(1L);
                 }

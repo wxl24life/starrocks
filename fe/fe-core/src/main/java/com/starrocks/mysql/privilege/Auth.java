@@ -1835,7 +1835,7 @@ public class Auth implements Writable {
         // emr product restrictions
         if (Config.enable_emr_product_restrictions) {
             for (UserIdentity userIdent : userIdents) {
-                if (userIdent.getQualifiedUser().equals(Auth.ROOT_USER)) {
+                if (userIdent.getUser().equals(Auth.ROOT_USER)) {
                     userIdents.remove(userIdent);
                     break;
                 }
