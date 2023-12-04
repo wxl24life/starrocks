@@ -868,7 +868,8 @@ public class AuthorizerStmtVisitor extends AstVisitor<Void, ConnectContext> {
                             " instead you should update privileges in EMR StarRocks Manager.");
         }
         AuthorizationMgr authorizationManager = context.getGlobalStateMgr().getAuthorizationMgr();
-        if (!authorizationManager.allowGrant(context, stmt.getObjectType(), stmt.getPrivilegeTypes(), stmt.getObjectList())) {
+        if (!authorizationManager.allowGrant(context.getCurrentUserIdentity(), context.getCurrentRoleIds(),
+                stmt.getObjectType(), stmt.getPrivilegeTypes(), stmt.getObjectList())) {
             throw new AccessDeniedException(ErrorReport.reportCommon(null,
                     ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT"));
         }
