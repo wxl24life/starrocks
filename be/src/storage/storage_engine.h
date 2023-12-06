@@ -67,6 +67,10 @@ namespace bthread {
 class Executor;
 }
 
+namespace starrocks::lake {
+class SegmentWriterFinalizeExecutor;
+}
+
 namespace starrocks {
 
 class DataDir;
@@ -225,6 +229,8 @@ public:
     SegmentReplicateExecutor* segment_replicate_executor() { return _segment_replicate_executor.get(); }
 
     SegmentFlushExecutor* segment_flush_executor() { return _segment_flush_executor.get(); }
+
+    lake::SegmentWriterFinalizeExecutor* segment_writer_finalize_executor() { return _segment_writer_finalize_executor.get(); }
 
     UpdateManager* update_manager() { return _update_manager.get(); }
 
@@ -456,6 +462,8 @@ private:
     std::unique_ptr<SegmentReplicateExecutor> _segment_replicate_executor;
 
     std::unique_ptr<SegmentFlushExecutor> _segment_flush_executor;
+
+    std::unique_ptr<lake::SegmentWriterFinalizeExecutor> _segment_writer_finalize_executor;
 
     std::unique_ptr<UpdateManager> _update_manager;
 

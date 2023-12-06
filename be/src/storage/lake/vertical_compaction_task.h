@@ -47,7 +47,6 @@ private:
                                 const std::vector<uint32_t>& column_group, std::unique_ptr<TabletWriter>& writer,
                                 RowSourceMaskBuffer* mask_buffer, std::vector<RowSourceMask>* source_masks,
                                 Progress* progress, const CancelFunc& cancel_func);
-
     std::shared_ptr<const TabletSchema> _tablet_schema;
     int64_t _total_num_rows = 0;
     int64_t _total_data_size = 0;

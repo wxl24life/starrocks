@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "gutil/macros.h"
+#include "segment_writer_finalize_executor.h"
 #include "storage/lake/tablet_metadata.h"
 #include "storage/lake/tablet_writer.h"
 
@@ -102,7 +103,11 @@ private:
     StatusOr<std::unique_ptr<SegmentWriter>> create_segment_writer(const std::vector<uint32_t>& column_indexes,
                                                                    bool is_key);
 
+    Status flush_columns_async(std::unique_ptr<SegmentWriter>* segment_writer);
+
     Status flush_columns(std::unique_ptr<SegmentWriter>* segment_writer);
+
+    std::unique_ptr<SegmentWriterFinalizeToken> _segment_writer_finalize_token = nullptr;
 
     uint32_t _max_rows_per_segment = 0;
     std::vector<std::unique_ptr<SegmentWriter>> _segment_writers;
