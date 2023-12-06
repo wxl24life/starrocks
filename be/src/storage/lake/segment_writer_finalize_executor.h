@@ -55,7 +55,7 @@ namespace starrocks {
 class DataDir;
 class ExecEnv;
 class ThreadPoolToken;
-}
+} // namespace starrocks
 namespace starrocks::lake {
 
 class VerticalGeneralTabletWriter;

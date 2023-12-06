@@ -230,7 +230,9 @@ public:
 
     SegmentFlushExecutor* segment_flush_executor() { return _segment_flush_executor.get(); }
 
-    lake::SegmentWriterFinalizeExecutor* segment_writer_finalize_executor() { return _segment_writer_finalize_executor.get(); }
+    lake::SegmentWriterFinalizeExecutor* segment_writer_finalize_executor() {
+        return _segment_writer_finalize_executor.get();
+    }
 
     UpdateManager* update_manager() { return _update_manager.get(); }
 

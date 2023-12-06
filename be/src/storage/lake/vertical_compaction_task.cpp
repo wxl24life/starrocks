@@ -15,6 +15,7 @@
 #include "storage/lake/vertical_compaction_task.h"
 
 #include "runtime/runtime_state.h"
+#include "segment_writer_finalize_executor.h"
 #include "storage/chunk_helper.h"
 #include "storage/compaction_utils.h"
 #include "storage/lake/rowset.h"
@@ -28,8 +29,6 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet_reader_params.h"
 #include "util/defer_op.h"
-
-#include "segment_writer_finalize_executor.h"
 
 namespace starrocks::lake {
 

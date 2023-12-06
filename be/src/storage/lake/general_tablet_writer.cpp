@@ -104,7 +104,8 @@ VerticalGeneralTabletWriter::~VerticalGeneralTabletWriter() = default;
 // To developers: Do NOT perform any I/O in this method, because this method may be invoked
 // in a bthread.
 Status VerticalGeneralTabletWriter::open() {
-    _segment_writer_finalize_token = StorageEngine::instance()->segment_writer_finalize_executor()->create_finalize_token();
+    _segment_writer_finalize_token =
+            StorageEngine::instance()->segment_writer_finalize_executor()->create_finalize_token();
     if (_segment_writer_finalize_token == nullptr) {
         return Status::InternalError("SegmentWriterFinalizeToken init failed");
     }

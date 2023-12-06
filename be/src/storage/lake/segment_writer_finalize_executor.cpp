@@ -40,7 +40,7 @@
 namespace starrocks::lake {
 SegmentWriterFinalizeToken::SegmentWriterFinalizeToken(std::unique_ptr<ThreadPoolToken> thread_pool_token)
         : _thread_pool_token(std::move(thread_pool_token)) {}
-        
+
 void SegmentWriterFinalizeToken::cancel() {
     _thread_pool_token->shutdown();
 }
@@ -67,7 +67,8 @@ Status SegmentWriterFinalizeExecutor::update_max_threads(int max_threads) {
     }
 }
 
-std::unique_ptr<SegmentWriterFinalizeToken> SegmentWriterFinalizeExecutor::create_finalize_token(ThreadPool::ExecutionMode execution_mode){
+std::unique_ptr<SegmentWriterFinalizeToken> SegmentWriterFinalizeExecutor::create_finalize_token(
+        ThreadPool::ExecutionMode execution_mode) {
     return std::make_unique<SegmentWriterFinalizeToken>(_finalize_thread_pool->new_token(execution_mode));
 }
 
