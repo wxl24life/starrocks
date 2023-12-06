@@ -99,11 +99,11 @@ public:
 
     RowsetTxnMetaPB* rowset_txn_meta() override { return nullptr; }
 
+    SegmentWriterFinalizeToken* get_segment_writer_finalize_token() { return _segment_writer_finalize_token.get(); }
+
 private:
     StatusOr<std::unique_ptr<SegmentWriter>> create_segment_writer(const std::vector<uint32_t>& column_indexes,
                                                                    bool is_key);
-
-    Status flush_columns_async(std::unique_ptr<SegmentWriter>* segment_writer);
 
     Status flush_columns(std::unique_ptr<SegmentWriter>* segment_writer);
 

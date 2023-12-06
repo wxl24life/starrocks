@@ -104,10 +104,12 @@ VerticalGeneralTabletWriter::~VerticalGeneralTabletWriter() = default;
 // To developers: Do NOT perform any I/O in this method, because this method may be invoked
 // in a bthread.
 Status VerticalGeneralTabletWriter::open() {
-    _segment_writer_finalize_token =
-            StorageEngine::instance()->segment_writer_finalize_executor()->create_finalize_token();
-    if (_segment_writer_finalize_token == nullptr) {
-        return Status::InternalError("SegmentWriterFinalizeToken init failed");
+    if (config::lake_enable_async_segment_writer) {
+        _segment_writer_finalize_token =
+                StorageEngine::instance()->segment_writer_finalize_executor()->create_finalize_token();
+        if (_segment_writer_finalize_token == nullptr) {
+            return Status::InternalError("SegmentWriterFinalizeToken init failed");
+        }
     }
     return Status::OK();
 }
@@ -125,7 +127,7 @@ Status VerticalGeneralTabletWriter::write_columns(const Chunk& data, const std::
     } else if (is_key) {
         // key columns
         if (_segment_writers[_current_writer_index]->num_rows_written() + chunk_num_rows >= _max_rows_per_segment) {
-            RETURN_IF_ERROR(flush_columns_async(&_segment_writers[_current_writer_index]));
+            RETURN_IF_ERROR(flush_columns(&_segment_writers[_current_writer_index]));
             auto segment_writer = create_segment_writer(column_indexes, is_key);
             if (!segment_writer.ok()) return segment_writer.status();
             _segment_writers.emplace_back(std::move(segment_writer).value());
@@ -151,7 +153,7 @@ Status VerticalGeneralTabletWriter::write_columns(const Chunk& data, const std::
             size_t offset = 0;
             while (num_left_rows > 0) {
                 if (segment_num_rows == num_rows_written) {
-                    RETURN_IF_ERROR(flush_columns_async(&_segment_writers[_current_writer_index]));
+                    RETURN_IF_ERROR(flush_columns(&_segment_writers[_current_writer_index]));
                     ++_current_writer_index;
                     RETURN_IF_ERROR(_segment_writers[_current_writer_index]->init(column_indexes, is_key));
                     num_rows_written = _segment_writers[_current_writer_index]->num_rows_written();
@@ -190,7 +192,7 @@ Status VerticalGeneralTabletWriter::flush_columns() {
     }
 
     DCHECK(_segment_writers[_current_writer_index]);
-    RETURN_IF_ERROR(flush_columns_async(&_segment_writers[_current_writer_index]));
+    RETURN_IF_ERROR(flush_columns(&_segment_writers[_current_writer_index]));
     _current_writer_index = 0;
     return Status::OK();
 }
@@ -235,16 +237,16 @@ StatusOr<std::unique_ptr<SegmentWriter>> VerticalGeneralTabletWriter::create_seg
     return w;
 }
 
-Status VerticalGeneralTabletWriter::flush_columns_async(std::unique_ptr<SegmentWriter>* segment_writer) {
-    return _segment_writer_finalize_token->get_thread_pool_token()->submit_func([this, &segment_writer] {
-        this->flush_columns(segment_writer);
-        return Status::OK();
-    });
-}
-
 Status VerticalGeneralTabletWriter::flush_columns(std::unique_ptr<SegmentWriter>* segment_writer) {
     uint64_t index_size = 0;
-    RETURN_IF_ERROR((*segment_writer)->finalize_columns(&index_size));
+    if (config::lake_enable_async_segment_writer) {
+        return _segment_writer_finalize_token->get_thread_pool_token()->submit_func([&segment_writer, &index_size] {
+            RETURN_IF_ERROR((*segment_writer)->finalize_columns(&index_size));
+            return Status::OK();
+        });
+    } else {
+        RETURN_IF_ERROR((*segment_writer)->finalize_columns(&index_size));
+    }
     return Status::OK();
 }
 

@@ -82,6 +82,12 @@ Status VerticalCompactionTask::execute(Progress* progress, CancelFunc cancel_fun
     // 1. For primary key, due to the existence of the delete vector, the number of rows read may be less than the
     //    number of rows counted in the metadata.
     // 2. If the number of rows is 0, the progress will not be updated
+    if (config::lake_enable_async_segment_writer) {
+        auto vertical_writer = dynamic_cast<VerticalGeneralTabletWriter*>(writer.get());
+        vertical_writer->get_segment_writer_finalize_token()->wait();
+        VLOG(3) << "Vertical compaction finished. tablet: " << _tablet->id();
+    }
+
     progress->update(100);
 
     RETURN_IF_ERROR(writer->finish());
