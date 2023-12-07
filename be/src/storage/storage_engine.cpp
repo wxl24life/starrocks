@@ -236,12 +236,14 @@ Status StorageEngine::_open(const EngineOptions& options) {
         return _segment_replicate_executor->get_thread_pool()->num_queued_tasks();
     });
 
+#ifdef USE_STAROS
     _segment_writer_finalize_executor = std::make_unique<lake::SegmentWriterFinalizeExecutor>();
-    RETURN_IF_ERROR_WITH_WARN(_segment_writer_finalize_executor->init(dirs),
+    RETURN_IF_ERROR_WITH_WARN(_segment_writer_finalize_executor->init(),
                               "init lake::SegmentWriterFinalizeExecutor failed");
     REGISTER_GAUGE_STARROCKS_METRIC(segment_writer_finalize_queue_count, [this]() {
         return _segment_writer_finalize_executor->get_thread_pool()->num_queued_tasks();
     });
+#endif // USE_STAROS
 
     return Status::OK();
 }

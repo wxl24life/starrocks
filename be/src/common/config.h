@@ -933,6 +933,8 @@ CONF_mInt64(experimental_lake_wait_per_delete_ms, "0");
 CONF_mInt64(lake_publish_version_slow_log_ms, "1000");
 CONF_mBool(lake_enable_publish_version_trace_log, "false");
 CONF_mBool(lake_enable_async_segment_writer, "false");
+// Size of lake async segment writer thread pool
+CONF_mInt32(lake_async_segment_writer_thread_number, "4");
 
 CONF_mBool(dependency_librdkafka_debug_enable, "false");
 

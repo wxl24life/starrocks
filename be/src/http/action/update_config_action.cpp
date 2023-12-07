@@ -169,6 +169,12 @@ Status UpdateConfigAction::update_config(const std::string& name, const std::str
             auto thread_pool = ExecEnv::GetInstance()->agent_server()->get_thread_pool(TTaskType::RELEASE_SNAPSHOT);
             (void)thread_pool->update_max_threads(config::release_snapshot_worker_count);
         });
+#ifdef USE_STAROS
+        _config_callback.emplace("lake_async_segment_writer_thread_number", [&]() {
+            (void) StorageEngine::instance()->segment_writer_finalize_executor()->update_max_threads(
+                    config::lake_async_segment_writer_thread_number);
+        });
+#endif
     });
 
     Status s = config::set_config(name, value);

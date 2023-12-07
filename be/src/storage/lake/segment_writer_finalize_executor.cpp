@@ -49,13 +49,11 @@ void SegmentWriterFinalizeToken::wait() {
     _thread_pool_token->wait();
 }
 
-Status SegmentWriterFinalizeExecutor::init(const std::vector<DataDir*>& data_dirs) {
-    int data_dir_num = static_cast<int>(data_dirs.size());
-    int min_threads = std::max<int>(1, config::flush_thread_num_per_store);
-    int max_threads = std::max(data_dir_num * min_threads, min_threads);
+Status SegmentWriterFinalizeExecutor::init() {
     return ThreadPoolBuilder("segment_writer_finalize")
-            .set_min_threads(min_threads)
-            .set_max_threads(max_threads)
+            .set_min_threads(1)
+            .set_max_threads(config::lake_async_segment_writer_thread_number)
+            .set_max_queue_size(1000)
             .build(&_finalize_thread_pool);
 }
 

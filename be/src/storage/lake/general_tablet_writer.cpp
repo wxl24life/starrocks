@@ -240,10 +240,11 @@ StatusOr<std::unique_ptr<SegmentWriter>> VerticalGeneralTabletWriter::create_seg
 Status VerticalGeneralTabletWriter::flush_columns(std::unique_ptr<SegmentWriter>* segment_writer) {
     uint64_t index_size = 0;
     if (config::lake_enable_async_segment_writer) {
-        return _segment_writer_finalize_token->get_thread_pool_token()->submit_func([&segment_writer, &index_size] {
+        auto status = _segment_writer_finalize_token->get_thread_pool_token()->submit_func([&segment_writer, &index_size] {
             RETURN_IF_ERROR((*segment_writer)->finalize_columns(&index_size));
             return Status::OK();
         });
+
     } else {
         RETURN_IF_ERROR((*segment_writer)->finalize_columns(&index_size));
     }

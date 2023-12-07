@@ -40,22 +40,8 @@
 
 #include "common/status.h"
 #include "general_tablet_writer.h"
-#include "storage/olap_define.h"
 #include "util/threadpool.h"
 
-namespace brpc {
-class Controller;
-}
-
-namespace google::protobuf {
-class Closure;
-}
-
-namespace starrocks {
-class DataDir;
-class ExecEnv;
-class ThreadPoolToken;
-} // namespace starrocks
 namespace starrocks::lake {
 
 class VerticalGeneralTabletWriter;
@@ -80,9 +66,7 @@ public:
     SegmentWriterFinalizeExecutor() = default;
     ~SegmentWriterFinalizeExecutor() = default;
 
-    // init should be called after storage engine is opened,
-    // because it needs path hash of each data dir.
-    Status init(const std::vector<DataDir*>& data_dirs);
+    Status init();
 
     Status update_max_threads(int max_threads);
 
