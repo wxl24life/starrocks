@@ -106,8 +106,8 @@ Status VerticalCompactionTask::execute(CancelFunc cancel_func, ThreadPool* flush
         _tablet.tablet_manager()->update_mgr()->preload_compaction_state(*txn_log, t, _tablet_schema);
     }
 
-    VLOG(3) << "Vertical compaction finished. tablet: " << _tablet.id() << ", txn_id: " << _txn_id
-            << ", statistics: " << _context.to_json_stats();
+    LOG(INFO) << "Vertical compaction finished. tablet: " << _tablet.id() << ", txn_id: " << _txn_id
+              << ", statistics: " << _context.to_json_stats();
 
     return Status::OK();
 }

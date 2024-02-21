@@ -235,7 +235,7 @@ Status CompactionScheduler::do_compaction(std::unique_ptr<CompactionTaskContext>
     }
 
     auto status = Status::OK();
-    auto task_or = _tablet_mgr->compact(tablet_id, version, txn_id, *context);
+    auto task_or = _tablet_mgr->compact(context.get());
     if (task_or.ok()) {
         auto should_cancel = [&]() { return context->callback->has_error() || context->callback->timeout_exceeded(); };
         TEST_SYNC_POINT("CompactionScheduler::do_compaction:before_execute_task");

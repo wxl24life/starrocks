@@ -33,8 +33,8 @@ public:
     // should be cancelled.
     using CancelFunc = std::function<bool()>;
 
-    explicit CompactionTask(int64_t txn_id, VersionedTablet tablet, std::vector<std::shared_ptr<Rowset>> input_rowsets,
-                            CompactionTaskContext& context);
+    explicit CompactionTask(VersionedTablet tablet, std::vector<std::shared_ptr<Rowset>> input_rowsets,
+                            CompactionTaskContext* context);
     virtual ~CompactionTask() = default;
 
     virtual Status execute(CancelFunc cancel_func, ThreadPool* flush_pool = nullptr) = 0;
