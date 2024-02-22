@@ -16,6 +16,7 @@
 
 #include <butil/containers/linked_list.h>
 
+#include <atomic>
 #include <memory>
 #include <string>
 
