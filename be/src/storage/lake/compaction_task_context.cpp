@@ -27,7 +27,7 @@ std::string CompactionTaskContext::to_json_stats() {
     auto& allocator = root.GetAllocator();
     // add stats
     root.AddMember("reader_total_time_ms", rapidjson::Value(stats->reader_time_ns / 1000000), allocator);
-    root.AddMember("reader_io_ms", rapidjson::Value(stats->segment_init_ns / 1000000), allocator);
+    root.AddMember("reader_io_ms", rapidjson::Value(stats->io_ns / 1000000), allocator);
     root.AddMember("reader_io_count_remote", rapidjson::Value(stats->io_count_remote), allocator);
     root.AddMember("reader_io_count_local_disk", rapidjson::Value(stats->io_count_local_disk), allocator);
     root.AddMember("compressed_bytes_read", rapidjson::Value(stats->compressed_bytes_read), allocator);

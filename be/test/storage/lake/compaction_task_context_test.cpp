@@ -72,7 +72,7 @@ TEST_F(CompactionTaskContextTest, test_to_json_stats) {
     // Verify the JSON output
     EXPECT_THAT(json_stats, testing::HasSubstr(R"("reader_total_time_ms":1)"));
     EXPECT_THAT(json_stats, testing::HasSubstr(R"("reader_io_ms":2)"));
-    EXPECT_THAT(json_stats, testing::HasSubstr(R"("io_count_remote":3)"));
-    EXPECT_THAT(json_stats, testing::HasSubstr(R"("segment_write_ns":5)"));
+    EXPECT_THAT(json_stats, testing::HasSubstr(R"("reader_io_count_remote":3)"));
+    EXPECT_THAT(json_stats, testing::HasSubstr(R"("segment_write_ms":5)"));
 }
 } // namespace starrocks::lake
