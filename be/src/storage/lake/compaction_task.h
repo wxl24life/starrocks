@@ -47,7 +47,7 @@ protected:
     VersionedTablet _tablet;
     std::vector<std::shared_ptr<Rowset>> _input_rowsets;
     std::unique_ptr<MemTracker> _mem_tracker = nullptr;
-    CompactionTaskContext& _context;
+    CompactionTaskContext* _context;
 };
 
 } // namespace starrocks::lake
