@@ -1100,7 +1100,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         return result;
     }
-
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
         TNetworkAddress clientAddr = getClientAddr();
