@@ -18,10 +18,16 @@
 #include <bthread/condition_variable.h>
 #include <bthread/mutex.h>
 #include <butil/time.h> // NOLINT
+#ifdef USE_STAROS
+#include <fslib/cache_stats_collector.h>
+#endif
 
 #include "agent/agent_server.h"
 #include "common/config.h"
 #include "common/status.h"
+#ifdef USE_STAROS
+#include "fs/fs_starlet.h"
+#endif
 #include "fs/fs_util.h"
 #include "gutil/strings/join.h"
 #include "runtime/exec_env.h"
@@ -122,6 +128,9 @@ bvar::PassiveStatus<int> g_vacuum_active_tasks("lake_vacuum_active_tasks", get_n
 } // namespace
 
 using BThreadCountDownLatch = GenericCountDownLatch<bthread::Mutex, bthread::ConditionVariable>;
+#ifdef USE_STAROS
+using CacheStatCollector = staros::starlet::fslib::CacheStatCollector;
+#endif
 
 LakeServiceImpl::LakeServiceImpl(ExecEnv* env, lake::TabletManager* tablet_mgr) : _env(env), _tablet_mgr(tablet_mgr) {}
 
@@ -637,6 +646,7 @@ void LakeServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
             }
             for (const auto& [_, file] : (*tablet_metadata)->delvec_meta().version_to_file()) {
                 data_size += file.size();
+                // TODO need cache stat for delvec file?
             }
 
             std::lock_guard l(response_mtx);
@@ -644,6 +654,21 @@ void LakeServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
             tablet_stat->set_tablet_id(tablet_id);
             tablet_stat->set_num_rows(num_rows);
             tablet_stat->set_data_size(data_size);
+#ifdef USE_STAROS
+            if (tablet_info::enable_cache() && config::experimental_lake_enable_collect_cache_stat) {
+                std::vector<std::string> files;
+                for (const auto& rowset : (*tablet_metadata)->rowsets()) {
+                    for (const auto& segment : rowset.segments()) {
+                        files.emplace_back(_tablet_mgr->segment_location(tablet_id, segment));
+                    }
+                }
+                size_t cache_size = 0;
+                if (!files.empty()) {
+                    cache_size = _calculate_cache_size(files);
+                }
+                tablet_stat->set_data_cache_size(cache_size);
+            }
+#endif
         };
         TEST_SYNC_POINT_CALLBACK("LakeServiceImpl::get_tablet_stats:before_submit", nullptr);
         if (auto st = thread_pool_token.submit_func(std::move(task), timeout_deadline); !st.ok()) {
@@ -654,6 +679,25 @@ void LakeServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
 
     latch.wait();
 }
+
+#ifdef USE_STAROS
+size_t LakeServiceImpl::_calculate_cache_size(const std::vector<std::string>& paths) {
+    if (paths.empty()) {
+        return Status::OK();
+    }
+    // REQUIRE: All files in |paths| have the same file system scheme.
+    auto fs_st = get_fslib_filesystem(paths[0]);
+    if (!fs_st.ok()) {
+        CacheStatCollector* collector = CacheStatCollector::instance(fs_st.get());
+        size_t cache_size = collector->collect_cache_size(paths);
+        if (cache_size.ok()) {
+            return cache_size->get();
+        }
+    } else {
+        LOG(WARNING) << "Fail to get fslib file system: " << st << ", path: " << path[0];
+    }
+}
+#endif
 
 void LakeServiceImpl::lock_tablet_metadata(::google::protobuf::RpcController* controller,
                                            const ::starrocks::lake::LockTabletMetadataRequest* request,

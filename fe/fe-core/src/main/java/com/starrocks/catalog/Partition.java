@@ -428,6 +428,15 @@ public class Partition extends MetaObject implements PhysicalPartition, Writable
         return rowCount;
     }
 
+    @Override
+    public long dataCacheSize() {
+        long dataCacheSize = 0;
+        for (PhysicalPartition subPartition : getSubPartitions()) {
+            dataCacheSize += subPartition.dataCacheSize();
+        }
+        return dataCacheSize;
+    }
+
     public long getRowCount() {
         long rowCount = 0;
         for (PhysicalPartition subPartition : getSubPartitions()) {

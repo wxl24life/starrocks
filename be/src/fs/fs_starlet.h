@@ -16,6 +16,8 @@
 
 #ifdef USE_STAROS
 
+#include <fslib/file_system.h>
+
 #include "common/statusor.h"
 #include "fs/fs.h"
 
@@ -36,6 +38,8 @@ std::string build_starlet_uri(int64_t shard_id, std::string_view path);
 //
 // If parse_starlet_uri() succeeded, is_starlet_uri() must be true.
 StatusOr<std::pair<std::string, int64_t>> parse_starlet_uri(std::string_view uri);
+
+absl::StatusOr<std::shared_ptr<staros::starlet::fslib::FileSystem>> get_fslib_filesystem(std::string_view path);
 
 std::unique_ptr<FileSystem> new_fs_starlet();
 

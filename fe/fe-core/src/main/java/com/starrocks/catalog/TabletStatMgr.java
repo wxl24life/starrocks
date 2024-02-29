@@ -345,6 +345,15 @@ public class TabletStatMgr extends FrontendDaemon {
                 TabletInfo tabletInfo = new TabletInfo();
                 tabletInfo.tabletId = tablet.getId();
                 tabletInfo.version = version;
+                // for cache stat
+                LakeTablet lakeTablet = (LakeTablet) tablet;
+                boolean enableCache = true;
+                try {
+                    enableCache = lakeTablet.getShardInfo().getFileCache().getEnableCache();
+                } catch (Exception e) {
+                    LOG.warn("Fail to get shard info of tablet {}: {}", lakeTablet.getId(), e.getMessage());
+                }
+                tabletInfo.enableCache = enableCache;
                 beToTabletInfos.computeIfAbsent(node, k -> Lists.newArrayList()).add(tabletInfo);
             }
 
@@ -378,6 +387,7 @@ public class TabletStatMgr extends FrontendDaemon {
                             tablet.setDataSize(stat.dataSize);
                             tablet.setRowCount(stat.numRows);
                             tablet.setDataSizeUpdateTime(collectStatTime);
+                            tablet.setDataCacheSize(stat.dataCacheSize);
                         }
                     }
                 } catch (InterruptedException e) {

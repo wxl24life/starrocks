@@ -569,6 +569,17 @@ private:
     staros::starlet::fslib::Configuration _conf;
 };
 
+absl::StatusOr<std::shared_ptr<staros::starlet::fslib::FileSystem>> get_fslib_filesystem(std::string_view path) {
+    DCHECK(is_starlet_uri(path));
+    ASSIGN_OR_RETURN(auto pair, parse_starlet_uri(path));
+    staros::starlet::fslib::Configuration conf;
+    auto fs_st = g_worker->get_shard_filesystem(pair.second, conf);
+    if (!fs_st.ok()) {
+        return to_status(fs_st.status());
+    }
+    return Status::NotFound("Invalid statlet file path, " + st.message);
+}
+
 std::unique_ptr<FileSystem> new_fs_starlet() {
     return std::make_unique<StarletFileSystem>();
 }

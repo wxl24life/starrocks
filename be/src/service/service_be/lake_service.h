@@ -106,6 +106,10 @@ private:
                                           const int64_t* log_versions, size_t txn_size,
                                           ::starrocks::lake::PublishLogVersionResponse* response);
 
+#ifdef USE_STAROS
+    size_t _calculate_cache_size(const std::vector<std::string>& paths);
+#endif
+
 private:
     static constexpr int64_t kDefaultTimeoutForGetTabletStat = 5 * 60 * 1000L;  // 5 minutes
     static constexpr int64_t kDefaultTimeoutForPublishVersion = 1 * 60 * 1000L; // 1 minute
