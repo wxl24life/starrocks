@@ -85,7 +85,7 @@ TEST_F(CompactionTaskContextTest, test_to_json_stats) {
     static constexpr long TIME_UNIT_NS_PER_SECOND = 1000000000;
 
     // Set up some stats to test the JSON output
-    context.stats->reader_time_ns = 3 * TIME_UNIT_NS_PER_SECOND;
+    context.stats->reader_time_ns = 30 * TIME_UNIT_NS_PER_SECOND;
     context.stats->io_ns = 12 * TIME_UNIT_NS_PER_SECOND;
     context.stats->io_ns_remote = 1 * TIME_UNIT_NS_PER_SECOND;
     context.stats->io_ns_local_disk = 9 * TIME_UNIT_NS_PER_SECOND;
