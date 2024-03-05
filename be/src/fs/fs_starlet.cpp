@@ -577,7 +577,7 @@ absl::StatusOr<std::shared_ptr<staros::starlet::fslib::FileSystem>> get_fslib_fi
     if (!fs_st.ok()) {
         return to_status(fs_st.status());
     }
-    return Status::NotFound("Invalid statlet file path, " + st.message);
+    return Status::NotFound("Invalid statlet file path, " + fs_st.message);
 }
 
 std::unique_ptr<FileSystem> new_fs_starlet() {
