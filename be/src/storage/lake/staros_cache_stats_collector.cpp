@@ -28,7 +28,7 @@ using Configuration = staros::starlet::fslib::Configuration;
 
 size_t calculate_cache_size(std::vector<std::string> paths) {
     if (paths.empty()) {
-        return Status::OK();
+        return 0;
     }
 
     // REQUIRE: All files in |paths| have the same file system scheme.
@@ -36,7 +36,7 @@ size_t calculate_cache_size(std::vector<std::string> paths) {
     Configuration conf;
     auto fs_st = g_worker->get_shard_filesystem(pair.second, conf);
     if (!fs_st.ok()) {
-        LOG(WARNING) << "Invalid statlet file path: " + file_path);
+        LOG(WARNING) << "Invalid statlet file path: " + paths[0]);
         return 0;
     }
 
