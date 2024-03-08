@@ -17,6 +17,7 @@
 
 #include <bvar/bvar.h>
 #include <fmt/core.h>
+#include <fslib/cache_stats_collector.h>
 #include <fslib/configuration.h>
 #include <fslib/file.h>
 #include <fslib/file_system.h>
@@ -560,8 +561,7 @@ public:
         return to_status(fs->delete_files(parsed_paths));
     }
 
-private:
-    absl::StatusOr<std::shared_ptr<staros::starlet::fslib::FileSystem>> get_shard_filesystem(int64_t shard_id) {
+    static absl::StatusOr<std::shared_ptr<staros::starlet::fslib::FileSystem>> get_shard_filesystem(int64_t shard_id) {
         return g_worker->get_shard_filesystem(shard_id, _conf);
     }
 
@@ -569,20 +569,31 @@ private:
     staros::starlet::fslib::Configuration _conf;
 };
 
-StatusOr<std::shared_ptr<staros::starlet::fslib::FileSystem>> get_fslib_filesystem(std::string_view path) {
-    DCHECK(is_starlet_uri(path));
-    ASSIGN_OR_RETURN(auto pair, parse_starlet_uri(path));
-    staros::starlet::fslib::Configuration conf;
-    auto fs_st = g_worker->get_shard_filesystem(pair.second, conf);
-    if (!fs_st.ok()) {
-        return to_status(fs_st.status());
-    }
-    return Status::NotFound("Invalid statlet file path: " + std::string(path));
-}
-
 std::unique_ptr<FileSystem> new_fs_starlet() {
     return std::make_unique<StarletFileSystem>();
 }
+
+size_t calculate_cache_size(std::vector<std::string> paths) {
+    if (paths.empty()) {
+        return Status::OK();
+    }
+
+    // REQUIRE: All files in |paths| have the same file system scheme.
+    ASSIGN_OR_RETURN(auto pair, parse_starlet_uri(paths[0]));
+    auto fs_st = StarletFileSystem::get_shard_filesystem(pair.second);
+    if (!fs_st.ok()) {
+        LOG(WARNING) << "Invalid statlet file path: " + file_path);
+        return 0;
+    }
+
+    CacheStatCollector* collector = CacheStatCollector::instance(fs_st.get());
+    StatusOr<size_t> size_st = collector->collect_cache_size(paths);
+    if (size_st.ok()) {
+        return size_st.get();
+    }
+    return 0;
+}
+
 } // namespace starrocks
 
 #endif // USE_STAROS

@@ -18,9 +18,6 @@
 #include <bthread/condition_variable.h>
 #include <bthread/mutex.h>
 #include <butil/time.h> // NOLINT
-#ifdef USE_STAROS
-#include <fslib/cache_stats_collector.h>
-#endif
 
 #include "agent/agent_server.h"
 #include "common/config.h"
@@ -655,18 +652,17 @@ void LakeServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
             tablet_stat->set_num_rows(num_rows);
             tablet_stat->set_data_size(data_size);
 #ifdef USE_STAROS
-            if (tablet_info::enable_cache() && config::experimental_lake_enable_collect_cache_stat) {
+            if (config::experimental_lake_enable_collect_cache_stat && tablet_info.enable_cache()) {
                 std::vector<std::string> files;
                 for (const auto& rowset : (*tablet_metadata)->rowsets()) {
                     for (const auto& segment : rowset.segments()) {
                         files.emplace_back(_tablet_mgr->segment_location(tablet_id, segment));
                     }
                 }
-                size_t cache_size = 0;
                 if (!files.empty()) {
-                    cache_size = _calculate_cache_size(files);
+                    auto cache_size = calculate_cache_size(files);
+                    tablet_stat->set_data_cache_size(cache_size);
                 }
-                tablet_stat->set_data_cache_size(cache_size);
             }
 #endif
         };
@@ -679,25 +675,6 @@ void LakeServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
 
     latch.wait();
 }
-
-#ifdef USE_STAROS
-size_t LakeServiceImpl::_calculate_cache_size(const std::vector<std::string>& paths) {
-    if (paths.empty()) {
-        return Status::OK();
-    }
-    // REQUIRE: All files in |paths| have the same file system scheme.
-    auto fs_st = get_fslib_filesystem(paths[0]);
-    if (!fs_st.ok()) {
-        CacheStatCollector* collector = CacheStatCollector::instance(fs_st.get());
-        size_t cache_size = collector->collect_cache_size(paths);
-        if (cache_size.ok()) {
-            return cache_size->get();
-        }
-    } else {
-        LOG(WARNING) << "Fail to get fslib file system: " << st << ", path: " << path[0];
-    }
-}
-#endif
 
 void LakeServiceImpl::lock_tablet_metadata(::google::protobuf::RpcController* controller,
                                            const ::starrocks::lake::LockTabletMetadataRequest* request,
