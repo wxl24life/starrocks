@@ -28,7 +28,7 @@ namespace starrocks::lake {
 using Configuration = staros::starlet::fslib::Configuration;
 using CacheStatCollector = staros::starlet::fslib::CacheStatCollector;
 
-int64_t calculate_cache_size(std::vector<std::string> paths) {
+StatusOr<int64_t> calculate_cache_size(std::vector<std::string> paths) {
     if (paths.empty()) {
         return 0;
     }
@@ -39,15 +39,11 @@ int64_t calculate_cache_size(std::vector<std::string> paths) {
     auto fs_st = g_worker->get_shard_filesystem(pair.second, conf);
     if (!fs_st.ok()) {
         LOG(WARNING) << "Invalid statlet file path: " << paths[0];
-        return 0;
+        return to_status(fs_st.status());
     }
 
-    CacheStatCollector* collector = CacheStatCollector::instance(fs_st.get());
-    absl::StatusOr<int64_t> size_st = collector->collect_cache_size(paths);
-    if (size_st.ok()) {
-        return size_st.value();
-    }
-    return 0;
+    CacheStatCollector* collector = CacheStatCollector::instance(fs_st.value());
+    return to_status(collector->collect_cache_size(paths));
 }
 } // namespace starrocks::lake
 #endif
