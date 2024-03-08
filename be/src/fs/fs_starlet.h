@@ -40,9 +40,6 @@ std::string build_starlet_uri(int64_t shard_id, std::string_view path);
 StatusOr<std::pair<std::string, int64_t>> parse_starlet_uri(std::string_view uri);
 std::unique_ptr<FileSystem> new_fs_starlet();
 
-// collect local cache stat size for block cache
-size_t calculate_cache_size(std::vector<std::string> paths);
-
 } // namespace starrocks
 
 #endif // USE_STAROS

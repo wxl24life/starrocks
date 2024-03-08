@@ -17,7 +17,6 @@
 
 #include <bvar/bvar.h>
 #include <fmt/core.h>
-#include <fslib/cache_stats_collector.h>
 #include <fslib/configuration.h>
 #include <fslib/file.h>
 #include <fslib/file_system.h>
@@ -573,7 +572,6 @@ private:
 std::unique_ptr<FileSystem> new_fs_starlet() {
     return std::make_unique<StarletFileSystem>();
 }
-
 } // namespace starrocks
 
 #endif // USE_STAROS

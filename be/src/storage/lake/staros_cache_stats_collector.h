@@ -16,7 +16,7 @@
 
 namespace starrocks::lake {
 // collect local cache stat size for block cache
-size_t calculate_cache_size(std::vector<std::string> paths);
+int64_t calculate_cache_size(std::vector<std::string> paths);
 } // namespace starrocks::lake
 
 #endif
