@@ -38,7 +38,8 @@ SchemaScanner::ColumnDesc SchemaBeCloudNativeCompactionsScanner::_s_columns[] = 
         {"START_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
         {"FINISH_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
         {"PROGRESS", TYPE_INT, sizeof(int32_t), false},
-        {"STATUS", TYPE_VARCHAR, sizeof(StringValue), false}};
+        {"STATUS", TYPE_VARCHAR, sizeof(StringValue), false},
+        {"STATISTICS", TYPE_VARCHAR, sizeof(StringValue), false}};
 
 SchemaBeCloudNativeCompactionsScanner::SchemaBeCloudNativeCompactionsScanner()
         : SchemaScanner(_s_columns, sizeof(_s_columns) / sizeof(SchemaScanner::ColumnDesc)) {}
@@ -68,7 +69,7 @@ Status SchemaBeCloudNativeCompactionsScanner::fill_chunk(ChunkPtr* chunk) {
     for (; _cur_idx < end; _cur_idx++) {
         auto& info = _infos[_cur_idx];
         for (const auto& [slot_id, index] : slot_id_to_index_map) {
-            if (slot_id < 1 || slot_id > 10) {
+            if (slot_id < 1 || slot_id > 11) {
                 return Status::InternalError(strings::Substitute("invalid slot id:$0", slot_id));
             }
             ColumnPtr column = (*chunk)->get_column_by_slot_id(slot_id);
@@ -126,6 +127,11 @@ Status SchemaBeCloudNativeCompactionsScanner::fill_chunk(ChunkPtr* chunk) {
                 auto s = info.status.message();
                 Slice v(s.data(), s.size());
                 fill_column_with_slot<TYPE_VARCHAR>(column.get(), (void*)&v);
+                break;
+            }
+            case 11: {
+                Slice statistic = Slice(info.statistic);
+                fill_column_with_slot<TYPE_VARCHAR>(column.get(), (void*)&statistic);
                 break;
             }
             default:

@@ -146,6 +146,7 @@ void CompactionScheduler::list_tasks(std::vector<CompactionTaskInfo>* infos) {
         if (info.finish_time > 0) {
             info.status = context->status;
         }
+        info.statistic = context->stats->to_json_stats();
     }
 }
 

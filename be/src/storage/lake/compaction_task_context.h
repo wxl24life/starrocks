@@ -40,16 +40,16 @@ private:
 };
 
 struct CompactionTaskStats {
-    int64_t io_ns = 0;
-    int64_t io_ns_remote = 0;
-    int64_t io_ns_local_disk = 0;
-    int64_t segment_init_ns = 0;
-    int64_t column_iterator_init_ns = 0;
-    int64_t io_count_local_disk = 0;
-    int64_t io_count_remote = 0;
-    int64_t compressed_bytes_read = 0;
-    int64_t reader_time_ns = 0;
-    int64_t segment_write_ns = 0;
+    std::atomic<int64_t> io_ns{0};
+    std::atomic<int64_t> io_ns_remote{0};
+    std::atomic<int64_t> io_ns_local_disk{0};
+    std::atomic<int64_t> segment_init_ns{0};
+    std::atomic<int64_t> column_iterator_init_ns{0};
+    std::atomic<int64_t> io_count_local_disk{0};
+    std::atomic<int64_t> io_count_remote{0};
+    std::atomic<int64_t> compressed_bytes_read{0};
+    std::atomic<int64_t> reader_time_ns{0};
+    std::atomic<int64_t> segment_write_ns{0};
 
     void accumulate(const OlapReaderStatistics& reader_stats);
     std::string to_json_stats();
