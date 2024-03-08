@@ -19,8 +19,6 @@
 #include <fslib/cache_stats_collector.h>
 #include <fslib/configuration.h>
 
-#include <cstdint>
-
 #include "fs/fs_starlet.h"
 #include "fslib/stat.h"
 #include "service/staros_worker.h"

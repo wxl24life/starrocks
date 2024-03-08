@@ -14,6 +14,10 @@
 #ifdef USE_STAROS
 #pragma once
 
+#include <cstdint>
+#include <string>
+#include <vector>
+
 namespace starrocks::lake {
 // collect local cache stat size for block cache
 int64_t calculate_cache_size(std::vector<std::string> paths);
