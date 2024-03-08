@@ -19,6 +19,8 @@
 #include <fslib/cache_stats_collector.h>
 #include <fslib/configuration.h>
 
+#include <cstdint>
+
 #include "fs/fs_starlet.h"
 #include "fslib/stat.h"
 #include "service/staros_worker.h"
@@ -45,7 +47,7 @@ int64_t calculate_cache_size(std::vector<std::string> paths) {
     CacheStatCollector* collector = CacheStatCollector::instance(fs_st.get());
     absl::StatusOr<int64_t> size_st = collector->collect_cache_size(paths);
     if (size_st.ok()) {
-        return size_st.get();
+        return size_st.value();
     }
     return 0;
 }
