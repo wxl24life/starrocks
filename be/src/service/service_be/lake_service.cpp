@@ -125,9 +125,6 @@ bvar::PassiveStatus<int> g_vacuum_active_tasks("lake_vacuum_active_tasks", get_n
 } // namespace
 
 using BThreadCountDownLatch = GenericCountDownLatch<bthread::Mutex, bthread::ConditionVariable>;
-#ifdef USE_STAROS
-using CacheStatCollector = staros::starlet::fslib::CacheStatCollector;
-#endif
 
 LakeServiceImpl::LakeServiceImpl(ExecEnv* env, lake::TabletManager* tablet_mgr) : _env(env), _tablet_mgr(tablet_mgr) {}
 
@@ -660,7 +657,7 @@ void LakeServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
                     }
                 }
                 if (!files.empty()) {
-                    auto cache_size = calculate_cache_size(files);
+                    auto cache_size = starrocks::lake::calculate_cache_size(files);
                     tablet_stat->set_data_cache_size(cache_size);
                 }
             }
