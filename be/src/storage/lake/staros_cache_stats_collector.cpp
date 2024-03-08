@@ -43,7 +43,7 @@ StatusOr<int64_t> calculate_cache_size(std::vector<std::string> paths) {
     }
 
     staros::starlet::fslib::FileSystem* fs = fs_st.value().get();
-    CacheStatCollector* collector = CacheStatCollector::instance(fs);
+    auto collector = CacheStatCollector::instance(fs);
     absl::StatusOr<int64_t> size_st = collector->collect_cache_size(paths);
     if (!size_st.ok()) {
         return to_status(size_st.status());
