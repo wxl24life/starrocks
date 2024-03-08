@@ -22,9 +22,6 @@
 #include "agent/agent_server.h"
 #include "common/config.h"
 #include "common/status.h"
-#ifdef USE_STAROS
-#include "fs/fs_starlet.h"
-#endif
 #include "fs/fs_util.h"
 #include "gutil/strings/join.h"
 #include "runtime/exec_env.h"
@@ -33,6 +30,9 @@
 #include "storage/lake/compaction_policy.h"
 #include "storage/lake/compaction_scheduler.h"
 #include "storage/lake/compaction_task.h"
+#ifdef USE_STAROS
+#include "storage/lake/staros_cache_stats_collector.h"
+#endif
 #include "storage/lake/tablet.h"
 #include "storage/lake/transactions.h"
 #include "storage/lake/vacuum.h"

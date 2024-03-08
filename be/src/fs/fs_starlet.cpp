@@ -561,7 +561,8 @@ public:
         return to_status(fs->delete_files(parsed_paths));
     }
 
-    static absl::StatusOr<std::shared_ptr<staros::starlet::fslib::FileSystem>> get_shard_filesystem(int64_t shard_id) {
+private:
+    absl::StatusOr<std::shared_ptr<staros::starlet::fslib::FileSystem>> get_shard_filesystem(int64_t shard_id) {
         return g_worker->get_shard_filesystem(shard_id, _conf);
     }
 
@@ -571,27 +572,6 @@ private:
 
 std::unique_ptr<FileSystem> new_fs_starlet() {
     return std::make_unique<StarletFileSystem>();
-}
-
-size_t calculate_cache_size(std::vector<std::string> paths) {
-    if (paths.empty()) {
-        return Status::OK();
-    }
-
-    // REQUIRE: All files in |paths| have the same file system scheme.
-    ASSIGN_OR_RETURN(auto pair, parse_starlet_uri(paths[0]));
-    auto fs_st = StarletFileSystem::get_shard_filesystem(pair.second);
-    if (!fs_st.ok()) {
-        LOG(WARNING) << "Invalid statlet file path: " + file_path);
-        return 0;
-    }
-
-    CacheStatCollector* collector = CacheStatCollector::instance(fs_st.get());
-    StatusOr<size_t> size_st = collector->collect_cache_size(paths);
-    if (size_st.ok()) {
-        return size_st.get();
-    }
-    return 0;
 }
 
 } // namespace starrocks
