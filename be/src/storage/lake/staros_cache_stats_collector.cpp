@@ -20,11 +20,13 @@
 #include <fslib/configuration.h>
 
 #include "fs/fs_starlet.h"
+#include "fslib/stat.h"
 #include "service/staros_worker.h"
 
 namespace starrocks::lake {
 
 using Configuration = staros::starlet::fslib::Configuration;
+using CacheStatCollector = staros::starlet::fslib::CacheStatCollector;
 
 size_t calculate_cache_size(std::vector<std::string> paths) {
     if (paths.empty()) {
@@ -41,7 +43,7 @@ size_t calculate_cache_size(std::vector<std::string> paths) {
     }
 
     CacheStatCollector* collector = CacheStatCollector::instance(fs_st.get());
-    StatusOr<size_t> size_st = collector->collect_cache_size(paths);
+    absl::StatusOr<size_t> size_st = collector->collect_cache_size(paths);
     if (size_st.ok()) {
         return size_st.get();
     }
