@@ -36,7 +36,7 @@ size_t calculate_cache_size(std::vector<std::string> paths) {
     Configuration conf;
     auto fs_st = g_worker->get_shard_filesystem(pair.second, conf);
     if (!fs_st.ok()) {
-        LOG(WARNING) << "Invalid statlet file path: " + paths[0]);
+        LOG(WARNING) << "Invalid statlet file path: " << paths[0];
         return 0;
     }
 
