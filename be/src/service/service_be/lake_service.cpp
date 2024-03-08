@@ -657,8 +657,8 @@ void LakeServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
                     }
                 }
                 if (!files.empty()) {
-                    auto cache_size = starrocks::lake::calculate_cache_size(files);
-                    tablet_stat->set_data_cache_size(cache_size);
+                    auto cache_size_st = starrocks::lake::calculate_cache_size(files);
+                    tablet_stat->set_data_cache_size(cache_size_st.value());
                 }
             }
 #endif

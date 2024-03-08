@@ -18,9 +18,11 @@
 #include <string>
 #include <vector>
 
+#include "common/statusor.h"
+
 namespace starrocks::lake {
 // collect local cache stat size for block cache
-int64_t calculate_cache_size(std::vector<std::string> paths);
+StatusOr<int64_t> calculate_cache_size(std::vector<std::string> paths);
 } // namespace starrocks::lake
 
 #endif
