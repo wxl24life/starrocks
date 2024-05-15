@@ -406,6 +406,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
                 buildLocation();
                 buildStorageCoolDownTTL();
                 buildEnableStatisticCollectOnFirstLoad();
+                buildDataCacheEnable();
                 break;
             case OperationType.OP_MODIFY_TABLE_CONSTRAINT_PROPERTY:
                 buildConstraint();
@@ -789,6 +790,19 @@ public class TableProperty implements Writable, GsonPostProcessable {
         return this;
     }
 
+    public TableProperty buildDataCacheEnable() {
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DATACACHE_ENABLE)) {
+            boolean dataCacheEnable = Boolean.parseBoolean(
+                    properties.getOrDefault(PropertyAnalyzer.PROPERTIES_DATACACHE_ENABLE, "false"));
+            if (this.storageInfo != null) {
+                this.storageInfo.setDataCacheEnable(dataCacheEnable);
+            } else {
+                LOG.warn("Setting datacache.enable to {} while storage info is null", dataCacheEnable);
+            }
+        }
+        return this;
+    }
+
     public TableProperty buildStorageCoolDownTTL() {
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TTL)) {
             String storageCoolDownTTL = properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TTL);
@@ -1150,5 +1164,6 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildBaseCompactionForbiddenTimeRanges();
         buildMutableBucketNum();
         buildEnableStatisticCollectOnFirstLoad();
+        buildDataCacheEnable();
     }
 }
