@@ -170,8 +170,9 @@ public class InsertAnalyzer {
             insertStmt.setTargetPartitionIds(targetPartitionIds);
         }
 
-        if (table.isIcebergTable() || table.isHiveTable()) {
-            if (table.isHiveTable() && ((HiveTable) table).getHiveTableType() != HiveTable.HiveTableType.MANAGED_TABLE &&
+        if (table.isIcebergTable() || table.isHiveTable() || table.isPaimonTable())) {
+            if (table.isHiveTable() && ((HiveTable) table).getHiveTableType()
+                    != HiveTable.HiveTableType.MANAGED_TABLE &&
                     !session.getSessionVariable().enableWriteHiveExternalTable()) {
                 throw new SemanticException("Only support to write hive managed table, tableType: " +
                         ((HiveTable) table).getHiveTableType());
@@ -299,7 +300,7 @@ public class InsertAnalyzer {
         }
 
         int mentionedColumnSize = mentionedColumns.size();
-        if ((table.isIcebergTable() || table.isHiveTable()) && insertStmt.isStaticKeyPartitionInsert()) {
+        if ((table.isIcebergTable() || table.isHiveTable() || table.isPaimonTable()) && insertStmt.isStaticKeyPartitionInsert()) {
             // full column size = mentioned column size + partition column size for static partition insert
             mentionedColumnSize -= table.getPartitionColumnNames().size();
             mentionedColumns.removeAll(table.getPartitionColumnNames());
@@ -598,8 +599,8 @@ public class InsertAnalyzer {
         }
 
         if (insertStmt.isOverwrite()) {
-            if (!(table instanceof OlapTable) && !table.isIcebergTable() && !table.isHiveTable()) {
-                throw unsupportedException("Only support insert overwrite olap/iceberg/hive table");
+            if (!(table instanceof OlapTable) && !table.isIcebergTable() && !table.isHiveTable() && !table.isPaimonTable()) {
+                throw unsupportedException("Only support insert overwrite olap/iceberg/hive/paimon table");
             }
             if (table instanceof OlapTable && ((OlapTable) table).getState() != NORMAL) {
                 String msg =
@@ -610,14 +611,15 @@ public class InsertAnalyzer {
         }
 
         if (!table.supportInsert()) {
-            if (table.isIcebergTable() || table.isHiveTable()) {
+            if (table.isIcebergTable() || table.isHiveTable() || table.isPaimonTable()) {
                 throw unsupportedException(String.format("Only support insert into %s table with parquet file format",
                         table.getType()));
             }
-            throw unsupportedException("Only support insert into olap/mysql/iceberg/hive table");
+            throw unsupportedException("Only support insert into olap/mysql/iceberg/hive/paimon table");
         }
 
-        if ((table.isHiveTable() || table.isIcebergTable()) && CatalogMgr.isInternalCatalog(catalogName)) {
+        if ((table.isHiveTable() || table.isIcebergTable() || table.isPaimonTable())
+                && CatalogMgr.isInternalCatalog(catalogName)) {
             throw unsupportedException(String.format("Doesn't support %s table sink in the internal catalog. " +
                     "You need to use %s catalog.", table.getType(), table.getType()));
         }
