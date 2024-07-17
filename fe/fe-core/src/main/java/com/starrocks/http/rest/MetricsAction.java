@@ -37,6 +37,7 @@ package com.starrocks.http.rest;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.starrocks.authorization.AccessDeniedException;
+import com.starrocks.common.Config;
 import com.starrocks.common.DdlException;
 import com.starrocks.http.ActionController;
 import com.starrocks.http.BaseRequest;
@@ -164,7 +165,8 @@ public class MetricsAction extends RestBaseAction {
         boolean isCollectUserConnMetrics = isCollectTableOrMVMetrics(withUserConnections);
 
         // check request authorization
-        if (isCollectTableMetrics || isCollectMVMetrics || isCollectUserConnMetrics) {
+        if (!Config.emr_serverless_allow_get_metrics_without_auth &&
+                (isCollectTableMetrics || isCollectMVMetrics || isCollectUserConnMetrics)) {
             UserIdentity currentUser = null;
             try {
                 ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
