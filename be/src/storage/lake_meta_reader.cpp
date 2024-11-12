@@ -91,7 +91,7 @@ Status LakeMetaReader::_build_collect_context(const lake::VersionedTablet& table
 
         _has_count_agg |= (collect_field == META_COUNT_ROWS);
         _has_count_agg |= (collect_field == META_COUNT_COL);
-        
+
         if (collect_field != "count") {
             _collect_context.seg_collecter_params.only_has_count_agg = false;
         }

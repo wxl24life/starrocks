@@ -81,6 +81,7 @@ protected:
 
     std::unique_ptr<SegmentWriter> _seg_writer;
     GlobalDictByNameMaps* _global_dicts = nullptr;
+    bool _is_compaction = false;
 };
 
 class VerticalGeneralTabletWriter : public TabletWriter {
@@ -142,6 +143,7 @@ protected:
 
     std::unique_ptr<ConcurrencyLimitedThreadPoolToken> _segment_writer_finalize_token;
     std::vector<std::future<Status>> _futures;
+    bool _is_compaction = false;
 };
 
 void collect_writer_stats(OlapWriterStatistics& writer_stats, SegmentWriter* segment_writer);
