@@ -872,6 +872,11 @@ public class DiskAndTabletLoadReBalancer extends Rebalancer {
                 if (olapTable == null) {
                     continue;
                 }
+
+                if (!olapTable.needSchedule(true)) {
+                    continue;
+                }
+
                 // check tablet healthy
                 if (isTabletUnhealthy(tabletMeta.getDbId(), olapTable, tabletId, tabletMeta, aliveBeIds)) {
                     continue;
