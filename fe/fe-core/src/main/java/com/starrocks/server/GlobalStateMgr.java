@@ -440,6 +440,8 @@ public class GlobalStateMgr {
 
     private boolean isSafeMode = false;
 
+    private String safeModeHintMsg;
+
     private final ResourceGroupMgr resourceGroupMgr;
 
     private StarOSAgent starOSAgent;
@@ -890,6 +892,14 @@ public class GlobalStateMgr {
 
     public void setSafeMode(boolean isSafeMode) {
         this.isSafeMode = isSafeMode;
+    }
+
+    public String getSafeModeHintMsg() {
+        return safeModeHintMsg;
+    }
+
+    public void setSafeModeHintMsg(String safeModeHintMsg) {
+        this.safeModeHintMsg = safeModeHintMsg;
     }
 
     // NOTICE: in most case, we should use getCurrentState() to get the right globalStateMgr.
