@@ -61,6 +61,7 @@ import com.starrocks.connector.exception.StarRocksConnectorException;
 import com.starrocks.connector.iceberg.IcebergTimeTravelQueryAnalyzer;
 import com.starrocks.metric.MetricRepo;
 import com.starrocks.metric.ResourceGroupMetricMgr;
+import com.starrocks.metric.WarehouseMetricMgr;
 import com.starrocks.mysql.MysqlChannel;
 import com.starrocks.mysql.MysqlCodec;
 import com.starrocks.mysql.MysqlCommand;
@@ -261,6 +262,7 @@ public class ConnectProcessor {
                                     .increase(1L));
                 }
                 ResourceGroupMetricMgr.increaseQuery(ctx, 1L);
+                WarehouseMetricMgr.increaseQuery(ctx, 1L);
                 if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
                     // err query
                     MetricRepo.COUNTER_QUERY_ERR.increase(1L);
@@ -268,6 +270,7 @@ public class ConnectProcessor {
                         MetricRepo.COUNTER_ROOT_QUERY_ERR.increase(1L);
                     }
                     ResourceGroupMetricMgr.increaseQueryErr(ctx, 1L);
+                    WarehouseMetricMgr.increaseQueryErr(ctx, 1L);
                     //represent analysis err
                     if (ctx.getState().getErrType() == QueryState.ErrType.ANALYSIS_ERR) {
                         MetricRepo.COUNTER_QUERY_ANALYSIS_ERR.increase(1L);

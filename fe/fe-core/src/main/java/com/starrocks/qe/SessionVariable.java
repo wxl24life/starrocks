@@ -3286,7 +3286,7 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
     }
 
     public String getWarehouseName() {
-        return warehouseName;
+        return warehouseName == null ? WarehouseManager.DEFAULT_WAREHOUSE_NAME : warehouseName;
     }
 
     public void setWarehouseName(String warehouseName) {
