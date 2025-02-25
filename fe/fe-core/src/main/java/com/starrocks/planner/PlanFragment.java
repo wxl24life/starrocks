@@ -312,7 +312,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     }
 
     public boolean hasTableSink() {
-        return hasIcebergTableSink() || hasOlapTableSink() || hasHiveTableSink() || hasTableFunctionTableSink();
+        return hasIcebergTableSink() || hasOlapTableSink() || hasHiveTableSink() || hasTableFunctionTableSink()
+                || hasPaimonTableSink();
     }
 
     public boolean hasOlapTableSink() {
