@@ -319,8 +319,8 @@ public class StreamLoadTask extends AbstractTxnStateChangeCallback
                     resp.addResultEntry("TxnId", this.txnId);
                     resp.addResultEntry("BeginChannel", channelNum);
                     resp.addResultEntry("BeginTxnTimeMs", this.beforeLoadTimeMs - this.createTimeMs);
-                    LOG.info("stream load {} channel_id {} begin. db: {}, tbl: {}, txn_id: {}",
-                            label, channelId, dbName, tableName, txnId);
+                    LOG.info("stream load {} channel_id {} begin. db: {}, tbl: {}, txn_id: {}, warehouse: {}",
+                            label, channelId, dbName, tableName, txnId, warehouseId);
                     break;
                 }
                 case BEFORE_LOAD:
@@ -333,8 +333,8 @@ public class StreamLoadTask extends AbstractTxnStateChangeCallback
                     }
                     this.channels.set(channelId, State.BEFORE_LOAD);
                     resp.addResultEntry("BeginChannel", channelNum);
-                    LOG.info("stream load {} channel_id {} begin. db: {}, tbl: {}, txn_id: {}",
-                            label, channelId, dbName, tableName, txnId);
+                    LOG.info("stream load {} channel_id {} begin. db: {}, tbl: {}, txn_id: {}, warehouse: {}",
+                            label, channelId, dbName, tableName, txnId, warehouseId);
                     break;
                 }
                 case PREPARED: {
