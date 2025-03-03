@@ -1492,6 +1492,16 @@ public class StreamLoadTask extends AbstractTxnStateChangeCallback
             } else {
                 row.add("");
             }
+            if (RunMode.getCurrentRunMode() == RunMode.SHARED_DATA) {
+                try {
+                    Warehouse warehouse = GlobalStateMgr.getCurrentState().getWarehouseMgr().getWarehouse(warehouseId);
+                    row.add(warehouse.getName());
+                } catch (Exception e) {
+                    row.add(e.getMessage());
+                }
+            } else {
+                row.add("");
+            }
             return row;
         } finally {
             readUnlock();
@@ -1613,7 +1623,6 @@ public class StreamLoadTask extends AbstractTxnStateChangeCallback
             info.setLoad_finish_time(TimeUtils.longToTimeString(endTimeMs));
 
             info.setType(getStringByType());
-
             // warehouse
             if (RunMode.getCurrentRunMode() == RunMode.SHARED_DATA) {
                 try {
@@ -1621,12 +1630,11 @@ public class StreamLoadTask extends AbstractTxnStateChangeCallback
                     info.setWarehouse(warehouse.getName());
                 } catch (Exception e) {
                     LOG.warn("Failed to get warehouse for stream load task {}, error: {}", id, e.getMessage());
-                    info.setWarehouse("");
+                    info.setWarehouse(e.getMessage());
                 }
             } else {
                 info.setWarehouse("");
             }
-
             return info;
         } finally {
             readUnlock();
@@ -1678,6 +1686,16 @@ public class StreamLoadTask extends AbstractTxnStateChangeCallback
             }
             info.setChannel_state(channelStateBuilder.toString());
             info.setType(getStringByType());
+            if (RunMode.getCurrentRunMode() == RunMode.SHARED_DATA) {
+                try {
+                    Warehouse warehouse = GlobalStateMgr.getCurrentState().getWarehouseMgr().getWarehouse(warehouseId);
+                    info.setWarehouse(warehouse.getName());
+                } catch (Exception e) {
+                    info.setWarehouse(e.getMessage());
+                }
+            } else {
+                info.setWarehouse("");
+            }
             return info;
         } finally {
             readUnlock();

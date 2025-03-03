@@ -898,11 +898,15 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             jobInfo.add(loadingStatus.getLoadStatistic().toShowInfoStr());
             // warehouse
             if (RunMode.isSharedDataMode()) {
-                Warehouse warehouse = GlobalStateMgr.getCurrentState().getWarehouseMgr().getWarehouseAllowNull(warehouseId);
-                if (warehouse != null) {
-                    jobInfo.add(warehouse.getName());
-                } else {
-                    jobInfo.add(String.format("Warehouse id: %d not exist.", warehouseId));
+                try {
+                    Warehouse warehouse = GlobalStateMgr.getCurrentState().getWarehouseMgr().getWarehouseAllowNull(warehouseId);
+                    if (warehouse != null) {
+                        jobInfo.add(warehouse.getName());
+                    } else {
+                        jobInfo.add(String.format("Warehouse id: %d not exist.", warehouseId));
+                    }
+                } catch (Exception e) {
+                    jobInfo.add(e.getMessage());
                 }
             } else {
                 jobInfo.add("");
@@ -1066,11 +1070,15 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             info.setNum_scan_bytes(loadingStatus.getLoadStatistic().sourceScanBytes());
             // warehouse
             if (RunMode.getCurrentRunMode() == RunMode.SHARED_DATA) {
-                Warehouse warehouse = GlobalStateMgr.getCurrentState().getWarehouseMgr().getWarehouseAllowNull(warehouseId);
-                if (warehouse != null) {
-                    info.setWarehouse(warehouse.getName());
-                } else {
-                    info.setWarehouse(String.format("Warehouse id: %d not exist.", warehouseId));
+                try {
+                    Warehouse warehouse = GlobalStateMgr.getCurrentState().getWarehouseMgr().getWarehouseAllowNull(warehouseId);
+                    if (warehouse != null) {
+                        info.setWarehouse(warehouse.getName());
+                    } else {
+                        info.setWarehouse(String.format("Warehouse id: %d not exist.", warehouseId));
+                    }
+                } catch (Exception e) {
+                    info.setWarehouse(e.getMessage());
                 }
             } else {
                 info.setWarehouse("");
