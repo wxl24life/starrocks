@@ -114,6 +114,8 @@ static Aws::Utils::Logging::LogLevel parse_aws_sdk_log_level(const std::string& 
 
 extern int meta_tool_main(int argc, char** argv);
 
+extern int index_tool_main(int argc, char** argv);
+
 int main(int argc, char** argv) {
     // Record the TP-relative offset of tls_thread_status as early as possible,
     // before any thread is created (so the main thread's TLS layout is canonical).
@@ -122,6 +124,9 @@ int main(int argc, char** argv) {
 
     if (argc > 1 && strcmp(argv[1], "meta_tool") == 0) {
         return meta_tool_main(argc - 1, argv + 1);
+    }
+    if (argc > 1 && strcmp(argv[1], "index_tool") == 0) {
+        return index_tool_main(argc - 1, argv + 1);
     }
     bool as_cn = false;
     // Check if print version or help or cn.
