@@ -1351,10 +1351,12 @@ Status VerticalRowsetWriter::flush_columns() {
 
 Status VerticalRowsetWriter::final_flush() {
     int64_t total_segment_file_bytes = 0;
+    int64_t total_footer_index_bytes = 0;
     for (auto& segment_writer : _segment_writers) {
         uint64_t segment_size = 0;
         uint64_t footer_position = 0;
-        if (auto st = segment_writer->finalize_footer(&segment_size, &footer_position); !st.ok()) {
+        uint64_t index_size = 0;
+        if (auto st = segment_writer->finalize_footer(&segment_size, &footer_position, &index_size); !st.ok()) {
             LOG(WARNING) << "Fail to finalize segment footer, " << st;
             return st;
         }
@@ -1364,6 +1366,7 @@ Status VerticalRowsetWriter::final_flush() {
             partial_rowset_footer->set_size(segment_size - footer_position);
         }
         total_segment_file_bytes += static_cast<int64_t>(segment_size);
+        total_footer_index_bytes += static_cast<int64_t>(index_size);
 
         // check global_dict efficacy
         _check_global_dict(segment_writer.get());
@@ -1371,9 +1374,11 @@ Status VerticalRowsetWriter::final_flush() {
         segment_writer.reset();
     }
     {
-        // _total_index_size was accumulated in _flush_columns() via finalize_columns().
-        // Match horizontal RowsetWriter::flush: data_disk_size is column bytes only (segment file minus embedded index).
+        // _total_index_size was partially accumulated in _flush_columns() via finalize_columns().
+        // When index_group is enabled, index is written in finalize_footer() instead,
+        // so we add total_footer_index_bytes to capture that portion.
         std::lock_guard<std::mutex> l(_lock);
+        _total_index_size += total_footer_index_bytes;
         _total_data_size += total_segment_file_bytes - _total_index_size;
     }
     return Status::OK();
