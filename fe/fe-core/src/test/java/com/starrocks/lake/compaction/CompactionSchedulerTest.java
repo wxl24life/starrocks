@@ -21,7 +21,6 @@ import com.starrocks.catalog.MaterializedIndex;
 import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.Partition;
 import com.starrocks.catalog.PhysicalPartition;
-import com.starrocks.catalog.PhysicalPartitionImpl;
 import com.starrocks.catalog.Table;
 import com.starrocks.catalog.Tablet;
 import com.starrocks.common.Config;
@@ -34,6 +33,7 @@ import com.starrocks.server.WarehouseManager;
 import com.starrocks.sql.common.MetaUtils;
 import com.starrocks.system.Backend;
 import com.starrocks.system.ComputeNode;
+import com.starrocks.system.SystemInfoService;
 import com.starrocks.transaction.DatabaseTransactionMgr;
 import com.starrocks.transaction.GlobalTransactionMgr;
 import com.starrocks.utframe.MockedWarehouseManager;
@@ -43,8 +43,16 @@ import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+
+import static org.junit.Assert.assertEquals;
 
 public class CompactionSchedulerTest {
     @Mocked
@@ -113,9 +121,9 @@ public class CompactionSchedulerTest {
             }
         };
         table.setState(OlapTable.OlapTableState.SCHEMA_CHANGE);
-        Assertions.assertNull(compactionScheduler.startCompaction(snapshot));
+        Assertions.assertNull(compactionScheduler.startCompaction(snapshot, WarehouseManager.DEFAULT_WAREHOUSE_ID));
         table.setState(OlapTable.OlapTableState.NORMAL);
-        Assertions.assertNull(compactionScheduler.startCompaction(snapshot));
+        Assertions.assertNull(compactionScheduler.startCompaction(snapshot, WarehouseManager.DEFAULT_WAREHOUSE_ID));
     }
 
     @Test
@@ -159,7 +167,7 @@ public class CompactionSchedulerTest {
         int defaultValue = Config.lake_compaction_max_tasks;
         // explicitly set config to a value bigger than default -1
         Config.lake_compaction_max_tasks = 10;
-        Assertions.assertEquals(10, compactionScheduler.compactionTaskLimitPerWarehouse(warehouseId));
+        Assertions.assertEquals(10, compactionScheduler.compactionTaskLimit(warehouseId));
 
         // reset config to default value
         Config.lake_compaction_max_tasks = defaultValue;
@@ -177,7 +185,7 @@ public class CompactionSchedulerTest {
         };
         mockedWarehouseManager.setComputeNodesAssignedToTablet(Sets.newHashSet(b1, c1, c2));
         Assertions.assertEquals(3 * Config.lake_compaction_max_parallelism_per_cn,
-                compactionScheduler.compactionTaskLimitPerWarehouse(warehouseId));
+                compactionScheduler.compactionTaskLimit(warehouseId));
     }
 
 
@@ -200,11 +208,9 @@ public class CompactionSchedulerTest {
         };
 
         compactionScheduler.getRunningCompactions().put(new PartitionIdentifier(1, 2, 4), compactionJob);
-        Map<Long, Integer> runningTasksPerWarehouse = compactionScheduler.numRunningTasksPerWarehouse();
 
-        Assertions.assertNull(runningTasksPerWarehouse.get(nonExistingWarehouseId));
-        Assertions.assertNotNull(runningTasksPerWarehouse.get(existingWarehouseId));
-        Assertions.assertEquals(Integer.valueOf(5), runningTasksPerWarehouse.get(existingWarehouseId));
+        Assertions.assertEquals(0, compactionScheduler.numRunningTasks(nonExistingWarehouseId));
+        Assertions.assertEquals(5, compactionScheduler.numRunningTasks(existingWarehouseId));
     }
 
     @Test
@@ -270,74 +276,6 @@ public class CompactionSchedulerTest {
     }
 
     @Test
-    public void testCheckIfAllWarehouseTaskLimitExceeded(@Mocked CompactionJob compactionJob) {
-        CompactionScheduler compactionScheduler = new CompactionScheduler(new CompactionMgr(), null, null, null, "");
-        // new running compactions map
-        long customWarehouseId1 = 10000L;
-        long customWarehouseId2 = 10001L;
-        long customWarehouseId3 = 10001L;
-
-        {
-            new MockUp<CompactionScheduler>() {
-                @Mock
-                public Map<Long, Integer> numRunningTasksPerWarehouse() {
-                    Map<Long, Integer> runningTasksPerWarehouse = new HashMap<>();
-                    runningTasksPerWarehouse.put(customWarehouseId1, 30);
-                    runningTasksPerWarehouse.put(customWarehouseId2, 40);
-                    runningTasksPerWarehouse.put(customWarehouseId3, 50);
-                    return runningTasksPerWarehouse;
-                }
-
-                @Mock
-                public int compactionTaskLimitPerWarehouse(long warehouseId) {
-                    return 30;
-                }
-            };
-
-            // running task count in all warehouses exceed limit
-            Assertions.assertTrue(compactionScheduler.checkIfAllWarehouseTaskLimitExceeded());
-        }
-
-        {
-            new MockUp<CompactionScheduler>() {
-                @Mock
-                public Map<Long, Integer> numRunningTasksPerWarehouse() {
-                    Map<Long, Integer> runningTasksPerWarehouse = new HashMap<>();
-                    runningTasksPerWarehouse.put(customWarehouseId1, 10);
-                    runningTasksPerWarehouse.put(customWarehouseId2, 40);
-                    runningTasksPerWarehouse.put(customWarehouseId3, 50);
-                    return runningTasksPerWarehouse;
-                }
-
-                @Mock
-                public int compactionTaskLimitPerWarehouse(long warehouseId) {
-                    return 20;
-                }
-            };
-
-            // running task count in customWarehouseId1 not exceed limit
-            Assertions.assertFalse(compactionScheduler.checkIfAllWarehouseTaskLimitExceeded());
-        }
-
-        {
-            new MockUp<CompactionScheduler>() {
-                @Mock
-                public Map<Long, Integer> numRunningTasksPerWarehouse() {
-                    return new HashMap<>();
-                }
-
-                @Mock
-                public int compactionTaskLimitPerWarehouse(long warehouseId) {
-                    return 20;
-                }
-            };
-
-            // running task count in customWarehouseId1 not exceed limit
-            Assertions.assertFalse(compactionScheduler.checkIfAllWarehouseTaskLimitExceeded());
-        }
-    }
-
-    @Test
     public void testCollectPartitionTablets() {
         CompactionScheduler compactionScheduler = new CompactionScheduler(new CompactionMgr(), null, null, null, "");
 
@@ -382,11 +320,11 @@ public class CompactionSchedulerTest {
             Tablet tablet2 = new LakeTablet(tabletId2);
             index1.addTablet(tablet2, null, false);
 
-            Partition partition1 = new Partition(partitionId, "p1", index1, null);
-            partition1.addSubPartition(
-                    new PhysicalPartitionImpl(physicalPartitionId, "p10", partitionId, -1L, null));
+            Partition partition1 = new Partition(partitionId, partitionId + 100, "p1", index1, null);
+            PhysicalPartition p10 = new PhysicalPartition(physicalPartitionId, "p10", partitionId, null);
+            partition1.addSubPartition(p10);
 
-            Map<Long, List<Long>> resultMap = compactionScheduler.collectPartitionTablets(partition1, warehouseId);
+            Map<Long, List<Long>> resultMap = compactionScheduler.collectPartitionTablets(p10, warehouseId);
             Assertions.assertEquals(2, resultMap.size());
             List<Long> tabletListOnC1 = resultMap.get(c1.getId());
             Assertions.assertEquals(1, tabletListOnC1.size());
@@ -406,11 +344,11 @@ public class CompactionSchedulerTest {
             Tablet tablet3 = new LakeTablet(tabletId3);
             index2.addTablet(tablet3, null, false);
 
-            Partition partition2 = new Partition(partitionId, "p2", index2, null);
-            partition2.addSubPartition(
-                    new PhysicalPartitionImpl(physicalPartitionId, "p20", partitionId, -1L, null));
+            Partition partition2 = new Partition(partitionId, partitionId + 100, "p2", index2, null);
+            PhysicalPartition p20 = new PhysicalPartition(physicalPartitionId, "p20", partitionId, null);
+            partition2.addSubPartition(p20);
 
-            Map<Long, List<Long>> resultMap = compactionScheduler.collectPartitionTablets(partition2, warehouseId);
+            Map<Long, List<Long>> resultMap = compactionScheduler.collectPartitionTablets(p20, warehouseId);
             // no compute node for tablet3
             Assertions.assertEquals(0, resultMap.size());
         }
@@ -424,11 +362,11 @@ public class CompactionSchedulerTest {
             Tablet tablet4 = new LakeTablet(tabletId4);
             index.addTablet(tablet4, null, false);
 
-            Partition partition = new Partition(partitionId, "p2", index, null);
-            partition.addSubPartition(
-                    new PhysicalPartitionImpl(physicalPartitionId, "p20", partitionId, -1L, null));
+            Partition partition = new Partition(partitionId, partitionId + 100, "p2", index, null);
+            PhysicalPartition p20 = new PhysicalPartition(physicalPartitionId, "p20", partitionId, null);
+            partition.addSubPartition(p20);
 
-            Map<Long, List<Long>> resultMap = compactionScheduler.collectPartitionTablets(partition, warehouseId);
+            Map<Long, List<Long>> resultMap = compactionScheduler.collectPartitionTablets(p20, warehouseId);
             // exception found for tablet4
             Assertions.assertEquals(0, resultMap.size());
         }
@@ -441,10 +379,10 @@ public class CompactionSchedulerTest {
         PartitionIdentifier partition1 = new PartitionIdentifier(1, 2, 3);
         PartitionIdentifier partition2 = new PartitionIdentifier(1, 2, 4);
 
-        compactionManager.handleLoadingFinished(partition1, 10L, System.currentTimeMillis(),
-                                                Quantiles.compute(Lists.newArrayList(10d)), 0L);
-        compactionManager.handleLoadingFinished(partition2, 10L, System.currentTimeMillis(),
-                                                Quantiles.compute(Lists.newArrayList(10d)), 0L);
+        compactionManager.handleLoadingFinished(partition1, 10, System.currentTimeMillis(),
+                Quantiles.compute(Lists.newArrayList(10d)), WarehouseManager.DEFAULT_WAREHOUSE_ID);
+        compactionManager.handleLoadingFinished(partition2, 10, System.currentTimeMillis(),
+                Quantiles.compute(Lists.newArrayList(10d)), WarehouseManager.DEFAULT_WAREHOUSE_ID);
 
         ComputeNode c1 = new ComputeNode(10001L, "192.168.0.2", 9050);
         ComputeNode c2 = new ComputeNode(10002L, "192.168.0.3", 9050);
@@ -455,10 +393,12 @@ public class CompactionSchedulerTest {
             public WarehouseManager getWarehouseMgr() {
                 return mockedWarehouseManager;
             }
+
             @Mock
             public boolean isLeader() {
                 return true;
             }
+
             @Mock
             public boolean isReady() {
                 return true;
@@ -495,6 +435,7 @@ public class CompactionSchedulerTest {
             public CompactionTask.TaskResult getResult() {
                 return CompactionTask.TaskResult.NONE_SUCCESS;
             }
+
             @Mock
             public String getFailMessage() {
                 return "abort in test";
@@ -502,5 +443,448 @@ public class CompactionSchedulerTest {
         };
         compactionScheduler.runOneCycle();
         Assertions.assertEquals(0, compactionScheduler.getRunningCompactions().size());
+    }
+
+    /**
+     * Test that removeFromStartupActiveCompactionTransactionMap is called when compaction completes normally
+     */
+    @Test
+    public void testRemoveFromStartupActiveTxnMapOnCompactionSuccess() throws Exception {
+        long txnId = 12345L;
+        long tableId = 10002L;
+        CompactionMgr compactionManager = new CompactionMgr();
+        
+        // Build active compaction transaction map with one transaction
+        Map<Long, Long> txnIdToTableIdMap = new HashMap<>();
+        txnIdToTableIdMap.put(txnId, tableId);
+        new Expectations() {
+            {
+                GlobalStateMgr.getCurrentState();
+                result = globalStateMgr;
+                globalStateMgr.getGlobalTransactionMgr();
+                result = globalTransactionMgr;
+                globalTransactionMgr.getLakeCompactionActiveTxnStats();
+                result = txnIdToTableIdMap;
+            }
+        };
+        compactionManager.buildActiveCompactionTransactionMap();
+        
+        // Verify the transaction is in the map
+        Assertions.assertEquals(1, compactionManager.getRemainedActiveCompactionTxnWhenStart().size());
+        Assertions.assertTrue(compactionManager.getRemainedActiveCompactionTxnWhenStart().containsKey(txnId));
+
+        // Set up the compaction scheduler
+        CompactionScheduler compactionScheduler = new CompactionScheduler(compactionManager, null, 
+                globalTransactionMgr, globalStateMgr, "");
+        
+        // Create a compaction job
+        PartitionIdentifier partitionId = new PartitionIdentifier(1, tableId, 3);
+        Database db = new Database(1, "test_db");
+        Table table = new LakeTable();
+        // Set table ID using reflection to ensure table.getId() returns the correct value
+        Field idField = Table.class.getDeclaredField("id");
+        idField.setAccessible(true);
+        idField.set(table, tableId);
+        PhysicalPartition partition = new PhysicalPartition(3, "test_partition", 3, null);
+        CompactionJob job = new CompactionJob(db, table, partition, txnId, false);
+        
+        // Mock the job to simulate successful completion and transaction visibility
+        new MockUp<CompactionJob>() {
+            @Mock
+            public boolean transactionHasCommitted() {
+                return true;
+            }
+            @Mock
+            public boolean waitTransactionVisible(long timeout, TimeUnit unit) {
+                return true; // Transaction is visible
+            }
+            @Mock
+            public CompactionTask.TaskResult getResult() {
+                return CompactionTask.TaskResult.ALL_SUCCESS; // Ensure job enters success path
+            }
+            @Mock
+            public PhysicalPartition getPartition() {
+                return partition;
+            }
+            @Mock
+            public Database getDb() {
+                return db;
+            }
+            @Mock
+            public long getFinishTs() {
+                return System.currentTimeMillis();
+            }
+            @Mock
+            public long getStartTs() {
+                return System.currentTimeMillis() - 1000;
+            }
+            @Mock
+            public String getDebugString() {
+                return "test_job";
+            }
+        };
+        
+        // Add the job to running compactions
+        compactionScheduler.getRunningCompactions().put(partitionId, job);
+
+        // Mock MetaUtils to return partition exists
+        new MockUp<MetaUtils>() {
+            @Mock
+            public boolean isPhysicalPartitionExist(GlobalStateMgr stateMgr, long dbId, long tId, long pId) {
+                return true;
+            }
+        };
+
+        // Trigger compaction cleanup by calling scheduleNewCompaction via reflection
+        // This simulates the scheduler's periodic check for completed jobs
+        Method scheduleMethod = CompactionScheduler.class.getDeclaredMethod("scheduleNewCompaction");
+        scheduleMethod.setAccessible(true);
+        scheduleMethod.invoke(compactionScheduler);
+
+        // Verify the job was removed from running compactions
+        Assertions.assertEquals(0, compactionScheduler.getRunningCompactions().size(),
+                "Job should be removed from running compactions after successful completion");
+
+        // Verify the transaction was removed from the startup active transaction map
+        Assertions.assertEquals(0, compactionManager.getRemainedActiveCompactionTxnWhenStart().size(),
+                "Active transaction map should be empty after cleanup");
+        Assertions.assertFalse(compactionManager.getRemainedActiveCompactionTxnWhenStart().containsKey(txnId),
+                "Specific transaction should be removed from active map");
+    }
+
+    /**
+     * Test that removeFromStartupActiveCompactionTransactionMap is called when compaction fails
+     * This covers the case where compaction commits successfully but publish aborts
+     */
+    @Test
+    public void testRemoveFromStartupActiveTxnMapOnCompactionFailure() throws Exception {
+        long txnId = 12346L;
+        long tableId = 10003L;
+        CompactionMgr compactionManager = new CompactionMgr();
+        
+        // Build active compaction transaction map with one transaction
+        Map<Long, Long> txnIdToTableIdMap = new HashMap<>();
+        txnIdToTableIdMap.put(txnId, tableId);
+        new Expectations() {
+            {
+                GlobalStateMgr.getCurrentState();
+                result = globalStateMgr;
+                globalStateMgr.getGlobalTransactionMgr();
+                result = globalTransactionMgr;
+                globalTransactionMgr.getLakeCompactionActiveTxnStats();
+                result = txnIdToTableIdMap;
+            }
+        };
+        compactionManager.buildActiveCompactionTransactionMap();
+        
+        // Verify the transaction is in the map
+        Assertions.assertEquals(1, compactionManager.getRemainedActiveCompactionTxnWhenStart().size());
+        Assertions.assertTrue(compactionManager.getRemainedActiveCompactionTxnWhenStart().containsKey(txnId));
+
+        // Set up the compaction scheduler
+        CompactionScheduler compactionScheduler = new CompactionScheduler(compactionManager, null, 
+                globalTransactionMgr, globalStateMgr, "");
+        
+        // Create a compaction job
+        PartitionIdentifier partitionId = new PartitionIdentifier(1, tableId, 4);
+        Database db = new Database(1, "test_db");
+        Table table = new LakeTable();
+        // Set table ID using reflection to ensure table.getId() returns the correct value
+        Field idField = Table.class.getDeclaredField("id");
+        idField.setAccessible(true);
+        idField.set(table, tableId);
+        PhysicalPartition partition = new PhysicalPartition(4, "test_partition", 4, null);
+        CompactionJob job = new CompactionJob(db, table, partition, txnId, false);
+        
+        // Mock the job to simulate failure (e.g., NONE_SUCCESS or PARTIAL_SUCCESS without allow partial)
+        new MockUp<CompactionJob>() {
+            @Mock
+            public boolean transactionHasCommitted() {
+                return false; // Transaction hasn't been committed yet
+            }
+            @Mock
+            public CompactionTask.TaskResult getResult() {
+                return CompactionTask.TaskResult.NONE_SUCCESS; // Compaction failed
+            }
+            @Mock
+            public String getFailMessage() {
+                return "Test compaction failure - publish abort";
+            }
+            @Mock
+            public PhysicalPartition getPartition() {
+                return partition;
+            }
+            @Mock
+            public Database getDb() {
+                return db;
+            }
+            @Mock
+            public void abort() {
+                // Mock abort method
+            }
+            @Mock
+            public long getFinishTs() {
+                return System.currentTimeMillis();
+            }
+            @Mock
+            public long getStartTs() {
+                return System.currentTimeMillis() - 1000;
+            }
+            @Mock
+            public String getDebugString() {
+                return "test_job_failed";
+            }
+            @Mock
+            public List<TabletCommitInfo> buildTabletCommitInfo() {
+                return Lists.newArrayList();
+            }
+        };
+        
+        // Add the job to running compactions
+        compactionScheduler.getRunningCompactions().put(partitionId, job);
+        
+        // Mock transaction manager to avoid actual transaction abort
+        new MockUp<GlobalTransactionMgr>() {
+            @Mock
+            public void abortTransaction(long dbId, long txnId, String reason, 
+                    List<TabletCommitInfo> finishedTablets, List<TabletCommitInfo> unfinishedTablets, 
+                    Object txnCommitAttachment) {
+                // Do nothing, just mock the abort
+            }
+        };
+        
+        // Mock MetaUtils to return partition exists
+        new MockUp<MetaUtils>() {
+            @Mock
+            public boolean isPhysicalPartitionExist(GlobalStateMgr stateMgr, long dbId, long tId, long pId) {
+                return true;
+            }
+        };
+
+        // Trigger compaction cleanup by calling scheduleNewCompaction via reflection
+        // This simulates the scheduler's periodic check for failed jobs
+        Method scheduleMethod = CompactionScheduler.class.getDeclaredMethod("scheduleNewCompaction");
+        scheduleMethod.setAccessible(true);
+        scheduleMethod.invoke(compactionScheduler);
+
+        // Verify the job was removed from running compactions
+        Assertions.assertEquals(0, compactionScheduler.getRunningCompactions().size(),
+                "Job should be removed from running compactions after failure");
+
+        // Verify the transaction was removed from the startup active transaction map
+        Assertions.assertEquals(0, compactionManager.getRemainedActiveCompactionTxnWhenStart().size(),
+                "Active transaction map should be empty after cleanup");
+        Assertions.assertFalse(compactionManager.getRemainedActiveCompactionTxnWhenStart().containsKey(txnId),
+                "Specific transaction should be removed from active map");
+    }
+
+    /**
+     * Test that removeFromStartupActiveCompactionTransactionMap is called when compaction 
+     * commits but fails during publish (PARTIAL_SUCCESS without allowing partial success)
+     */
+    @Test
+    public void testRemoveFromStartupActiveTxnMapOnPartialSuccessWithoutAllow() throws Exception {
+        long txnId = 12347L;
+        long tableId = 10004L;
+        CompactionMgr compactionManager = new CompactionMgr();
+        
+        // Build active compaction transaction map with one transaction
+        Map<Long, Long> txnIdToTableIdMap = new HashMap<>();
+        txnIdToTableIdMap.put(txnId, tableId);
+        new Expectations() {
+            {
+                GlobalStateMgr.getCurrentState();
+                result = globalStateMgr;
+                globalStateMgr.getGlobalTransactionMgr();
+                result = globalTransactionMgr;
+                globalTransactionMgr.getLakeCompactionActiveTxnStats();
+                result = txnIdToTableIdMap;
+            }
+        };
+        compactionManager.buildActiveCompactionTransactionMap();
+        
+        // Verify the transaction is in the map
+        Assertions.assertEquals(1, compactionManager.getRemainedActiveCompactionTxnWhenStart().size());
+
+        // Set up the compaction scheduler
+        CompactionScheduler compactionScheduler = new CompactionScheduler(compactionManager, null, 
+                globalTransactionMgr, globalStateMgr, "");
+        
+        // Create a compaction job
+        PartitionIdentifier partitionId = new PartitionIdentifier(1, tableId, 5);
+        Database db = new Database(1, "test_db");
+        Table table = new LakeTable();
+        // Set table ID using reflection to ensure table.getId() returns the correct value
+        Field idField = Table.class.getDeclaredField("id");
+        idField.setAccessible(true);
+        idField.set(table, tableId);
+        PhysicalPartition partition = new PhysicalPartition(5, "test_partition", 5, null);
+        CompactionJob job = new CompactionJob(db, table, partition, txnId, false);
+        
+        // Mock the job to simulate PARTIAL_SUCCESS without allowing partial success
+        new MockUp<CompactionJob>() {
+            @Mock
+            public boolean transactionHasCommitted() {
+                return false;
+            }
+            @Mock
+            public CompactionTask.TaskResult getResult() {
+                return CompactionTask.TaskResult.PARTIAL_SUCCESS;
+            }
+            @Mock
+            public boolean getAllowPartialSuccess() {
+                return false; // Not allowing partial success
+            }
+            @Mock
+            public String getFailMessage() {
+                return "Partial success but not allowed";
+            }
+            @Mock
+            public PhysicalPartition getPartition() {
+                return partition;
+            }
+            @Mock
+            public Database getDb() {
+                return db;
+            }
+            @Mock
+            public void abort() {
+            }
+            @Mock
+            public long getFinishTs() {
+                return System.currentTimeMillis();
+            }
+            @Mock
+            public long getStartTs() {
+                return System.currentTimeMillis() - 1000;
+            }
+            @Mock
+            public String getDebugString() {
+                return "test_job_partial";
+            }
+            @Mock
+            public List<TabletCommitInfo> buildTabletCommitInfo() {
+                return Lists.newArrayList();
+            }
+        };
+        
+        // Add the job to running compactions
+        compactionScheduler.getRunningCompactions().put(partitionId, job);
+        
+        // Mock transaction manager
+        new MockUp<GlobalTransactionMgr>() {
+            @Mock
+            public void abortTransaction(long dbId, long txnId, String reason, 
+                    List<TabletCommitInfo> finishedTablets, List<TabletCommitInfo> unfinishedTablets, 
+                    Object txnCommitAttachment) {
+            }
+        };
+        
+        // Mock MetaUtils
+        new MockUp<MetaUtils>() {
+            @Mock
+            public boolean isPhysicalPartitionExist(GlobalStateMgr stateMgr, long dbId, long tId, long pId) {
+                return true;
+            }
+        };
+
+        // Trigger compaction cleanup by calling scheduleNewCompaction via reflection
+        // This simulates the scheduler's periodic check for partial success jobs
+        Method scheduleMethod = CompactionScheduler.class.getDeclaredMethod("scheduleNewCompaction");
+        scheduleMethod.setAccessible(true);
+        scheduleMethod.invoke(compactionScheduler);
+
+        // Verify the job was removed from running compactions
+        Assertions.assertEquals(0, compactionScheduler.getRunningCompactions().size(),
+                "Job should be removed from running compactions after partial success without allow");
+
+        // Verify the transaction was removed from the startup active transaction map
+        Assertions.assertEquals(0, compactionManager.getRemainedActiveCompactionTxnWhenStart().size(),
+                "Active transaction map should be empty after cleanup");
+        assertEquals(0, compactionScheduler.getRunningCompactions().size());
+    }
+
+    @Test
+    public void testTryCompactionSchedule(@Mocked CompactionMgr compactionMgr) {
+        long testWhId = 100L;
+        long bindingWhId = 101L;
+        long defaultWhId = WarehouseManager.DEFAULT_WAREHOUSE_ID;
+        PartitionIdentifier partitionIdentifier = new PartitionIdentifier(1L, 2L, 3L);
+        PartitionStatistics statistics = new PartitionStatistics(partitionIdentifier);
+        statistics.setWarehouseId(bindingWhId);
+        statistics.setCompactionScore(Quantiles.compute(Lists.newArrayList(1.0, 2.0, 3.0)));
+        List<PartitionStatisticsSnapshot> partitionStatisticsSnapshots = new ArrayList<>();
+        PartitionStatisticsSnapshot partitionStatisticsSnapshot = new PartitionStatisticsSnapshot(statistics);
+        partitionStatisticsSnapshots.add(partitionStatisticsSnapshot);
+        MockedWarehouseManager mockedWarehouseManager = new MockedWarehouseManager();
+        new MockUp<GlobalStateMgr>() {
+            @Mock
+            public WarehouseManager getWarehouseMgr() {
+                return mockedWarehouseManager;
+            }
+        };
+        new Expectations() {
+            {
+                compactionMgr.choosePartitionsToCompact((Set<PartitionIdentifier>) any, (Set<Long>) any);
+                result = partitionStatisticsSnapshots;
+                compactionMgr.getStatistics(partitionIdentifier);
+                result = statistics;
+            }
+        };
+        CompactionScheduler compactionScheduler = new MockedCompactionScheduler(compactionMgr, null, null, null, "");
+        {
+            // disable compaction
+            Config.lake_compaction_max_tasks = 0;
+            new Expectations() {
+                {
+                    compactionMgr.choosePartitionsToCompact((Set<PartitionIdentifier>) any, (Set<Long>) any);
+                    times = 0;
+                }
+            };
+            compactionScheduler.tryCompactionSchedule();
+        }
+        {
+            Config.lake_compaction_max_tasks = -1;
+            new Expectations() {
+                {
+                    compactionMgr.choosePartitionsToCompact((Set<PartitionIdentifier>) any, (Set<Long>) any);
+                    result = partitionStatisticsSnapshots;
+                }
+            };
+            Config.lake_enable_bind_compaction_with_load_warehouse = false;
+            compactionScheduler.getRunningCompactions().clear();
+            compactionScheduler.tryCompactionSchedule();
+            assertEquals(1, compactionScheduler.getRunningCompactions().size());
+            // not set `lake_enable_bind_compaction_with_load_warehouse` and `lake_compaction_warehouse`, use default_warehouse
+            assertEquals(WarehouseManager.DEFAULT_WAREHOUSE_ID,
+                    compactionScheduler.getRunningCompactions().get(partitionIdentifier).getWarehouseId());
+            mockedWarehouseManager.setCompactionWarehouseID(testWhId);
+            compactionScheduler.getRunningCompactions().clear();
+            Config.lake_enable_bind_compaction_with_load_warehouse = false;
+            compactionScheduler.tryCompactionSchedule();
+            // `lake_enable_bind_compaction_with_load_warehouse` disabled, use compaction warehouse configured by FE
+            assertEquals(testWhId, compactionScheduler.getRunningCompactions().get(partitionIdentifier).getWarehouseId());
+            mockedWarehouseManager.setWarehouseExisted(true);
+            compactionScheduler.getRunningCompactions().clear();
+            Config.lake_enable_bind_compaction_with_load_warehouse = true;
+            compactionScheduler.tryCompactionSchedule();
+            // `lake_enable_bind_compaction_with_load_warehouse` enabled, compaction job should bind the loading warehouse
+            assertEquals(bindingWhId,
+                    compactionScheduler.getRunningCompactions().get(partitionIdentifier).getWarehouseId());
+        }
+    }
+}
+class MockedCompactionScheduler extends CompactionScheduler {
+    MockedCompactionScheduler(CompactionMgr compactionManager, SystemInfoService systemInfoService,
+                              GlobalTransactionMgr transactionMgr,
+                              GlobalStateMgr stateMgr, String disableTablesStr) {
+        super(compactionManager, systemInfoService, transactionMgr, stateMgr, disableTablesStr);
+    }
+    @Override
+    protected CompactionJob startCompaction(PartitionStatisticsSnapshot partitionStatisticsSnapshot, long warehouseId) {
+        Database db = new Database();
+        Table table = new LakeTable();
+        PhysicalPartition partition = new PhysicalPartition(123, "aaa", 123, null);
+        return new CompactionJob(db, table, partition, 100, false, warehouseId);
     }
 }
