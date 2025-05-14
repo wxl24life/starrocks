@@ -810,7 +810,6 @@ Status SegmentIterator::_init_column_iterator_by_cid(const ColumnId cid, const C
                                  .buffer_size = _opts.lake_io_opts.buffer_size};
     bool is_compaction =
             (_opts.reader_type == READER_BASE_COMPACTION || _opts.reader_type == READER_CUMULATIVE_COMPACTION);
-
     if (is_compaction) {
         opts.op_type = OperationKind::COMPACTION;
     }
