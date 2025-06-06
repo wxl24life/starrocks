@@ -36,7 +36,6 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.table.DataTable;
-import org.apache.paimon.types.DataField;
 
 import java.io.File;
 import java.io.IOException;
@@ -78,9 +77,7 @@ public class PaimonTable extends Table {
         this.tableName = tblName;
         this.paimonNativeTable = paimonNativeTable;
         this.partColumnNames = paimonNativeTable.partitionKeys();
-        this.paimonFieldNames = paimonNativeTable.rowType().getFields().stream()
-                .map(DataField::name)
-                .collect(Collectors.toList());
+        this.paimonFieldNames = paimonNativeTable.rowType().getFieldNames();
     }
 
     @Override

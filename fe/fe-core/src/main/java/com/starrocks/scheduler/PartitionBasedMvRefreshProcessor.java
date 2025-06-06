@@ -444,6 +444,10 @@ public class PartitionBasedMvRefreshProcessor extends BaseTaskRunProcessor {
 
     private Constants.TaskRunState doRefreshMaterializedView(TaskRunContext context,
                                                              IMaterializedViewMetricsEntity mvEntity) throws Exception {
+        try (Timer ignored = Tracers.watchScope("MVRefreshInitSnapshotBaseTables")) {
+            initSnapshotBaseTables();
+        }
+
         // 0. Compute the base-table partitions to check for external table
         // The candidate partition info is used to refresh the external table
         Map<TableSnapshotInfo, Set<String>> baseTableCandidatePartitions = Maps.newHashMap();
@@ -674,6 +678,9 @@ public class PartitionBasedMvRefreshProcessor extends BaseTaskRunProcessor {
         if (!Config.enable_materialized_view_external_table_precise_refresh) {
             return false;
         }
+        if (containPaimonTable()) {
+            return false;
+        }
         for (BaseTableInfo baseTableInfo : mv.getBaseTableInfos()) {
             Optional<Table> optTable = MvUtils.getTable(baseTableInfo);
             if (optTable.isEmpty()) {
@@ -695,6 +702,16 @@ public class PartitionBasedMvRefreshProcessor extends BaseTaskRunProcessor {
     private boolean supportsPreciseExternalTableRefresh(Table table) {
         // Only connectors that actually consume partition names can safely keep the precise-refresh fast path.
         return table.isHiveTable() || table.isHudiTable();
+    }
+
+    private boolean containPaimonTable() {
+        for (BaseTableInfo baseTableInfo : mv.getBaseTableInfos()) {
+            Optional<Table> optTable = MvUtils.getTable(baseTableInfo);
+            if (optTable.isPresent() && optTable.get().isPaimonTable()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean shouldSyncPartitionsAfterExternalRefresh(int retryNum) {
@@ -1025,8 +1042,6 @@ public class PartitionBasedMvRefreshProcessor extends BaseTaskRunProcessor {
     private boolean syncPartitions(TaskRunContext taskRunContext,
                                    boolean tentative) throws AnalysisException, LockTimeoutException {
         Stopwatch stopwatch = Stopwatch.createStarted();
-        // collect base table snapshot infos
-        snapshotBaseTables = collectBaseTableSnapshotInfos(mv);
 
         final MVRefreshParams mvRefreshParams = new MVRefreshParams(mv.getPartitionInfo(),
                 taskRunContext.getProperties(), tentative);
@@ -1067,6 +1082,13 @@ public class PartitionBasedMvRefreshProcessor extends BaseTaskRunProcessor {
         boolean result = mvRefreshPartitioner.syncAddOrDropPartitions();
         logger.info("finish sync partitions, cost(ms): {}", stopwatch.elapsed(TimeUnit.MILLISECONDS));
         return result;
+    }
+
+    private void initSnapshotBaseTables() throws LockTimeoutException {
+        Stopwatch stopwatch = Stopwatch.createStarted();
+        this.snapshotBaseTables = collectBaseTableSnapshotInfos(mv);
+        logger.info("Finish init snapshot base tables for mv:{}, cost(ms): {}", mv.getName(),
+                stopwatch.elapsed(TimeUnit.MILLISECONDS));
     }
 
     /**
