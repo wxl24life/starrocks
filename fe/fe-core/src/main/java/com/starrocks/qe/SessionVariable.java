@@ -955,6 +955,9 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
 
     public static final String ENABLE_LABELED_COLUMN_STATISTIC_OUTPUT = "enable_labeled_column_statistic_output";
 
+    // GIN variables
+    public static final String ENABLE_PHRASE_QUERY_SEQUENTIAL_OPT = "enable_phrase_query_sequential_opt";
+
     public static final List<String> DEPRECATED_VARIABLES = ImmutableList.<String>builder()
             .add(CODEGEN_LEVEL)
             .add(MAX_EXECUTION_TIME)
@@ -1947,6 +1950,9 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
 
     @VarAttr(name = ENABLE_LABELED_COLUMN_STATISTIC_OUTPUT)
     private boolean enableLabeledColumnStatisticOutput = false;
+
+    @VarAttr(name = ENABLE_PHRASE_QUERY_SEQUENTIAL_OPT)
+    private boolean enablePhraseQuerySequentialOpt = false;
 
     public int getCboPruneJsonSubfieldDepth() {
         return cboPruneJsonSubfieldDepth;
@@ -5389,6 +5395,7 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
         tResult.setRuntime_filter_early_return_selectivity(runtimeFilterEarlyReturnSelectivity);
 
         tResult.setAllow_throw_exception((sqlMode & SqlModeHelper.MODE_ALLOW_THROW_EXCEPTION) != 0);
+        tResult.setEnable_phrase_query_sequential_opt(enablePhraseQuerySequentialOpt);
 
         tResult.setEnable_scan_datacache(enableScanDataCache);
         tResult.setEnable_populate_datacache(enablePopulateDataCache);
