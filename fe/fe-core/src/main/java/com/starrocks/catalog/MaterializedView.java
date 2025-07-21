@@ -51,6 +51,7 @@ import com.starrocks.common.io.Text;
 import com.starrocks.common.util.DateUtils;
 import com.starrocks.common.util.PropertyAnalyzer;
 import com.starrocks.common.util.TimeUtils;
+import com.starrocks.common.util.Util;
 import com.starrocks.connector.ConnectorPartitionTraits;
 import com.starrocks.connector.ConnectorTableInfo;
 import com.starrocks.connector.PartitionUtil;
@@ -1326,6 +1327,11 @@ public class MaterializedView extends OlapTable implements GsonPreProcessable, G
             LOG.warn("failed to register mv metrics for mv: {}", this, e);
         }
 
+        ConnectContext connectContext = ConnectContext.buildInner();
+        connectContext.setQualifiedUser(AuthenticationMgr.ROOT_USER);
+        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+        connectContext.setCurrentRoleIds(Sets.newHashSet(PrivilegeBuiltinConstants.ROOT_ROLE_ID));
+        connectContext.setThreadLocalInfo();
         // log reload cost
         long duration = System.currentTimeMillis() - startMillis;
         LOG.info("finish reloading mv {} in {}ms, total base table count: {}", getName(), duration, baseTableInfos.size());
@@ -1478,7 +1484,7 @@ public class MaterializedView extends OlapTable implements GsonPreProcessable, G
         }
         Database db = GlobalStateMgr.getCurrentState().getLocalMetastore().getDb(dbId);
         // analyze expression, because it converts to sql for serialize
-        ConnectContext connectContext = ConnectContext.buildInner();
+        ConnectContext connectContext = Util.getOrCreateInnerContext();
         connectContext.setDatabase(db.getFullName());
         // set privilege
         connectContext.setQualifiedUser(AuthenticationMgr.ROOT_USER);
@@ -2593,6 +2599,9 @@ public class MaterializedView extends OlapTable implements GsonPreProcessable, G
                 return null;
             }
             ConnectContext connectContext = ConnectContext.buildInner();
+            connectContext.setQualifiedUser(AuthenticationMgr.ROOT_USER);
+            connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+            connectContext.setCurrentRoleIds(Sets.newHashSet(PrivilegeBuiltinConstants.ROOT_ROLE_ID));
             if (!Strings.isNullOrEmpty(originalViewDefineSql)) {
                 try {
                     String currentDBName = Strings.isNullOrEmpty(originalDBName) ? db.getOriginName() : originalDBName;
