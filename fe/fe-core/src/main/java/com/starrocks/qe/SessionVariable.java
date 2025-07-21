@@ -2213,7 +2213,7 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
     private boolean paimonForceJNIReader = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PAIMON_NATIVE_WRITER)
-    private boolean enablePaimonNativeWriter = false;
+    private boolean enablePaimonNativeWriter = true;
 
     @VariableMgr.VarAttr(name = PAIMON_NATIVE_COMMIT_USER)
     private String paimonNativeCommitUser = "";
