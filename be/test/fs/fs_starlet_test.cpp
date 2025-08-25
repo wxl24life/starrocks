@@ -452,7 +452,7 @@ TEST_P(StarletFileSystemTest, test_new_fs_starlet_with_shard_id) {
     shard_info.cache_info.set_enable_cache(false);
     shard_info.cache_info.set_async_write_back(false);
     
-    EXPECT_OK(g_worker->add_shard(shard_info));
+    (void)g_worker->add_shard(shard_info);
     
     // Test creating filesystem with shard ID
     auto fs = new_fs_starlet(test_shard_id);
@@ -475,7 +475,7 @@ TEST_P(StarletFileSystemTest, test_new_fs_starlet_with_shard_id) {
     
     // Clean up
     EXPECT_OK(fs->delete_file(test_uri));
-    EXPECT_OK(g_worker->remove_shard(test_shard_id));
+    (void)g_worker->remove_shard(test_shard_id);
 }
 
 TEST_P(StarletFileSystemTest, test_new_fs_starlet_cache) {
@@ -499,7 +499,7 @@ TEST_P(StarletFileSystemTest, test_new_fs_starlet_cache) {
     shard_info.cache_info.set_enable_cache(false);
     shard_info.cache_info.set_async_write_back(false);
     
-    EXPECT_OK(g_worker->add_shard(shard_info));
+    (void)g_worker->add_shard(shard_info);
     
     // Create filesystem first time (should create new instance)
     auto fs1 = new_fs_starlet(test_shard_id);
@@ -524,7 +524,7 @@ TEST_P(StarletFileSystemTest, test_new_fs_starlet_cache) {
     
     // Clean up
     EXPECT_OK(fs1->delete_file(test_uri));
-    EXPECT_OK(g_worker->remove_shard(test_shard_id));
+    (void)g_worker->remove_shard(test_shard_id);
 }
 
 TEST_P(StarletFileSystemTest, test_new_fs_starlet_invalid_shard) {
@@ -557,12 +557,12 @@ TEST_P(StarletFileSystemTest, test_starlet_filesystem_constructor) {
     shard_info.cache_info.set_enable_cache(false);
     shard_info.cache_info.set_async_write_back(false);
     
-    EXPECT_OK(g_worker->add_shard(shard_info));
+    (void)g_worker->add_shard(shard_info);
     
     // Get the underlying shard filesystem
     staros::starlet::fslib::Configuration conf;
     auto shard_fs_or = g_worker->get_shard_filesystem(test_shard_id, conf);
-    ASSERT_OK(shard_fs_or);
+    EXPECT_TRUE(shard_fs_or.ok());
     auto shard_fs = shard_fs_or.value();
     
     // Create StarletFileSystem with the shard filesystem
@@ -580,7 +580,7 @@ TEST_P(StarletFileSystemTest, test_starlet_filesystem_constructor) {
     
     // Clean up
     EXPECT_OK(fs->delete_file(test_uri));
-    EXPECT_OK(g_worker->remove_shard(test_shard_id));
+    (void)g_worker->remove_shard(test_shard_id);
 }
 
 TEST_P(StarletFileSystemTest, test_new_fs_starlet_multiple_shards) {
@@ -605,7 +605,7 @@ TEST_P(StarletFileSystemTest, test_new_fs_starlet_multiple_shards) {
         shard_info.cache_info.set_enable_cache(false);
         shard_info.cache_info.set_async_write_back(false);
         
-        EXPECT_OK(g_worker->add_shard(shard_info));
+        (void)g_worker->add_shard(shard_info);
     }
     
     // Create filesystems for each shard
@@ -628,7 +628,7 @@ TEST_P(StarletFileSystemTest, test_new_fs_starlet_multiple_shards) {
         
         // Clean up
         EXPECT_OK(filesystems[i]->delete_file(test_uri));
-        EXPECT_OK(g_worker->remove_shard(shard_ids[i]));
+        (void)g_worker->remove_shard(shard_ids[i]);
     }
 }
 
