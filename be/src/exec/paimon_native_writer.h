@@ -68,7 +68,7 @@ public:
 private:
     StatusOr<std::unique_ptr<paimon::RecordBatch>> convert_chunk_to_record_batch(const ChunkPtr& chunk);
     StatusOr<std::map<std::string, std::string>> extract_partition_values(const ChunkPtr& chunk);
-    Status get_arrow_schema();
+    Status get_arrow_schema(const std::string& timezone);
 
     Status create_file_store_write(std::unique_ptr<paimon::WriteContext> context);
 

@@ -64,7 +64,7 @@ PaimonNativeWriter::PaimonNativeWriter(PaimonTableDescriptor* paimon_table, cons
 PaimonNativeWriter::~PaimonNativeWriter() = default;
 
 Status PaimonNativeWriter::do_init(RuntimeState* runtime_state) {
-    RETURN_IF_ERROR(get_arrow_schema());
+    RETURN_IF_ERROR(get_arrow_schema(runtime_state->timezone()));
 
     std::map<std::string, std::string> paimon_options = _paimon_table->get_paimon_options();
     const std::string& root_path = paimon_options.at(PaimonOptions::ROOT_PATH);
@@ -150,7 +150,7 @@ std::string PaimonNativeWriter::get_commit_message() {
     return commit_message;
 }
 
-Status PaimonNativeWriter::get_arrow_schema() {
+Status PaimonNativeWriter::get_arrow_schema(const std::string& timezone) {
     DCHECK(_output_expr.size() == _data_column_names.size());
     DCHECK(_data_column_names.size() == _data_column_types.size());
     std::vector<std::shared_ptr<arrow::Field>> output_fields;
@@ -158,7 +158,7 @@ Status PaimonNativeWriter::get_arrow_schema() {
     for (int i = 0; i < _data_column_names.size(); ++i) {
         auto nullable = _output_expr[i]->root()->is_nullable();
         std::shared_ptr<arrow::DataType> data_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(_output_expr[i]->root()->type(), &data_type));
+        RETURN_IF_ERROR(convert_to_arrow_type(_output_expr[i]->root()->type(), &data_type, timezone));
         auto field = std::make_shared<arrow::Field>(_data_column_names[i], std::move(data_type), nullable);
         output_fields.emplace_back(field);
     }

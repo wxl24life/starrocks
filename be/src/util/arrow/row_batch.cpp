@@ -59,7 +59,8 @@ namespace starrocks {
 
 using strings::Substitute;
 
-Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::DataType>* result) {
+Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::DataType>* result,
+                             const std::string& timezone) {
     switch (type.type) {
     case TYPE_BOOLEAN:
         *result = arrow::boolean();
@@ -90,13 +91,17 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_HLL:
     case TYPE_DECIMAL:
     case TYPE_LARGEINT:
-    case TYPE_DATE:
-    case TYPE_DATETIME:
     case TYPE_JSON:
         *result = arrow::utf8();
         break;
     case TYPE_VARBINARY:
         *result = arrow::binary();
+        break;
+    case TYPE_DATE:
+        *result = std::make_shared<arrow::Date32Type>();
+        break;
+    case TYPE_DATETIME:
+        *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, timezone);
         break;
     case TYPE_DECIMALV2:
         *result = std::make_shared<arrow::Decimal128Type>(27, 9);

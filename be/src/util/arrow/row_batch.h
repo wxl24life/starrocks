@@ -34,6 +34,8 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
+
 #include <memory>
 
 #include "common/status.h"
@@ -55,7 +57,8 @@ namespace starrocks {
 
 class RowDescriptor;
 
-Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::DataType>* result);
+Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::DataType>* result,
+                             const std::string& timezone = cctz::local_time_zone().name());
 Status convert_to_arrow_field(const TypeDescriptor& desc, const std::string& col_name, bool is_nullable,
                               std::shared_ptr<arrow::Field>* field);
 

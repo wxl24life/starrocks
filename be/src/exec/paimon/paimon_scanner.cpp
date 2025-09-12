@@ -214,14 +214,13 @@ Status PaimonScanner::initialize_src_chunk(ChunkPtr* chunk) {
     SCOPED_RAW_TIMER(&_app_stats.reader_init_ns);
     _pool.clear();
     (*chunk) = std::make_shared<Chunk>();
-    size_t column_pos = 0;
     _chunk_filter.clear();
     for (auto i = 0; i < _scanner_ctx.materialized_columns.size(); ++i) {
         SlotDescriptor* slot_desc = _scanner_ctx.materialized_columns[i].slot_desc;
         if (slot_desc == nullptr) {
             continue;
         }
-        auto* array = _arrow_batch->column(column_pos++).get();
+        auto* array = _arrow_batch->GetColumnByName(slot_desc->col_name()).get();
         ColumnPtr column;
         RETURN_IF_ERROR(ParquetScanner::new_column(array->type().get(), slot_desc, &column, _conv_funcs[i].get(),
                                                    &_cast_exprs[i], _pool, true));
@@ -235,7 +234,6 @@ Status PaimonScanner ::append_batch_to_src_chunk(ChunkPtr* chunk) {
     SCOPED_RAW_TIMER(&_app_stats.column_convert_ns);
     size_t num_elements =
             std::min<size_t>((_max_chunk_size - _chunk_start_idx), (_arrow_batch->num_rows() - _batch_start_idx));
-    size_t column_pos = 0;
     _chunk_filter.resize(_chunk_filter.size() + num_elements, 1);
     for (auto i = 0; i < _scanner_ctx.materialized_columns.size(); ++i) {
         SlotDescriptor* slot_desc = _scanner_ctx.materialized_columns[i].slot_desc;
@@ -243,7 +241,7 @@ Status PaimonScanner ::append_batch_to_src_chunk(ChunkPtr* chunk) {
             continue;
         }
         _conv_ctx.current_slot = slot_desc;
-        auto* array = _arrow_batch->column(column_pos++).get();
+        auto* array = _arrow_batch->GetColumnByName(slot_desc->col_name()).get();
         auto& column = (*chunk)->get_column_by_slot_id(slot_desc->id());
         RETURN_IF_ERROR(ParquetScanner::convert_array_to_column(_conv_funcs[i].get(), num_elements, array, column,
                                                                 _batch_start_idx, _chunk_start_idx, &_chunk_filter,

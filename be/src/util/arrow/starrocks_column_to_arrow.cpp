@@ -18,6 +18,8 @@
 
 #include <array>
 
+#include "cctz/civil_time.h"
+#include "cctz/time_zone.h"
 #include "column/array_column.h"
 #include "column/column_helper.h"
 #include "column/map_column.h"
@@ -647,12 +649,74 @@ struct ColumnToArrowConverter<LT, AT, is_nullable, ConvMapGuard<LT, AT>> {
     }
 };
 
+DEF_PRED_GUARD(ConvTimestampGuard, is_conv_timestamp, LogicalType, LT, ArrowTypeId, AT)
+#define IS_CONV_TIMESTAMP_CTOR(LT, AT) DEF_PRED_CASE_CTOR(is_conv_timestamp, LT, AT)
+#define IS_CONV_TIMESTAMP_R(AT, ...) \
+    DEF_BINARY_RELATION_ENTRY_SEP_SEMICOLON_R(IS_CONV_TIMESTAMP_CTOR, AT, ##__VA_ARGS__)
+
+IS_CONV_TIMESTAMP_R(ArrowTypeId::TIMESTAMP, TYPE_DATETIME)
+
+template <LogicalType LT, ArrowTypeId AT, bool is_nullable>
+struct ColumnToArrowConverter<LT, AT, is_nullable, ConvTimestampGuard<LT, AT>> {
+    using StarRocksCppType = RunTimeCppType<LT>;
+    using StarRocksColumnType = RunTimeColumnType<LT>;
+    using ArrowType = ArrowTypeIdToType<AT>;
+    using ArrowBuilderType = typename arrow::TypeTraits<ArrowType>::BuilderType;
+
+    static inline arrow::Status convert(const ColumnPtr& column, int start_idx, int end_idx,
+                                        [[maybe_unused]] ColumnContext* column_context,
+                                        arrow::ArrayBuilder* array_builder) {
+        ARROW_RETURN_NOT_OK(check_const(column));
+        ArrowBuilderType* builder = down_cast<ArrowBuilderType*>(array_builder);
+        std::shared_ptr<arrow::DataType> dt = builder->type();
+        const auto* ts_type = down_cast<const arrow::TimestampType*>(dt.get());
+        const std::string tz_name = (ts_type != nullptr) ? ts_type->timezone() : std::string();
+        cctz::time_zone tz;
+        if (!tz_name.empty()) {
+            bool ok = cctz::load_time_zone(tz_name, &tz);
+            if (!ok) {
+                tz = cctz::local_time_zone();
+            }
+        } else {
+            tz = cctz::local_time_zone();
+        }
+
+        auto process_data = [&](const auto& data, const NullableColumn* nullable_col = nullptr) -> arrow::Status {
+            for (auto i = start_idx; i < end_idx; ++i) {
+                if (nullable_col && nullable_col->is_null(i)) {
+                    ARROW_RETURN_NOT_OK(builder->AppendNull());
+                    continue;
+                }
+                const auto& ts_val = data[i];
+                int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, usec = 0;
+                ts_val.to_timestamp(&year, &month, &day, &hour, &minute, &second, &usec);
+                cctz::civil_second local_cs(year, month, day, hour, minute, second);
+                auto utc_tp = cctz::convert(local_cs, tz);
+                int64_t utc_epoch_us =
+                        std::chrono::duration_cast<std::chrono::microseconds>(utc_tp.time_since_epoch()).count() +
+                        static_cast<int64_t>(usec);
+                ARROW_RETURN_NOT_OK(builder->Append(utc_epoch_us));
+            }
+            return arrow::Status::OK();
+        };
+
+        if constexpr (is_nullable) {
+            const auto* nullable_column = down_cast<NullableColumn*>(column.get());
+            const auto* data_column = down_cast<StarRocksColumnType*>(nullable_column->data_column().get());
+            return process_data(data_column->get_data(), nullable_column);
+        } else {
+            const auto* data_column = down_cast<StarRocksColumnType*>(column.get());
+            return process_data(data_column->get_data());
+        }
+    }
+};
+
 constexpr int32_t starrocks_to_arrow_convert_idx(LogicalType lt, ArrowTypeId at, bool is_nullable) {
     return (at << 17) | (lt << 2) | (is_nullable ? 2 : 0);
 }
 
 #define STARROCKS_TO_ARROW_CONV_SINGLE_ENTRY_CTOR(lt, at, is_nullable) \
-    { starrocks_to_arrow_convert_idx(lt, at, is_nullable), &ColumnToArrowConverter<lt, at, is_nullable>::convert }
+    {starrocks_to_arrow_convert_idx(lt, at, is_nullable), &ColumnToArrowConverter<lt, at, is_nullable>::convert}
 
 #define STARROCKS_TO_ARROW_CONV_ENTRY_CTOR(lt, at) \
     STARROCKS_TO_ARROW_CONV_SINGLE_ENTRY_CTOR(lt, at, false), STARROCKS_TO_ARROW_CONV_SINGLE_ENTRY_CTOR(lt, at, true)
@@ -679,7 +743,8 @@ static const std::unordered_map<int32_t, StarRocksToArrowConvertFunc> global_sta
         STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::BINARY, TYPE_VARBINARY, TYPE_HLL, TYPE_OBJECT, TYPE_PERCENTILE),
         STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::LIST, TYPE_ARRAY),
         STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::STRUCT, TYPE_STRUCT),
-        STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::MAP, TYPE_MAP)};
+        STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::MAP, TYPE_MAP),
+        STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::TIMESTAMP, TYPE_DATETIME)};
 
 static inline StarRocksToArrowConvertFunc resolve_convert_func(LogicalType lt, ArrowTypeId at, bool is_nullable) {
     if (is_always_convert_to_null(lt, at)) {
@@ -730,6 +795,7 @@ public:
     DEF_VISIT_METHOD(ListType);
     DEF_VISIT_METHOD(StructType);
     DEF_VISIT_METHOD(MapType);
+    DEF_VISIT_METHOD(TimestampType);
 
 #undef DEF_VISIT_METHOD
 
