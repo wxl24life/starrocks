@@ -1808,7 +1808,11 @@ CONF_mInt64(two_level_memory_threshold, "-1");
 
 // Enable cow optimization for column operations, used to avoid the overhead of reference counting when accessing columns.
 CONF_mBool(enable_cow_optimization, "true");
+
 // The diagnose level for cow optimization, 0 means no diagnose, 1 means diagnose when use_count > 1, 2 means diagnose when use_count > 2.
 CONF_Int32(cow_optimization_diagnose_level, "0");
+
+// Whether use murmur_hash3_x64_64 to calculate hash64
+CONF_mBool(enable_murmur_hash3_x64_64_for_bitmap_hash64_function, "false");
 
 } // namespace starrocks::config
