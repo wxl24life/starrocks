@@ -406,6 +406,8 @@ private:
                       << ", txn_id: " << txn_id;
         } else {
             if (op_replication.has_tablet_metadata()) {
+                // Replace metadata with replication tablet metadata for shared-data cross cluster migration
+                // Same logic for pk and non-pk tables
                 auto old_metadata = std::make_shared<TabletMetadata>(*_metadata);
                 auto old_rowsets = std::move(*_metadata->mutable_rowsets());
 
@@ -424,6 +426,12 @@ private:
                     _metadata->mutable_orphan_files()->Clear();
                 }
                 old_rowsets.Swap(_metadata->mutable_compaction_inputs());
+
+                VLOG(3) << "Apply pk replication log with tablet metadata provided. tablet_id: " << _tablet.id()
+                        << ", base_version: " << _base_version << ", new_version: " << _new_version
+                        << ", txn_id: " << txn_meta.txn_id() << ", metadata id: " << _metadata->id()
+                        << ", next_rowset_id: " << _metadata->next_rowset_id()
+                        << ", rowsets size: " << _metadata->rowsets_size();
             } else {
                 auto old_rowsets = std::move(*_metadata->mutable_rowsets());
                 _metadata->mutable_rowsets()->Clear();
@@ -813,15 +821,18 @@ private:
             return Status::Corruption("mismatched version");
         }
 
+        int64_t base_version = _metadata->version();
         if (txn_meta.incremental_snapshot()) {
             for (const auto& op_write : op_replication.op_writes()) {
                 RETURN_IF_ERROR(apply_write_log(op_write));
             }
             LOG(INFO) << "Apply incremental replication log finish. tablet_id: " << _tablet.id()
-                      << ", base_version: " << _metadata->version() << ", new_version: " << _new_version
+                      << ", base_version: " << base_version << ", new_version: " << _new_version
                       << ", txn_id: " << txn_meta.txn_id();
         } else {
             if (op_replication.has_tablet_metadata()) {
+                // Replace metadata with replication tablet metadata for shared-data cross cluster migration
+                // Same logic for pk and non-pk tables
                 auto old_metadata = std::make_shared<TabletMetadata>(*_metadata);
                 auto old_rowsets = std::move(*_metadata->mutable_rowsets());
 
@@ -840,6 +851,12 @@ private:
                     _metadata->mutable_orphan_files()->Clear();
                 }
                 old_rowsets.Swap(_metadata->mutable_compaction_inputs());
+
+                VLOG(3) << "Apply replication log with tablet metadata provided. tablet_id: " << _tablet.id()
+                        << ", base_version: " << base_version << ", new_version: " << _new_version
+                        << ", txn_id: " << txn_meta.txn_id() << ", metadata id: " << _metadata->id()
+                        << ", next_rowset_id: " << _metadata->next_rowset_id()
+                        << ", rowsets size: " << _metadata->rowsets_size();
             } else {
                 auto old_rowsets = std::move(*_metadata->mutable_rowsets());
                 _metadata->mutable_rowsets()->Clear();
@@ -853,7 +870,7 @@ private:
             }
 
             LOG(INFO) << "Apply full replication log finish. tablet_id: " << _tablet.id()
-                      << ", base_version: " << _metadata->version() << ", new_version: " << _new_version
+                      << ", base_version: " << base_version << ", new_version: " << _new_version
                       << ", txn_id: " << txn_meta.txn_id();
         }
 
