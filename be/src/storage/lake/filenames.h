@@ -132,32 +132,54 @@ inline std::string gen_segment_filename(int64_t txn_id) {
 }
 
 // Helper function to extract uuid from filename, which is used in shared-data cross cluster migration
-inline std::string extract_uuid_from(const std::string& file_name) {
-    if (UNLIKELY(!is_segment(file_name) && !is_del(file_name) && !is_sst(file_name) && !is_delvec(file_name) &&
-                 !is_cols(file_name))) {
-        // not a valid file
+inline std::string extract_uuid_from(std::string_view file_name) {
+    if (file_name.empty()) {
         return {};
     }
 
-    size_t dot_pos = file_name.find_last_of('.');
-    // sst file only has uuid as name, no txn_id prefix
-    if (is_sst(file_name)) {
-        return file_name.substr(0, dot_pos);
-    }
-
-    // file_name should have format like {:016x}_uuid.ext
-    size_t split_pos = file_name.find('_');
-    if (UNLIKELY(split_pos != 16)) {
+    const size_t dot_pos = file_name.find_last_of('.');
+    if (dot_pos == std::string_view::npos) {
         return {};
     }
-    return file_name.substr(split_pos + 1, dot_pos - split_pos - 1);
+
+    std::string_view extension = file_name.substr(dot_pos);
+
+    // sst file: uuid.sst
+    if (extension == ".sst") {
+        return std::string(file_name.substr(0, dot_pos));
+    }
+
+    // normal case：{:016x}_uuid.ext, with txn_id (16bit) as prefix
+    constexpr size_t TXN_ID_LENGTH = 16;
+    if (file_name.size() < TXN_ID_LENGTH + 2) {
+        return {};
+    }
+
+    if (file_name[TXN_ID_LENGTH] != '_') {
+        return {};
+    }
+
+    // check extension
+    if (extension != ".dat" && extension != ".del" && extension != ".delvec" && extension != ".cols") {
+        return {};
+    }
+
+    const size_t uuid_start = TXN_ID_LENGTH + 1;
+    const size_t uuid_length = dot_pos - uuid_start;
+
+    // standard UUID format: 8-4-4-4-12 = 36 bit
+    if (uuid_length != 36) {
+        LOG(WARNING) << "Invalid UUID length: " << uuid_length << " in file: " << file_name;
+    }
+
+    return std::string(file_name.substr(uuid_start, uuid_length));
 }
 
 // Helper function to generate a new filename from old filename, which is used in shared-data cross cluster migration
-inline std::string gen_filename_from(int64_t txn_id, const std::string& old_file_name) {
+inline std::string gen_filename_from(int64_t txn_id, std::string_view old_file_name) {
     if (is_sst(old_file_name)) {
         // sst file's name will keep no change,
-        return old_file_name;
+        return std::string(old_file_name);
     }
 
     if (UNLIKELY(!is_segment(old_file_name) && !is_del(old_file_name) && !is_delvec(old_file_name)) &&
