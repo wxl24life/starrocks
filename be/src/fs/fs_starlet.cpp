@@ -38,10 +38,10 @@
 #include "io/throttled_output_stream.h"
 #include "io/throttled_seekable_input_stream.h"
 #include "service/staros_worker.h"
-#include "util/lru_cache.h"
 #include "storage/lake/filenames.h"
 #include "storage/olap_common.h"
 #include "util/defer_op.h"
+#include "util/lru_cache.h"
 #include "util/stopwatch.hpp"
 #include "util/string_parser.hpp"
 
@@ -106,7 +106,7 @@ StatusOr<std::pair<std::string, int64_t>> parse_starlet_uri(std::string_view uri
 
 class StarletInputStream : public starrocks::io::SeekableInputStream {
 public:
-    explicit StarletInputStream(ReadOnlyFilePtr file_ptr) : _file_ptr(std::move(file_ptr)){};
+    explicit StarletInputStream(ReadOnlyFilePtr file_ptr) : _file_ptr(std::move(file_ptr)) {};
     ~StarletInputStream() override = default;
     StarletInputStream(const StarletInputStream&) = delete;
     void operator=(const StarletInputStream&) = delete;
@@ -222,7 +222,7 @@ private:
 
 class StarletOutputStream : public starrocks::io::OutputStream {
 public:
-    explicit StarletOutputStream(WritableFilePtr file_ptr) : _file_ptr(std::move(file_ptr)){};
+    explicit StarletOutputStream(WritableFilePtr file_ptr) : _file_ptr(std::move(file_ptr)) {};
     ~StarletOutputStream() override = default;
     StarletOutputStream(const StarletOutputStream&) = delete;
     void operator=(const StarletOutputStream&) = delete;
@@ -642,7 +642,10 @@ std::shared_ptr<FileSystem> new_fs_starlet(int64_t shard_id) {
     static std::once_flag init_flag;
     static std::unique_ptr<Cache> shard_fs_cache;
     std::call_once(init_flag, []() {
-        constexpr size_t kDefaultCacheCapacity = 1024 * 64; // ~64 entries
+        // The cache here is used to store fslib's shard fs which is used for cross cluster migration,
+        // where each shard fs correspond to one storage volume on source cluster.
+        // So we chose a small cache size here, with expect that normally few storage volumes are used.
+        constexpr size_t kDefaultCacheCapacity = 1024 * 10; // ~10 entries
         shard_fs_cache.reset(new_lru_cache(kDefaultCacheCapacity));
     });
 
@@ -653,20 +656,21 @@ std::shared_ptr<FileSystem> new_fs_starlet(int64_t shard_id) {
     // Try cache lookup
     Cache::Handle* handle = shard_fs_cache->lookup(cache_key);
     if (handle != nullptr) {
-        auto* cached_ptr = static_cast<std::shared_ptr<staros::starlet::fslib::FileSystem>*>(
-                shard_fs_cache->value(handle));
+        auto* cached_ptr =
+                static_cast<std::shared_ptr<staros::starlet::fslib::FileSystem>*>(shard_fs_cache->value(handle));
         std::shared_ptr<staros::starlet::fslib::FileSystem> shard_fs = *cached_ptr;
         shard_fs_cache->release(handle);
         return std::make_shared<StarletFileSystem>(shard_fs);
     }
+
+    LOG(INFO) << "Get and create a new shard filesystem, shard_id: " << shard_id;
 
     // Cache miss - create new shard filesystem
     staros::starlet::fslib::Configuration conf;
     absl::StatusOr<std::shared_ptr<staros::starlet::fslib::FileSystem>> fs_st =
             g_worker->get_shard_filesystem(shard_id, conf);
     if (!fs_st.ok()) {
-        LOG(WARNING) << "Failed to get shard filesystem, shard_id: " << shard_id 
-                     << ", error: " << fs_st.status();
+        LOG(WARNING) << "Failed to get shard filesystem, shard_id: " << shard_id << ", error: " << fs_st.status();
         return nullptr;
     }
 
