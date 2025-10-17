@@ -274,6 +274,10 @@ Status UpdateConfigAction::update_config(const std::string& name, const std::str
             update_staros_starcache();
             return Status::OK();
         });
+        _config_callback.emplace("starlet_tablet_meta_size_bytes", [&]() -> Status {
+            update_staros_starcache();
+            return Status::OK();
+        });
 #endif
         _config_callback.emplace("transaction_apply_worker_count", [&]() -> Status {
             int max_thread_cnt = CpuInfo::num_cores();
