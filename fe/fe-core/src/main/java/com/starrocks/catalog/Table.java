@@ -129,7 +129,9 @@ public class Table extends MetaObject implements Writable, GsonPostProcessable, 
         @SerializedName("HIVE_VIEW")
         HIVE_VIEW,
         @SerializedName("ICEBERG_VIEW")
-        ICEBERG_VIEW;
+        ICEBERG_VIEW,
+        @SerializedName("FLUSS")
+        FLUSS;
 
         public static String serialize(TableType type) {
             if (type == CLOUD_NATIVE) {
@@ -396,6 +398,10 @@ public class Table extends MetaObject implements Writable, GsonPostProcessable, 
 
     public boolean isPaimonTable() {
         return type == TableType.PAIMON;
+    }
+
+    public boolean isFlussTable() {
+        return type == TableType.FLUSS;
     }
 
     public boolean isOdpsTable() {
