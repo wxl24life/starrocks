@@ -122,6 +122,11 @@ public class PaimonTable extends Table {
     }
 
     @Override
+    public boolean isTemporal() {
+        return true;
+    }
+
+    @Override
     public String getTableLocation() {
         if (paimonNativeTable instanceof DataTable) {
             return ((DataTable) paimonNativeTable).location().toString();

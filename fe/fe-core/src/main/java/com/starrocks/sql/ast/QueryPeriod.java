@@ -36,8 +36,7 @@ public class QueryPeriod implements ParseNode {
     }
 
     public enum PeriodType {
-        TIMESTAMP,
-        VERSION
+        TIME, TIMESTAMP, VERSION
     }
 
     public Optional<Expr> getStart() {

@@ -23,6 +23,7 @@ import com.starrocks.analysis.TupleDescriptor;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.PaimonTable;
 import com.starrocks.catalog.PartitionKey;
+import com.starrocks.catalog.TableSnapshotInfo;
 import com.starrocks.catalog.Type;
 import com.starrocks.common.profile.Timer;
 import com.starrocks.common.profile.Tracers;
@@ -40,6 +41,7 @@ import com.starrocks.credential.aliyun.AliyunCloudCredential;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.SessionVariable;
 import com.starrocks.server.GlobalStateMgr;
+import com.starrocks.sql.ast.QueryPeriod;
 import com.starrocks.sql.optimizer.operator.scalar.ScalarOperator;
 import com.starrocks.sql.plan.HDFSScanNodePredicates;
 import com.starrocks.thrift.TExplainLevel;
@@ -62,6 +64,7 @@ import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.rest.RESTToken;
 import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.table.FormatTable;
+import org.apache.paimon.table.Table;
 import org.apache.paimon.table.format.FormatDataSplit;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.FileStoreTable;
@@ -160,6 +163,7 @@ public class PaimonScanNode extends ScanNode {
                                         ScalarOperator predicate,
                                         long limit)
             throws IOException {
+        this.processedTable();
         List<String> fieldNames =
                 tupleDescriptor.getSlots().stream().map(s -> s.getColumn().getName()).collect(Collectors.toList());
         GetRemoteFilesParams params =
@@ -339,6 +343,18 @@ public class PaimonScanNode extends ScanNode {
                 tHdfsFileFormat = THdfsFileFormat.UNKNOWN;
         }
         return tHdfsFileFormat;
+    }
+
+    private String getTimeTravelScanOption(TableSnapshotInfo.VersionType versionType) {
+        String optKey = null;
+        if (versionType == TableSnapshotInfo.VersionType.TIMESTAMP_MILLIS) {
+            optKey = CoreOptions.SCAN_TIMESTAMP_MILLIS.key();
+        } else if (versionType == TableSnapshotInfo.VersionType.TIMESTAMP) {
+            optKey = CoreOptions.SCAN_TIMESTAMP.key();
+        } else if (versionType == TableSnapshotInfo.VersionType.VERSION) {
+            optKey = CoreOptions.SCAN_SNAPSHOT_ID.key();
+        }
+        return optKey;
     }
 
     public void splitRawFileScanRangeLocations(RawFile rawFile, @Nullable DeletionFile deletionFile, long partitionId, long recordCount) {
@@ -610,4 +626,17 @@ public class PaimonScanNode extends ScanNode {
             throw new RuntimeException(e);
         }
     }
+
+    private void processedTable() {
+        Table paimonNativeTable = paimonTable.getNativeTable();
+        TableSnapshotInfo tableSnapshotInfo = paimonTable.getTableSnapshotInfo();
+        // set time travel option
+        if (null != tableSnapshotInfo) {
+            Map<String, String> copiedMap = new HashMap<>();
+            copiedMap.put(getTimeTravelScanOption(tableSnapshotInfo.getType()), tableSnapshotInfo.getValue());
+            paimonNativeTable = paimonNativeTable.copy(copiedMap);
+            paimonTable.setPaimonNativeTable(paimonNativeTable);
+        }
+    }
+
 }

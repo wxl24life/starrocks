@@ -5931,8 +5931,9 @@ public class AstBuilder extends StarRocksBaseVisitor<ParseNode> {
     private QueryPeriod.PeriodType getPeriodType(Token token) {
         switch (token.getType()) {
             case StarRocksLexer.TIMESTAMP:
-            case StarRocksLexer.SYSTEM_TIME:
                 return QueryPeriod.PeriodType.TIMESTAMP;
+            case StarRocksLexer.SYSTEM_TIME:
+                return QueryPeriod.PeriodType.TIME;
             case StarRocksLexer.VERSION:
                 return QueryPeriod.PeriodType.VERSION;
             default:
@@ -7047,7 +7048,7 @@ public class AstBuilder extends StarRocksBaseVisitor<ParseNode> {
         Expr compareExpr = (Expr) visit(context.value);
 
         ConnectContext connectContext = ConnectContext.get();
-        
+
         List<com.starrocks.sql.parser.StarRocksParser.StringContext> stringNodes = context.stringList().string();
         int literalCount = stringNodes.size();
         List<Expr> stringExprList = visit(stringNodes, Expr.class);
@@ -7070,7 +7071,7 @@ public class AstBuilder extends StarRocksBaseVisitor<ParseNode> {
         Expr compareExpr = (Expr) visit(context.value);
 
         com.starrocks.qe.ConnectContext connectContext = com.starrocks.qe.ConnectContext.get();
-        
+
         List<org.antlr.v4.runtime.tree.TerminalNode> integerNodes = context.integerList().INTEGER_VALUE();
         int literalCount = integerNodes.size();
 
@@ -7108,7 +7109,7 @@ public class AstBuilder extends StarRocksBaseVisitor<ParseNode> {
 
         return new InPredicate(compareExpr, intList, isNotIn, createPos(context));
     }
-    
+
     /**
      * Parse integer literal with the exact same logic as visitIntegerValue
      */

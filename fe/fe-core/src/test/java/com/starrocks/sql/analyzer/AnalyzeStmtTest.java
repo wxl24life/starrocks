@@ -14,6 +14,7 @@
 
 package com.starrocks.sql.analyzer;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.starrocks.analysis.TableName;
@@ -23,6 +24,8 @@ import com.starrocks.catalog.HiveTable;
 import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.Partition;
 import com.starrocks.catalog.Table;
+import com.starrocks.catalog.TableSnapshotInfo;
+import com.starrocks.catalog.Type;
 import com.starrocks.common.MetaNotFoundException;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.DDLStmtExecutor;
@@ -37,7 +40,9 @@ import com.starrocks.sql.ast.AnalyzeStmt;
 import com.starrocks.sql.ast.DropHistogramStmt;
 import com.starrocks.sql.ast.DropStatsStmt;
 import com.starrocks.sql.ast.KillAnalyzeStmt;
+import com.starrocks.sql.ast.QueryRelation;
 import com.starrocks.sql.ast.QueryStatement;
+import com.starrocks.sql.ast.Relation;
 import com.starrocks.sql.ast.SelectRelation;
 import com.starrocks.sql.ast.SetUserPropertyStmt;
 import com.starrocks.sql.ast.ShowAnalyzeJobStmt;
@@ -47,6 +52,7 @@ import com.starrocks.sql.ast.ShowHistogramStatsMetaStmt;
 import com.starrocks.sql.ast.ShowMultiColumnStatsMetaStmt;
 import com.starrocks.sql.ast.ShowUserPropertyStmt;
 import com.starrocks.sql.ast.StatementBase;
+import com.starrocks.sql.ast.TableRelation;
 import com.starrocks.sql.common.MetaUtils;
 import com.starrocks.sql.plan.ConnectorPlanTestBase;
 import com.starrocks.statistic.AnalyzeMgr;
@@ -853,4 +859,66 @@ public class AnalyzeStmtTest {
         Assertions.assertEquals("delete from histogram_statistics where table_id in (100)", histogramSql);
     }
 
+    @Test
+    public void testTimeTravel() throws Exception {
+
+        StarRocksAssert sr = AnalyzeTestUtil.getStarRocksAssert();
+        // mock db and table
+        sr.withDatabase("time_travel_db").useDatabase("time_travel_db");
+        Table paimonTable = new Table(1L, "tt_0", Table.TableType.PAIMON,
+                ImmutableList.of(new Column("id", Type.BIGINT), new Column("name", Type.STRING))) {
+            @Override
+            public boolean isTemporal() {
+                return true;
+            }
+
+            @Override
+            public boolean isSupported() {
+                return true;
+            }
+
+        };
+        Database db = GlobalStateMgr.getCurrentState().getLocalMetastore().getDb("time_travel_db");
+        db.registerTableUnlocked(paimonTable);
+
+        // Test sql1: SYSTEM_TIME (TIMESTAMP type)
+        String sql1 = "SELECT * FROM time_travel_db.tt_0 FOR SYSTEM_TIME AS OF '2025-09-21 21:06:49'";
+        QueryStatement queryStmt1 = (QueryStatement) UtFrameUtils.parseStmtWithNewParser(sql1, sr.getCtx());
+        QueryRelation relation1 = queryStmt1.getQueryRelation();
+        Assertions.assertTrue(relation1 instanceof SelectRelation);
+        SelectRelation selectRelation1 = (SelectRelation) relation1;
+        Relation fromRelation1 = selectRelation1.getRelation();
+        Assertions.assertTrue(fromRelation1 instanceof TableRelation);
+        TableRelation tableRelation1 = (TableRelation) fromRelation1;
+        TableSnapshotInfo tableSnapshotInfo1 = tableRelation1.getTable().getTableSnapshotInfo();
+        Assertions.assertEquals("TIMESTAMP", tableSnapshotInfo1.getType().name());
+        Assertions.assertEquals("2025-09-21 21:06:49", tableSnapshotInfo1.getValue());
+
+        // Test sql2: TIMESTAMP (TIMESTAMP_MILLIS type)
+        String sql2 = "SELECT * FROM time_travel_db.tt_0 FOR TIMESTAMP AS OF 8888888888888;";
+        QueryStatement queryStmt2 = (QueryStatement) UtFrameUtils.parseStmtWithNewParser(sql2, sr.getCtx());
+        QueryRelation relation2 = queryStmt2.getQueryRelation();
+        Assertions.assertTrue(relation2 instanceof SelectRelation);
+        SelectRelation selectRelation2 = (SelectRelation) relation2;
+        Relation fromRelation2 = selectRelation2.getRelation();
+        Assertions.assertTrue(fromRelation2 instanceof TableRelation);
+        TableRelation tableRelation2 = (TableRelation) fromRelation2;
+        TableSnapshotInfo tableSnapshotInfo2 = tableRelation2.getTable().getTableSnapshotInfo();
+        Assertions.assertEquals("TIMESTAMP_MILLIS", tableSnapshotInfo2.getType().name());
+        Assertions.assertEquals("8888888888888", tableSnapshotInfo2.getValue());
+
+        // Test sql3: VERSION
+        String sql3 = "SELECT * FROM time_travel_db.tt_0 FOR VERSION AS OF 139384;";
+        QueryStatement queryStmt3 = (QueryStatement) UtFrameUtils.parseStmtWithNewParser(sql3, sr.getCtx());
+        QueryRelation relation3 = queryStmt3.getQueryRelation();
+        Assertions.assertTrue(relation3 instanceof SelectRelation);
+        SelectRelation selectRelation3 = (SelectRelation) relation3;
+        Relation fromRelation3 = selectRelation3.getRelation();
+        Assertions.assertTrue(fromRelation3 instanceof TableRelation);
+        TableRelation tableRelation3 = (TableRelation) fromRelation3;
+        TableSnapshotInfo tableSnapshotInfo3 = tableRelation3.getTable().getTableSnapshotInfo();
+        Assertions.assertEquals("VERSION", tableSnapshotInfo3.getType().name());
+        Assertions.assertEquals("139384", tableSnapshotInfo3.getValue());
+    }
+>>>>>>> 71c6ab1bca2 ([Stella][Feature] support paimon query with version/timestamp)
 }

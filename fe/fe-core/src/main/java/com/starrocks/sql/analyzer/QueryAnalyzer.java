@@ -49,6 +49,7 @@ import com.starrocks.catalog.Resource;
 import com.starrocks.catalog.Table;
 import com.starrocks.catalog.TableFunction;
 import com.starrocks.catalog.TableFunctionTable;
+import com.starrocks.catalog.TableSnapshotInfo;
 import com.starrocks.catalog.Type;
 import com.starrocks.catalog.View;
 import com.starrocks.common.AnalysisException;
@@ -74,6 +75,7 @@ import com.starrocks.sql.ast.PartitionNames;
 import com.starrocks.sql.ast.PivotAggregation;
 import com.starrocks.sql.ast.PivotRelation;
 import com.starrocks.sql.ast.PivotValue;
+import com.starrocks.sql.ast.QueryPeriod;
 import com.starrocks.sql.ast.QueryRelation;
 import com.starrocks.sql.ast.QueryStatement;
 import com.starrocks.sql.ast.Relation;
@@ -90,7 +92,12 @@ import com.starrocks.sql.ast.ValuesRelation;
 import com.starrocks.sql.ast.ViewRelation;
 import com.starrocks.sql.common.MetaUtils;
 import com.starrocks.sql.common.TypeManager;
+import com.starrocks.sql.optimizer.base.ColumnRefFactory;
 import com.starrocks.sql.optimizer.dump.HiveMetaStoreTableDumpInfo;
+import com.starrocks.sql.optimizer.operator.scalar.ConstantOperator;
+import com.starrocks.sql.optimizer.operator.scalar.ScalarOperator;
+import com.starrocks.sql.optimizer.transformer.ExpressionMapping;
+import com.starrocks.sql.optimizer.transformer.SqlToScalarOperatorTranslator;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -1623,6 +1630,14 @@ public class QueryAnalyzer {
                 if (table == null) {
                     try (Timer ignored = Tracers.watchScope("AnalyzeTable")) {
                         table = metadataMgr.getTable(session, catalogName, dbName, tbName);
+                        if (tableRelation.getQueryPeriod() != null) {
+                            // for time travel
+                            QueryPeriod queryPeriod = tableRelation.getQueryPeriod();
+                            QueryPeriod.PeriodType periodType = queryPeriod.getPeriodType();
+                            // TODO: support incremental-between-scan-mode(startVersion)
+                            TableSnapshotInfo tableSnapshotInfo = resolveQueryPeriod(queryPeriod.getEnd(), periodType);
+                            table.setTableSnapshotInfo(tableSnapshotInfo);
+                        }
                     }
                 }
             }
@@ -1664,6 +1679,42 @@ public class QueryAnalyzer {
         } catch (AnalysisException e) {
             throw new SemanticException(e.getMessage());
         }
+    }
+
+    private TableSnapshotInfo resolveQueryPeriod(Optional<Expr> version, QueryPeriod.PeriodType type) {
+        if (version.isEmpty()) {
+            return null;
+        }
+        ScalarOperator result;
+        try {
+            Scope scope = new Scope(RelationId.anonymous(), new RelationFields());
+            ExpressionAnalyzer.analyzeExpression(version.get(), new AnalyzeState(), scope, session);
+            ExpressionMapping expressionMapping = new ExpressionMapping(scope);
+            result = SqlToScalarOperatorTranslator.translate(version.get(), expressionMapping, new ColumnRefFactory());
+        } catch (Exception e) {
+            throw new SemanticException("Failed to resolve query period [type: %s, value: %s]. msg: %s", type.toString(),
+                    version.get().toString(), e.getMessage());
+        }
+
+        if (!(result instanceof ConstantOperator)) {
+            if (version.get() instanceof FunctionCallExpr) {
+
+                throw new SemanticException("Invalid datetime function: [type: %s, value: %s]. " +
+                        "The function requirement must be inferred in frontend.", type.toString(), version.get().toString());
+            } else {
+                throw new SemanticException("Invalid version value. [type: %s, value: %s]", type.toString(),
+                        version.get().toString());
+            }
+        }
+        TableSnapshotInfo.VersionType versionType = null;
+        if (type == QueryPeriod.PeriodType.TIMESTAMP) {
+            versionType = TableSnapshotInfo.VersionType.TIMESTAMP_MILLIS;
+        } else if (type == QueryPeriod.PeriodType.TIME) {
+            versionType = TableSnapshotInfo.VersionType.TIMESTAMP;
+        } else {
+            versionType = TableSnapshotInfo.VersionType.VERSION;
+        }
+        return new TableSnapshotInfo(((ConstantOperator) result).getValue().toString(), versionType);
     }
 
     private Table resolveTableFunctionTable(Map<String, String> properties, Consumer<TableFunctionTable> pushDownSchemaFunc) {
