@@ -862,13 +862,7 @@ public class ConnectContext {
             // error happens in BE execution.
             return errorMsg;
         }
-
-        if (state.getErrType() != QueryState.ErrType.UNKNOWN) {
-            // error happens in FE execution.
-            return state.getErrorMessage();
-        }
-
-        return "";
+        return state.getErrorMessage();
     }
 
     public void resetErrorMsg() {
