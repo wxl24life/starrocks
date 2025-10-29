@@ -209,8 +209,7 @@ protected:
             txn_info.set_combined_txn_log(false);
             txn_info.set_commit_time(0);
             auto txn_info_span = std::span<const TxnInfoPB>(&txn_info, 1);
-            ASSERT_OK(lake::publish_version(_tablet_mgr.get(), _src_tablet_id, version, version + 1, txn_info_span,
-                                            false));
+            ASSERT_OK(lake::publish_version(_tablet_mgr.get(), _src_tablet_id, version, version + 1, txn_info_span);
             version++;
         }
         ASSIGN_OR_ABORT(auto new_tablet_metadata, _tablet_mgr->get_tablet_metadata(_src_tablet_id, version));
@@ -313,8 +312,7 @@ TEST_P(SharedDataReplicationTxnManagerTest, test_replicate_normal) {
     txn_info.set_combined_txn_log(false);
     txn_info.set_commit_time(0);
     auto txn_info_span = std::span<const TxnInfoPB>(&txn_info, 1);
-    auto status_or =
-            lake::publish_version(_tablet_mgr.get(), _target_tablet_id, _version, _src_version, txn_info_span, false);
+    auto status_or = lake::publish_version(_tablet_mgr.get(), _target_tablet_id, _version, _src_version, txn_info_span);
     EXPECT_TRUE(status_or.ok()) << status_or.status();
 
     EXPECT_EQ(_src_version, status_or.value()->version());
@@ -504,8 +502,7 @@ TEST_P(SharedDataReplicationTxnManagerTest, test_replicate_normal_encrypted) {
     txn_info.set_combined_txn_log(false);
     txn_info.set_commit_time(0);
     auto txn_info_span = std::span<const TxnInfoPB>(&txn_info, 1);
-    auto status_or =
-            lake::publish_version(_tablet_mgr.get(), _target_tablet_id, _version, _src_version, txn_info_span, false);
+    auto status_or = lake::publish_version(_tablet_mgr.get(), _target_tablet_id, _version, _src_version, txn_info_span);
     EXPECT_TRUE(status_or.ok()) << status_or.status();
 
     EXPECT_EQ(_src_version, status_or.value()->version());

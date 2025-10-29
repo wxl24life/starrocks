@@ -17,6 +17,7 @@ package com.starrocks.replication;
 import com.google.gson.annotations.SerializedName;
 import com.starrocks.catalog.OlapTable;
 import com.starrocks.common.MetaNotFoundException;
+import com.starrocks.lake.LakeTablet;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.WarehouseManager;
 import com.starrocks.system.SystemInfoService;
@@ -92,7 +93,7 @@ public class LakeReplicationJob extends ReplicationJob {
             for (IndexInfo indexInfo : partitionInfo.getIndexInfos().values()) {
                 for (TabletInfo tabletInfo : indexInfo.getTabletInfos().values()) {
                     Long computeNodeId = warehouseMgr
-                            .getComputeNodeId(WarehouseManager.DEFAULT_RESOURCE, tabletInfo.getTabletId());
+                            .getComputeNodeId(WarehouseManager.DEFAULT_WAREHOUSE_ID, new LakeTablet(tabletInfo.getTabletId()));
                     if (computeNodeId == null) {
                         throw new RuntimeException("Send lake replicate task failed, no compute node found for tablet: "
                                 + tabletInfo.getTabletId());

@@ -71,10 +71,6 @@ public class WarehouseManagerTest {
                 () -> mgr.getAllComputeNodeIds("a"));
         ExceptionChecker.expectThrowsWithMsg(ErrorReportException.class, "Warehouse id: 1 not exist.",
                 () -> mgr.getAllComputeNodeIds(1L));
-        ExceptionChecker.expectThrowsWithMsg(ErrorReportException.class, "Warehouse id: 1 not exist.",
-                () -> mgr.getComputeNodeId(1L, null));
-        ExceptionChecker.expectThrowsWithMsg(ErrorReportException.class, "Warehouse id: 1 not exist.",
-                () -> mgr.getAliveComputeNodeId(1L, null));
     }
 
     @Test

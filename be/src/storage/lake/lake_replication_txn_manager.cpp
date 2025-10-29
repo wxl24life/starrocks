@@ -481,28 +481,12 @@ StatusOr<std::shared_ptr<TabletMetadataPB>> LakeReplicationTxnManager::convert_a
         for (const auto& [version, file_meta_pb] : dest_meta->version_to_file()) {
             auto src_delvec_filename = file_meta_pb.name();
             std::string final_delvec_filename;
-            ASSIGN_OR_RETURN(
-                    auto is_existed,
-                    determine_final_filename(src_delvec_filename, txn_id, existed_filename_uuids, final_delvec_filename,
-                                             target_tablet_id, src_data_dir, file_locations, filename_map));
+            RETURN_IF_ERROR(determine_final_filename(src_delvec_filename, txn_id, existed_filename_uuids,
+                                                     final_delvec_filename, target_tablet_id, src_data_dir,
+                                                     file_locations, filename_map));
             auto& item = (*dest_meta->mutable_version_to_file())[version];
             item.set_name(final_delvec_filename);
-
-            if (config::enable_transparent_data_encryption) {
-                if (!is_existed) {
-                    // del file doesn't exist, use the newly generated encryption metadata
-                    std::pair<std::string, FileEncryptionPair> pair = filename_map[src_delvec_filename];
-                    item.set_encryption_meta(pair.second.encryption_meta);
-                } else {
-                    // del file already exists, use the existing encryption metadata from target tablet
-                    auto uuid = extract_uuid_from(src_delvec_filename);
-                    auto it = existed_filename_uuids.find(uuid);
-                    if (it != existed_filename_uuids.end()) {
-                        const std::string& existing_encryption_meta = it->second.second;
-                        item.set_encryption_meta(existing_encryption_meta);
-                    }
-                }
-            }
+            // not support transparent data encryption yet for FileMetaPB
         }
     }
 

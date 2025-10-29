@@ -725,8 +725,10 @@ std::shared_ptr<FileSystem> new_fs_starlet(int64_t shard_id) {
 
     // Cache miss - create new shard filesystem
     staros::starlet::fslib::Configuration conf;
+    bool enable_datacache = false;
     absl::StatusOr<std::shared_ptr<staros::starlet::fslib::FileSystem>> fs_st =
-            g_worker->get_shard_filesystem(shard_id, conf);
+            g_worker->get_shard_filesystem(shard_id, conf, &enable_datacache);
+
     if (!fs_st.ok()) {
         LOG(WARNING) << "Failed to get shard filesystem, shard_id: " << shard_id << ", error: " << fs_st.status();
         return nullptr;
@@ -736,7 +738,7 @@ std::shared_ptr<FileSystem> new_fs_starlet(int64_t shard_id) {
 
     // Insert into cache
     auto* cache_value = new std::shared_ptr<staros::starlet::fslib::FileSystem>(shard_fs);
-    handle = g_shard_fs_cache->insert(cache_key, cache_value, 1, shard_fs_cache_deleter);
+    handle = g_shard_fs_cache->insert(cache_key, cache_value, 1, 1, shard_fs_cache_deleter);
     if (handle != nullptr) {
         g_shard_fs_cache->release(handle);
     } else {
@@ -744,7 +746,6 @@ std::shared_ptr<FileSystem> new_fs_starlet(int64_t shard_id) {
     }
 
     LOG(INFO) << "Created new shard filesystem, shard_id: " << shard_id
-              << ", cache_inserts: " << g_shard_fs_cache->get_insert_count()
               << ", cache_memory: " << g_shard_fs_cache->get_memory_usage() << " bytes";
 
     return std::make_shared<StarletFileSystem>(shard_fs);

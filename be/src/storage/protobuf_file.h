@@ -33,6 +33,8 @@ class ProtobufFile {
 public:
     explicit ProtobufFile(std::string path) : _path(std::move(path)) {}
     explicit ProtobufFile(std::string path, OperationKind op_type) : _path(std::move(path)), _op_type(op_type) {}
+    explicit ProtobufFile(std::string path, OperationKind op_type, std::shared_ptr<FileSystem> fs)
+            : _path(std::move(path)), _fs(fs), _op_type(op_type) {}
 
     explicit ProtobufFile(std::string path, std::shared_ptr<FileSystem> fs,
                           OperationKind op_type = OperationKind::UNDEFINED)
