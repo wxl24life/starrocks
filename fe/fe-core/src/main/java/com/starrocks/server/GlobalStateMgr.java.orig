@@ -120,8 +120,6 @@ import com.starrocks.consistency.LockChecker;
 import com.starrocks.consistency.MetaRecoveryDaemon;
 import com.starrocks.encryption.KeyMgr;
 import com.starrocks.encryption.KeyRotationDaemon;
-import com.starrocks.epack.warehouse.WarehouseManagerEPack;
-import com.starrocks.epack.warehouse.WarehouseSlotManager;
 import com.starrocks.ha.FrontendNodeType;
 import com.starrocks.ha.HAProtocol;
 import com.starrocks.ha.LeaderInfo;
@@ -217,7 +215,6 @@ import com.starrocks.sql.analyzer.AuthorizerStmtVisitor;
 import com.starrocks.sql.ast.RefreshTableStmt;
 import com.starrocks.sql.ast.SetType;
 import com.starrocks.sql.ast.SystemVariable;
-import com.starrocks.sql.optimizer.CachingMvPlanContextBuilder;
 import com.starrocks.sql.optimizer.statistics.CachedStatisticStorage;
 import com.starrocks.sql.optimizer.statistics.StatisticStorage;
 import com.starrocks.sql.parser.AstBuilder;
@@ -265,7 +262,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -747,7 +743,7 @@ public class GlobalStateMgr {
         this.analyzeMgr = new AnalyzeMgr();
         this.localMetastore = new LocalMetastore(this, recycleBin, colocateTableIndex);
         this.temporaryTableMgr = new TemporaryTableMgr();
-        this.warehouseMgr = new WarehouseManagerEPack();
+        this.warehouseMgr = new WarehouseManager();
         this.historicalNodeMgr = new HistoricalNodeMgr();
         this.connectorMgr = new ConnectorMgr();
         this.connectorTblMetaInfoMgr = new ConnectorTblMetaInfoMgr();
@@ -773,7 +769,7 @@ public class GlobalStateMgr {
         if (RunMode.isSharedDataMode()) {
             this.storageVolumeMgr = new SharedDataStorageVolumeMgr();
             this.autovacuumDaemon = new AutovacuumDaemon();
-            this.slotManager = new WarehouseSlotManager(resourceUsageMonitor);
+            this.slotManager = new SlotManager(resourceUsageMonitor);
         } else {
             this.storageVolumeMgr = new SharedNothingStorageVolumeMgr();
             this.slotManager = new SlotManager(resourceUsageMonitor);
@@ -1343,18 +1339,6 @@ public class GlobalStateMgr {
         createBuiltinStorageVolume();
         resourceGroupMgr.createBuiltinResourceGroupsIfNotExist();
         keyMgr.initDefaultMasterKey();
-
-        // trigger actions after transferring to leader
-        triggerOnTransferToLeader();
-    }
-
-    private void triggerOnTransferToLeader() {
-        try {
-            // trigger to load mv's plan cache async
-            CachingMvPlanContextBuilder.getInstance().triggerPendingMVPlanCacheLoads();
-        } catch (Throwable t) {
-            LOG.warn("Failed to trigger loading mv's plan cache", t);
-        }
     }
 
     public void setFrontendNodeType(FrontendNodeType newType) {
@@ -1685,11 +1669,6 @@ public class GlobalStateMgr {
         for (Database db : localMetastore.getIdToDb().values()) {
             for (Table table : db.getTables()) {
                 try {
-                    // Skip MaterializedView, which are processed in processMvRelatedMeta()
-                    if (table.isMaterializedView()) {
-                        continue;
-                    }
-
                     table.onReload();
 
                     if (table.isTemporaryTable()) {
@@ -1720,14 +1699,7 @@ public class GlobalStateMgr {
 
         // only load image async when FE restart and it's not checkpoint thread to avoid changing original behavior.
         boolean isReloadAsync = Config.enable_mv_post_image_reload_cache && !isCheckpointThread();
-        int size = topoOrder.size();
-        for (int i = 0; i < size; i++) {
-            MaterializedView mv = topoOrder.get(i);
-            String dbName = Optional.ofNullable(localMetastore.getDb(mv.getDbId()))
-                    .map(Database::getFullName)
-                    .orElse(String.valueOf(mv.getDbId()));
-            LOG.info("start to reload mv {}/{}: {}.{} after load image, isReloadAsync:{}",
-                    i + 1, size, dbName, mv.getName(), isReloadAsync);
+        for (MaterializedView mv : topoOrder) {
             // set `postLoadImage` flag to true to indicate that this is called after image loading
             mv.onReload(isReloadAsync);
         }
@@ -2225,10 +2197,6 @@ public class GlobalStateMgr {
         return this.backupHandler;
     }
 
-    public PublishVersionDaemon getPublishVersionDaemon() {
-        return this.publishVersionDaemon;
-    }
-
     public DeleteMgr getDeleteMgr() {
         return deleteMgr;
     }
@@ -2335,6 +2303,18 @@ public class GlobalStateMgr {
 
     public boolean isLeader() {
         return feType == FrontendNodeType.LEADER;
+    }
+
+    public void markLeaderTransferred() {
+        // Set isReady to false, so that the leader info will be got from HA protocol, see NodeMgr.getLeaderIpAndRpcPort
+        isReady.set(false);
+        feType = FrontendNodeType.FOLLOWER;
+        journalWriter.setLeaderTransferred();
+    }
+
+    public boolean isLeaderTransferred() {
+        return journalWriter != null
+                && journalWriter.isLeaderTransferred();
     }
 
     public void setSynchronizedTime(long time) {
@@ -2459,10 +2439,6 @@ public class GlobalStateMgr {
      */
     public Function getFunction(Function desc, Function.CompareMode mode) {
         return functionSet.getFunction(desc, mode);
-    }
-
-    public boolean isAggregateFunction(String functionName) {
-        return functionSet.isAggregateFunction(functionName);
     }
 
     public List<Function> getBuiltinFunctions() {
