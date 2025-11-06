@@ -78,7 +78,7 @@ Status JniWriter::write(RuntimeState* runtime_state, const ChunkPtr& chunk) {
                 if (result_columns[col]->get(row).is_null()) {
                     continue;
                 }
-                auto value = result_columns[col]->get(row).get_int16();
+                auto value = result_columns[col]->get(row).get_int8();
                 jobject java_element = _jni_env->NewObject(_jni_byte_class, _jni_byte_init, value);
                 _jni_env->SetObjectArrayElement(objectArray, row, java_element);
                 _jni_env->DeleteLocalRef(java_element);
