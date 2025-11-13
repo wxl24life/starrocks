@@ -50,6 +50,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -180,10 +181,11 @@ public class AuthenticationMgr {
     public String getRamUser(String userName) {
         UserProperty userProperty = userNameToProperty.get(userName);
         if (userProperty == null) {
-            LOG.warn("Cannot find the RAM user for " + userName);
+            LOG.warn("Cannot find the user " + userName);
             return "";
         } else {
-            return userNameToProperty.get(userName).getRamUser();
+            String ramUser = userNameToProperty.get(userName).getRamUser();
+            return Objects.requireNonNullElse(ramUser, "");
         }
     }
 

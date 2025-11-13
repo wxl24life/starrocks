@@ -68,7 +68,7 @@ public class DlfUtil {
         if (!Strings.isNullOrEmpty(user)) {
             return GlobalStateMgr.getCurrentState().getAuthenticationMgr().getRamUser(user);
         }
-        return user;
+        return "";
     }
 
     public static Configuration readHadoopConf() {
