@@ -22,6 +22,7 @@ import com.aliyun.datalake.common.DlfMetaToken;
 import com.aliyun.datalake.common.impl.Base64Util;
 import com.aliyun.datalake.external.com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
+import com.starrocks.authentication.AuthenticationMgr;
 import com.starrocks.connector.share.credential.CloudConfigurationConstants;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
@@ -53,11 +54,12 @@ public class DlfUtil {
                 return getRamUser(qualifiedUser);
             } else if (ConnectContext.get().getCurrentUserIdentity() != null) {
                 return getRamUser(ConnectContext.get().getCurrentUserIdentity().getUser());
-            } else {
-                return "";
             }
         }
-        return "";
+        // Some background threads may not have created a ConnectContext or set a user
+        // In such cases, we use ROOT_USER, and add logging for observability.
+        LOG.warn("user is not set when accessing dlf, use ROOT_USER, stack: {}", LogUtil.getCurrentStackTrace());
+        return getRamUser(AuthenticationMgr.ROOT_USER);
     }
 
     public static String getRamUser(String user) {
