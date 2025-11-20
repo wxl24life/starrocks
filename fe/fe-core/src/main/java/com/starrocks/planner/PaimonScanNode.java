@@ -233,9 +233,12 @@ public class PaimonScanNode extends ScanNode {
                         for (String partitionColumnName : partitionColumnNames) {
                             partitionColumnTypes.add(dataTableRowType.getField(partitionColumnName).type());
                         }
+                        String partitionDefaultName = this.paimonTable.getNativeTable().options()
+                                .getOrDefault(CoreOptions.PARTITION_DEFAULT_NAME.key(),
+                                        CoreOptions.PARTITION_DEFAULT_NAME.defaultValue());
                         InternalRowPartitionComputer partitionComputer
                                 = FileStorePathFactory.getPartitionComputer(
-                                RowType.of(partitionColumnTypes.toArray(new DataType[0])), null, false);
+                                RowType.of(partitionColumnTypes.toArray(new DataType[0])), partitionDefaultName, false);
                         String partitionPath = PartitionPathUtils.generatePartitionPath(
                                 partitionComputer.generatePartValues(partitionValue));
                         List<String> partitionValues = Arrays.stream(partitionPath.split("/"))
