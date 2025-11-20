@@ -1118,6 +1118,7 @@ public final class MetricRepo {
             visitor.visitHistogram(entry.getKey(), entry.getValue());
         }
         ResourceGroupMetricMgr.visitQueryLatency();
+        WarehouseMetricMgr.visitQueryLatency();
 
         // collect routine load process metrics
         if (Config.enable_routine_load_lag_metrics) {
