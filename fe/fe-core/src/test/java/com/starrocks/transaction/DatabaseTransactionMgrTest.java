@@ -61,6 +61,7 @@ import com.starrocks.load.routineload.RLTaskTxnCommitAttachment;
 import com.starrocks.metric.MetricRepo;
 import com.starrocks.replication.ReplicationTxnCommitAttachment;
 import com.starrocks.server.GlobalStateMgr;
+import com.starrocks.utframe.UtFrameUtils;
 import mockit.Mock;
 import mockit.MockUp;
 import org.junit.jupiter.api.AfterEach;
@@ -105,6 +106,7 @@ public class DatabaseTransactionMgrTest {
     @BeforeEach
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
             InvocationTargetException, NoSuchMethodException, SecurityException, StarRocksException {
+        UtFrameUtils.mockInitWarehouseEnv();
         Config.label_keep_max_second = 10;
         fakeEditLog = new FakeEditLog();
         fakeGlobalStateMgr = new FakeGlobalStateMgr();
