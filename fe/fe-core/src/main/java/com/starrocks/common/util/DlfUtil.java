@@ -58,7 +58,7 @@ public class DlfUtil {
         }
         // Some background threads may not have created a ConnectContext or set a user
         // In such cases, we use ROOT_USER, and add logging for observability.
-        LOG.warn("user is not set when accessing dlf, use ROOT_USER, stack: {}", LogUtil.getCurrentStackTrace());
+        LOG.warn("User is not set when accessing dlf, use ROOT_USER, stack: {}", LogUtil.getCurrentStackTrace());
         return getRamUser(AuthenticationMgr.ROOT_USER);
     }
 

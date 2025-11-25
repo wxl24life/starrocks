@@ -44,6 +44,7 @@ public class FlussSnapshotAndLogScanner extends ConnectorScannerProxy {
 
     private LakeSnapshotAndLogSplitScanner scanner;
     private CloseableIterator<InternalRow> iterator;
+    private boolean closed = false;
 
     public FlussSnapshotAndLogScanner(int fetchSize, String[] requiredFields, SourceSplitBase split,
                                       Table flussTable, Configuration tableConfig, String timeZone) {
@@ -64,16 +65,17 @@ public class FlussSnapshotAndLogScanner extends ConnectorScannerProxy {
     }
 
     public int getNextProxy(FlussSplitScanner parent) throws IOException {
-        if (this.iterator == null) {
-            while (true) {
+        if (this.closed) {
+            return 0;
+        }
+        if (this.iterator == null || !iterator.hasNext()) {
+            do {
                 this.iterator = this.scanner.pollBatch(DEFAULT_POLL_TIMEOUT);
                 if (iterator == null) {
-                    parent.close();
+                    this.closed = true;
                     return 0;
-                } else {
-                    break;
                 }
-            }
+            } while (!this.iterator.hasNext());
         }
 
         int numRows = 0;
