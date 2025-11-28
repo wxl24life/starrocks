@@ -121,7 +121,8 @@ TEST_F(StarOSWorkerTest, test_fs_cache) {
 
     EXPECT_FALSE(worker->lookup_fs_cache(cache_key));
 
-    EXPECT_TRUE(worker->get_shard_filesystem(shard_info.id, conf).ok());
+    bool enable_datacache = false;
+    EXPECT_TRUE(worker->get_shard_filesystem(shard_info.id, conf, &enable_datacache).ok());
 
     EXPECT_TRUE(worker->lookup_fs_cache(cache_key));
 
@@ -218,7 +219,8 @@ TEST_F(StarOSWorkerTest, test_fs_cache_concurrent) {
 
     EXPECT_TRUE(worker->lookup_fs_cache(cache_key));
 
-    EXPECT_TRUE(worker->get_shard_filesystem(shard_info.id, conf).ok());
+    bool enable_datacache = false;
+    EXPECT_TRUE(worker->get_shard_filesystem(shard_info.id, conf, &enable_datacache).ok());
 
     EXPECT_TRUE(worker->lookup_fs_cache(cache_key));
 
