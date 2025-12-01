@@ -14,13 +14,9 @@
 
 #include "paimon_delete_file_builder.h"
 
-#include <roaring/roaring.h>
 #include <roaring/roaring64.h>
 
-#include <bitset>
-
 #include "connector/deletion_vector/deletion_bitmap.h"
-#include "util/raw_container.h"
 
 namespace starrocks {
 
@@ -28,34 +24,86 @@ Status PaimonDeleteFileBuilder::build(const TPaimonDeletionFile* paimon_deletion
     auto& path = paimon_deletion_file->path;
     auto& length = paimon_deletion_file->length;
     auto& offset = paimon_deletion_file->offset;
-    auto serialized_bitmap_length = length - MAGIC_NUMBER_LENGTH;
 
     std::shared_ptr<RandomAccessFile> raw_deletion_vector;
     ASSIGN_OR_RETURN(raw_deletion_vector, _fs->new_random_access_file(path));
 
-    // Check whether the bitmap size stored in deletion file is equals to the size from paimon api
+    // First, read the magic number to determine the version
+    // Read raw bytes without conversion first
+    int32_t magic_number_raw;
+    RETURN_IF_ERROR(raw_deletion_vector->read_at_fully(offset + BITMAP_SIZE_LENGTH, &magic_number_raw,
+                                                       sizeof(magic_number_raw)));
+
+    // Interpret as Big-Endian (v1)
+    int32_t magic_number_big_endian = BigEndian::ToHost32(magic_number_raw);
+    // Interpret as Little-Endian (v2)
+    int32_t magic_number_little_endian = LittleEndian::ToHost32(magic_number_raw);
+
+    bool is_roaring64 = false;
+    if (magic_number_big_endian == MAGIC_NUMBER) {
+        // v1: Big-Endian magic number
+        is_roaring64 = false;
+    } else if (magic_number_little_endian == MAGIC_NUMBER_64) {
+        // v2: Little-Endian magic number
+        is_roaring64 = true;
+    } else {
+        std::string msg = "MAGIC_NUMBER is not correct, path: " + path + ", offset: " + std::to_string(offset) +
+                          ", length: " + std::to_string(length) +
+                          ", file magic (big-endian): " + std::to_string(magic_number_big_endian) +
+                          ", file magic (little-endian): " + std::to_string(magic_number_little_endian) +
+                          ", expected v1 magic: " + std::to_string(MAGIC_NUMBER) +
+                          ", expected v2 magic: " + std::to_string(MAGIC_NUMBER_64);
+        return Status::InternalError(msg);
+    }
+
+    // Check whether the bitmap size stored in deletion file is correct
+    // Note: For v1 (BitmapDeletionVector), length = [magic + bitmap]
+    //       For v2 (Bitmap64DeletionVector), length = [length_field + magic + bitmap + CRC]
     int32_t size_from_deletion_vector_file;
     RETURN_IF_ERROR(raw_deletion_vector->read_at_fully(offset, &size_from_deletion_vector_file,
                                                        sizeof(size_from_deletion_vector_file)));
-    DCHECK(size_from_deletion_vector_file == length);
+    size_from_deletion_vector_file = BigEndian::ToHost32(size_from_deletion_vector_file);
 
-    // Check the correctness of magic number
-    int32_t magic_number_from_deletion_vector_file;
-    RETURN_IF_ERROR(raw_deletion_vector->read_at_fully(offset + BITMAP_SIZE_LENGTH,
-                                                       &magic_number_from_deletion_vector_file,
-                                                       sizeof(magic_number_from_deletion_vector_file)));
-    DCHECK(magic_number_from_deletion_vector_file == MAGIC_NUMBER);
+    int32_t expected_size_from_file;
+    int32_t serialized_bitmap_length;
+
+    if (is_roaring64) {
+        // v2: length includes [length_field(4) + magic(4) + bitmap + CRC(4)]
+        // size_from_file should be [magic(4) + bitmap] = length - 8
+        expected_size_from_file = length - BITMAP_SIZE_LENGTH - CRC_LENGTH;
+        serialized_bitmap_length = expected_size_from_file - MAGIC_NUMBER_LENGTH;
+    } else {
+        // v1: length = [magic(4) + bitmap]
+        // size_from_file should equal length
+        expected_size_from_file = length;
+        serialized_bitmap_length = length - MAGIC_NUMBER_LENGTH;
+    }
+
+    if (size_from_deletion_vector_file != expected_size_from_file) {
+        std::string msg = "deletion length is not correct, path: " + path + ", offset: " + std::to_string(offset) +
+                          ", file length: " + std::to_string(size_from_deletion_vector_file) +
+                          ", expected length: " + std::to_string(expected_size_from_file) +
+                          ", is_v2: " + std::to_string(is_roaring64);
+        return Status::InternalError(msg);
+    }
 
     std::unique_ptr<char[]> deletion_vector(new char[serialized_bitmap_length]);
     RETURN_IF_ERROR(raw_deletion_vector->read_at_fully(offset + BITMAP_SIZE_LENGTH + MAGIC_NUMBER_LENGTH,
                                                        deletion_vector.get(), serialized_bitmap_length));
 
     // Construct the roaring bitmap of corresponding deletion vector
-    roaring_bitmap_t* bitmap =
-            roaring_bitmap_portable_deserialize_safe(deletion_vector.get(), serialized_bitmap_length);
-    roaring64_bitmap_t* bitmap64 = roaring64_bitmap_move_from_roaring32(bitmap);
-    _skip_rows_ctx->deletion_bitmap = std::make_shared<DeletionBitmap>(bitmap64);
-    roaring_bitmap_free(bitmap);
+    if (!is_roaring64) {
+        roaring_bitmap_t* bitmap =
+                roaring_bitmap_portable_deserialize_safe(deletion_vector.get(), serialized_bitmap_length);
+        roaring64_bitmap_t* bitmap64 = roaring64_bitmap_move_from_roaring32(bitmap);
+        _skip_rows_ctx->deletion_bitmap = std::make_shared<DeletionBitmap>(bitmap64);
+        roaring_bitmap_free(bitmap);
+    } else {
+        roaring64_bitmap_t* bitmap64 =
+                roaring64_bitmap_portable_deserialize_safe(deletion_vector.get(), serialized_bitmap_length);
+        _skip_rows_ctx->deletion_bitmap = std::make_shared<DeletionBitmap>(bitmap64);
+    }
+
     return Status::OK();
 }
 
