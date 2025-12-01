@@ -482,7 +482,9 @@ Status MemTable::_split_upserts_deletes(ChunkPtr& src, ChunkPtr* upserts, Mutabl
         indexes[ops[i] == TOpType::UPSERT ? TOpType::UPSERT : TOpType::DELETE].push_back(i);
     }
     *upserts = src->clone_empty_with_schema(nupsert);
-    (*upserts)->append_selective(*src, indexes[TOpType::UPSERT].data(), 0, nupsert);
+    if (nupsert > 0) {
+        (*upserts)->append_selective(*src, indexes[TOpType::UPSERT].data(), 0, nupsert);
+    }
     if (!(*deletes)) {
         auto st = PrimaryKeyEncoder::create_column(*_vectorized_schema, deletes);
         if (!st.ok()) {
@@ -497,7 +499,9 @@ Status MemTable::_split_upserts_deletes(ChunkPtr& src, ChunkPtr* upserts, Mutabl
         (*deletes)->reset_column();
     }
     auto& delidx = indexes[TOpType::DELETE];
-    PrimaryKeyEncoder::encode_selective(*_vectorized_schema, *src, delidx.data(), delidx.size(), deletes->get());
+    if (!delidx.empty()) {
+        PrimaryKeyEncoder::encode_selective(*_vectorized_schema, *src, delidx.data(), delidx.size(), deletes->get());
+    }
     return Status::OK();
 }
 
