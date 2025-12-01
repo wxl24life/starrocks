@@ -2782,6 +2782,14 @@ public class Config extends ConfigBase {
     public static boolean enable_refresh_hive_partitions_statistics = true;
 
     /**
+     * Enable filtering of invalid partitions with hive_var: prefix (e.g., hive_var:do_date).
+     * These are variable partitions returned by Hive Metastore but are not real partitions.
+     * When set to true, partitions containing "hive_var:" will be filtered out.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_filter_hive_var_partitions = true;
+
+    /**
      * Enable reuse spark column statistics.
      */
     @ConfField(mutable = true)

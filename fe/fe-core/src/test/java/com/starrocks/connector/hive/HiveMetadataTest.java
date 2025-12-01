@@ -1034,4 +1034,31 @@ public class HiveMetadataTest {
         ConnectContext.remove();
     }
 
+    public void testListPartitionNamesWithFilter() {
+        new Expectations(hmsOps) {
+            {
+                hmsOps.getPartitionKeys("db1", "tbl1");
+                result = Lists.newArrayList("p1=1", "hive_var:do_date=20230101", "p1=2");
+            }
+        };
+
+        // Test with enable_filter_hive_var_partitions = true (default)
+        Config.enable_filter_hive_var_partitions = true;
+        List<String> partitionNames = hiveMetadata.listPartitionNames("db1", "tbl1", -1);
+        Assertions.assertEquals(2, partitionNames.size());
+        Assertions.assertEquals("p1=1", partitionNames.get(0));
+        Assertions.assertEquals("p1=2", partitionNames.get(1));
+
+        // Test with enable_filter_hive_var_partitions = false
+        Config.enable_filter_hive_var_partitions = false;
+        partitionNames = hiveMetadata.listPartitionNames("db1", "tbl1", -1);
+        Assertions.assertEquals(3, partitionNames.size());
+        Assertions.assertEquals("p1=1", partitionNames.get(0));
+        Assertions.assertEquals("hive_var:do_date=20230101", partitionNames.get(1));
+        Assertions.assertEquals("p1=2", partitionNames.get(2));
+
+        // Restore config
+        Config.enable_filter_hive_var_partitions = true;
+    }
+>>>>>>> 81db78b16dd ([Stella][Feature] Support filter invalid partition)
 }
