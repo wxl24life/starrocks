@@ -41,6 +41,8 @@ import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.fs.hadoop.HadoopFileIOLoader;
 import org.apache.paimon.options.Options;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -238,7 +240,9 @@ public class PaimonConnector implements Connector {
                     (e.getMessage() != null && e.getMessage().contains(DLF_AUTH_USER_NAME))) {
                 throw new StarRocksConnectorException("NPE found. Maybe current user is not a ram user. " + e.getMessage(), e);
             }
-            throw new StarRocksConnectorException("Error creating a paimon catalog.", e);
+            StringWriter sw = new StringWriter();
+            e.printStackTrace(new PrintWriter(sw));
+            throw new StarRocksConnectorException("Error creating a paimon catalog. Details: " + sw.toString(), e);
         }
     }
 

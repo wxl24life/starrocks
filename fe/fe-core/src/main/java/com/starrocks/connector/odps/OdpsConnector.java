@@ -42,6 +42,23 @@ public class OdpsConnector implements Connector {
         this.odps = initOdps();
         aliyunCloudCredential = new AliyunCloudCredential(properties.get(OdpsProperties.ACCESS_ID),
                 properties.get(OdpsProperties.ACCESS_KEY), properties.get(OdpsProperties.ENDPOINT));
+        validate();
+    }
+
+    private void validate() {
+        try {
+            if (!odps.projects().exists(properties.get(OdpsProperties.PROJECT))) {
+                throw new StarRocksConnectorException("ODPS project '" +
+                        properties.get(OdpsProperties.PROJECT) + "' does not exist.");
+            }
+        } catch (StarRocksConnectorException e) {
+            throw e;
+        } catch (Exception e) {
+            LOG.error("Failed to connect to odps", e);
+            throw new StarRocksConnectorException("Failed to connect to ODPS. " +
+                    "Please check if the StarRocks cluster and ODPS are in the same region, " +
+                    "or check your network policy/VPC configuration. Error: " + e.getMessage(), e);
+        }
     }
 
     private Odps initOdps() {
