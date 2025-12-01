@@ -319,6 +319,7 @@ public:
     const std::vector<std::string>& get_partition_keys() const;
     int32_t get_bucket_num() const { return _bucket_num; }
     const std::vector<std::string>& get_bucket_keys() const;
+    bool has_base_path() const override { return true; }
 
 private:
     std::map<std::string, std::string> _paimon_options;

@@ -232,6 +232,7 @@ public class PaimonTable extends Table {
 
             THdfsPartitionLocation tPartitionLocation = new THdfsPartitionLocation();
             tPartitionLocation.setPrefix_index(-1);
+            // NOTE：This is a virtual path and the subsequent parts of the program should not use this value, as it may differ from the actual path.
             tPartitionLocation.setSuffix(info.getPath());
             tPartition.setLocation(tPartitionLocation);
             tPaimonTable.putToPartitions(partitionId, tPartition);
