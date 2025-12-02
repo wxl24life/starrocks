@@ -703,6 +703,9 @@ CONF_mInt32(txn_commit_rpc_timeout_ms, "60000");
 // If set to true, metric calculator will run
 CONF_Bool(enable_metric_calculator, "true");
 
+// For routine load, skip json parse error and process next message
+CONF_mBool(enable_skip_json_error, "false");
+
 // Max consumer num in one data consumer group, for routine load.
 CONF_mInt32(max_consumer_num_per_group, "3");
 

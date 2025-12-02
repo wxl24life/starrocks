@@ -476,7 +476,12 @@ Status JsonReader::_read_rows(Chunk* chunk, int32_t rows_to_read, int32_t* rows_
             }
             _counter->num_rows_filtered++;
             _append_error_msg(parser->left_bytes_string(MAX_ERROR_LOG_LENGTH), st.to_string());
-            return st;
+            if (config::enable_skip_json_error && _is_routine_load()) {
+                LOG(WARNING) << "skip json parse error, " << _get_current_meta_msg() << ", err: " << st.to_string();
+                return Status::EndOfFile("all documents of the stream are iterated");
+            } else {
+                return st;
+            }
         }
         size_t chunk_row_num = chunk->num_rows();
         st = _construct_row(&row, chunk);
@@ -486,8 +491,8 @@ Status JsonReader::_read_rows(Chunk* chunk, int32_t rows_to_read, int32_t* rows_
                 // hence the number of error appended to the file should be limited.
                 std::string_view sv;
                 (void)!row.raw_json().get(sv);
-                _append_error_msg(std::string(sv), st.to_string());
-                LOG(WARNING) << "failed to construct row: " << st;
+                LOG(WARNING) << "skip json parse error when constructing row, " << _get_current_meta_msg() << ", " << st
+                             << ", row: " << sv;
             }
             if (_state->enable_log_rejected_record()) {
                 std::string_view sv;
@@ -797,6 +802,12 @@ Status JsonReader::_check_ndjson() {
         } else {
             std::string error_msg = fmt::format("illegal json started with [{}]", c);
             LOG(WARNING) << error_msg;
+            if (config::enable_skip_json_error && _is_routine_load()) {
+                // error will be processed when iterating
+                LOG(WARNING) << "skip json parse error when check ndjson, " << _get_current_meta_msg()
+                             << ", err: " << error_msg;
+                return Status::OK();
+            }
             return status_from_json_parse_error(error_msg);
         }
     }
@@ -852,6 +863,21 @@ Status JsonReader::_read_and_parse_json() {
 Status JsonReader::_construct_column(simdjson::ondemand::value& value, Column* column, const TypeDescriptor& type_desc,
                                      const std::string& col_name) {
     return add_adaptive_nullable_column(column, type_desc, col_name, &value, !_strict_mode);
+}
+
+std::string JsonReader::_get_current_meta_msg() {
+    std::string meta_msg;
+    if (_file_stream_buffer == nullptr || _file_stream_buffer->meta()->type() == ByteBufferMetaType::NONE) {
+        meta_msg = "";
+    } else {
+        meta_msg = fmt::format("[meta: {}]", _file_stream_buffer->meta()->to_string());
+    }
+    return meta_msg;
+}
+
+bool JsonReader::_is_routine_load() {
+    const TQueryOptions& query_options = _state->query_options();
+    return query_options.__isset.load_job_type && query_options.load_job_type == TLoadJobType::ROUTINE_LOAD;
 }
 
 void JsonReader::_append_error_msg(const std::string& row, const std::string& error_msg) {
