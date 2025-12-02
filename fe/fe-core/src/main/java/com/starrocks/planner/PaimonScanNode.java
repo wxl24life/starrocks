@@ -14,12 +14,8 @@
 
 package com.starrocks.planner;
 
-import com.aliyun.datalake.common.impl.Base64Util;
-import com.aliyun.datalake.paimon.fs.DlfPaimonFileIO;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.starrocks.analysis.DescriptorTable;
 import com.starrocks.analysis.SlotDescriptor;
@@ -30,7 +26,6 @@ import com.starrocks.catalog.PartitionKey;
 import com.starrocks.catalog.Type;
 import com.starrocks.common.profile.Timer;
 import com.starrocks.common.profile.Tracers;
-import com.starrocks.common.util.DlfUtil;
 import com.starrocks.connector.CatalogConnector;
 import com.starrocks.connector.ConnectorMetadatRequestContext;
 import com.starrocks.connector.GetRemoteFilesParams;
@@ -79,7 +74,6 @@ import org.apache.paimon.utils.InternalRowPartitionComputer;
 import org.apache.paimon.utils.PartitionPathUtils;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -534,22 +528,7 @@ public class PaimonScanNode extends ScanNode {
         if (paimonTable != null) {
             msg.hdfs_scan_node.setTable_name(paimonTable.getName());
             try {
-                if (paimonTable.getNativeTable().fileIO() instanceof DlfPaimonFileIO) {
-                    String dataTokenPath = DlfUtil.getDataTokenPath(paimonTable.getTableLocation());
-                    if (!Strings.isNullOrEmpty(dataTokenPath)) {
-                        dataTokenPath = "/secret/DLF/data/" + Base64Util.encodeBase64WithoutPadding(dataTokenPath);
-                        File dataTokenFile = new File(dataTokenPath);
-
-                        if (dataTokenFile.exists()) {
-                            Map<String, String> options = ((DlfPaimonFileIO) paimonTable.getNativeTable().fileIO())
-                                    .dlsFileSystemOptions(false);
-                            cloudConfiguration = CloudConfigurationFactory.buildDlfConfigurationForStorage(
-                                    DlfUtil.setDataToken(dataTokenFile), options);
-                        } else {
-                            LOG.warn("Cannot find data token file " + dataTokenPath);
-                        }
-                    }
-                } else if (paimonTable.getNativeTable().fileIO() instanceof RESTTokenFileIO) {
+                if (paimonTable.getNativeTable().fileIO() instanceof RESTTokenFileIO) {
                     RESTTokenFileIO fileIO = (RESTTokenFileIO) paimonTable.getNativeTable().fileIO();
                     RESTToken token = fileIO.validToken();
                     Map<String, String> properties = new HashMap<>();

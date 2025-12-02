@@ -14,14 +14,6 @@
 
 package com.starrocks.connector.paimon;
 
-import com.aliyun.datalake.common.DlfConfig;
-import com.aliyun.datalake.common.DlfContext;
-import com.aliyun.datalake.common.DlfDataToken;
-import com.aliyun.datalake.common.DlfResource;
-import com.aliyun.datalake.common.DlfTokenClient;
-import com.aliyun.datalake.common.impl.Base64Util;
-import com.aliyun.datalake.external.com.fasterxml.jackson.databind.ObjectMapper;
-import com.aliyun.datalake.paimon.catalog.DlfPaimonCatalog;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.starrocks.catalog.Column;
@@ -35,7 +27,6 @@ import com.starrocks.common.Config;
 import com.starrocks.common.DdlException;
 import com.starrocks.common.profile.Timer;
 import com.starrocks.common.profile.Tracers;
-import com.starrocks.common.util.DlfUtil;
 import com.starrocks.connector.ColumnTypeConverter;
 import com.starrocks.connector.ConnectorMetadatRequestContext;
 import com.starrocks.connector.ConnectorMetadata;
@@ -66,7 +57,6 @@ import com.starrocks.sql.optimizer.statistics.ColumnStatistic;
 import com.starrocks.sql.optimizer.statistics.Statistics;
 import com.starrocks.thrift.TPaimonCommitMessage;
 import com.starrocks.thrift.TSinkCommitInfo;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.Snapshot;
@@ -82,7 +72,6 @@ import org.apache.paimon.operation.metrics.ScanMetrics;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.stats.ColStats;
-import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.sink.BatchTableCommit;
 import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.sink.CommitMessage;
@@ -99,13 +88,7 @@ import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.PartitionPathUtils;
 import org.apache.paimon.utils.StringUtils;
 
-import java.io.BufferedWriter;
 import java.io.ByteArrayInputStream;
-import java.io.File;
-import java.io.FileWriter;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -121,12 +104,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
-import static com.aliyun.datalake.core.constant.DataLakeConfig.CATALOG_ID;
-import static com.aliyun.datalake.core.constant.DataLakeConfig.DATA_CREDENTIAL_PROVIDER_URL;
-import static com.aliyun.datalake.core.constant.DataLakeConfig.DLF_ENDPOINT;
-import static com.aliyun.datalake.core.constant.DataLakeConfig.DLF_REGION;
-import static com.aliyun.datalake.core.constant.DataLakeConfig.META_CREDENTIAL_PROVIDER;
-import static com.aliyun.datalake.core.constant.DataLakeConfig.META_CREDENTIAL_PROVIDER_URL;
 import static com.starrocks.catalog.KeysType.PRIMARY_KEYS;
 import static com.starrocks.catalog.PaimonTable.FILE_FORMAT;
 import static com.starrocks.common.profile.Tracers.Module.EXTERNAL;
@@ -199,7 +176,6 @@ public class PaimonMetadata implements ConnectorMetadata {
     public boolean createTable(CreateTableStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
-        refreshDlfDataToken(dbName, "");
 
         Schema.Builder schemaBuilder = toPaimonSchema(stmt.getColumns());
 
@@ -375,7 +351,6 @@ public class PaimonMetadata implements ConnectorMetadata {
         }
         org.apache.paimon.table.Table paimonNativeTable;
         try {
-            refreshDlfDataToken(dbName, tblName);
             paimonNativeTable = this.paimonNativeCatalog.getTable(identifier);
         } catch (Exception e) {
             LOG.error("Failed to get Paimon table {}.{}.{}.", catalogName, dbName, tblName, e);
@@ -415,7 +390,6 @@ public class PaimonMetadata implements ConnectorMetadata {
     public List<RemoteFileInfo> getRemoteFiles(Table table, GetRemoteFilesParams params) {
         RemoteFileInfo remoteFileInfo = new RemoteFileInfo();
         PaimonTable paimonTable = (PaimonTable) table;
-        refreshDlfDataToken(paimonTable.getCatalogDBName(), paimonTable.getCatalogTableName());
         long latestSnapshotId = -1L;
         try {
             if (paimonTable.getNativeTable().latestSnapshot().isPresent()) {
@@ -528,7 +502,6 @@ public class PaimonMetadata implements ConnectorMetadata {
                                          ScalarOperator predicate,
                                          long limit,
                                          TableVersionRange versionRange) {
-        refreshDlfDataToken(((PaimonTable) table).getCatalogDBName(), ((PaimonTable) table).getCatalogTableName());
         try (Timer ignored = Tracers.watchScope(EXTERNAL, "GetPaimonTableStatistics")) {
             if (!properties.enableGetTableStatsFromExternalMetadata()) {
                 return StatisticsUtils.buildDefaultStatistics(columns.keySet());
@@ -706,106 +679,6 @@ public class PaimonMetadata implements ConnectorMetadata {
             }
         }
         return result;
-    }
-
-    public void refreshDlfDataToken(String dbName, String tblName) {
-        String ramUser = DlfUtil.getRamUser();
-        if (null == ramUser || ramUser.isEmpty() || paimonNativeCatalog.options().isEmpty()
-                || !paimonNativeCatalog.options().get("metastore").equalsIgnoreCase("dlf-paimon")) {
-            LOG.debug("Don't need to refresh for table {}.{} for user {}", dbName, tblName, ramUser);
-            return;
-        }
-        DlfConfig config = new DlfConfig();
-
-        Configuration conf = DlfUtil.readHadoopConf();
-        config.put(DLF_ENDPOINT, paimonNativeCatalog.options().containsKey(DLF_ENDPOINT)
-                ? paimonNativeCatalog.options().get(DLF_ENDPOINT) : conf.get(DLF_ENDPOINT));
-        config.put(DLF_REGION, paimonNativeCatalog.options().containsKey(DLF_REGION)
-                ? paimonNativeCatalog.options().get(DLF_REGION) : conf.get(DLF_REGION));
-        config.put(META_CREDENTIAL_PROVIDER, paimonNativeCatalog.options().containsKey(META_CREDENTIAL_PROVIDER)
-                ? paimonNativeCatalog.options().get(META_CREDENTIAL_PROVIDER) : conf.get(META_CREDENTIAL_PROVIDER));
-        config.put(META_CREDENTIAL_PROVIDER_URL, paimonNativeCatalog.options().containsKey(META_CREDENTIAL_PROVIDER_URL)
-                ? paimonNativeCatalog.options().get(META_CREDENTIAL_PROVIDER_URL) : conf.get(META_CREDENTIAL_PROVIDER_URL));
-
-        DlfResource.Builder builder = DlfResource.builder()
-                .catalogInstanceId(paimonNativeCatalog.options().get(CATALOG_ID))
-                .databaseName(dbName);
-        // For creating table operation, we don't need table name.
-        if (!tblName.isEmpty()) {
-            // For system table, remove the symbol
-            tblName = tblName.replaceAll("\\$.*", "");
-            builder.tableName(tblName);
-        }
-        DlfResource dlfResource = builder.build();
-
-        try {
-            String dataTokenName = getLocalDataTokenFile(ramUser, dbName, tblName);
-            String dataTokenPath = paimonNativeCatalog.options().containsKey(DATA_CREDENTIAL_PROVIDER_URL)
-                    ? paimonNativeCatalog.options().get(DATA_CREDENTIAL_PROVIDER_URL) : conf.get(DATA_CREDENTIAL_PROVIDER_URL);
-            if (dataTokenPath.startsWith("secrets")) {
-                // remove 'secrets://' prefix
-                dataTokenPath = dataTokenPath.substring(10);
-            }
-            Path dataTokenDir = Paths.get(dataTokenPath);
-            if (!Files.exists(dataTokenDir)) {
-                LOG.debug("Creating data token parent dir {} for {}.{}", dataTokenPath, dbName, tblName);
-                Files.createDirectories(dataTokenDir);
-            }
-            dataTokenName = dataTokenPath + dataTokenName;
-
-            File dataTokenFile = new File(dataTokenName);
-            boolean hasDataTokenFile = dataTokenFile.exists();
-            DlfDataToken dataToken = new DlfDataToken();
-            if (hasDataTokenFile) {
-                ObjectMapper mapper = new ObjectMapper();
-                dataToken = mapper.readValue(dataTokenFile, DlfDataToken.class);
-            }
-            // Check if the token has expired
-            // todo: async refresh
-            if (!hasDataTokenFile || dataToken.getExpiration().getTime() - System.currentTimeMillis()
-                    < Config.dlf_data_token_refresh_check_interval_second * 1000) {
-                DlfContext dlfContext = new DlfContext(config, "");
-                DlfTokenClient dlfClient = dlfContext.getDlfTokenClient(ramUser);
-                String dataTokenFilePath = dataTokenPath + dlfClient.getDataTokenIdentifier(dlfResource);
-                if (!dataTokenName.equalsIgnoreCase(dataTokenFilePath)) {
-                    LOG.warn(dataTokenName + " != " + dataTokenFilePath);
-                    throw new StarRocksConnectorException("Accessing the wrong data token file " + dataTokenName);
-                }
-                DlfDataToken dlfDataToken = dlfClient.getDataToken(dlfResource);
-                String dataTokenJson = dlfDataToken.toJson();
-                BufferedWriter writer = new BufferedWriter(new FileWriter(dataTokenName));
-                writer.write(dataTokenJson);
-                writer.close();
-                LOG.debug("Updated data token {} of {}.{} on {}", dataTokenJson, dbName, tblName, dataTokenName);
-            }
-        } catch (Exception e) {
-            throw new StarRocksConnectorException(e.getMessage(), e);
-        }
-    }
-
-    public String getLocalDataTokenFile(String ramUser, String dbName, String tblName) throws Exception {
-        Identifier paimonIdentifier = new Identifier(dbName, tblName);
-        String catalogID = DlfPaimonCatalog.from(this.paimonNativeCatalog).getCatalogUUid();
-        String databaseID =  DlfPaimonCatalog.from(this.paimonNativeCatalog)
-                .getDlfDatabase(dbName).getParameters().get("databaseUuid");
-
-        String dataTokenName = ramUser + ":" + catalogID + ":" + databaseID;
-        if (!tblName.isEmpty()) {
-            org.apache.paimon.table.Table paimonTable = this.paimonNativeCatalog.getTable(paimonIdentifier);
-            if (paimonTable instanceof FileStoreTable) {
-                String tableID = ((FileStoreTable) paimonTable).schema().options().get("tableUuid");
-                dataTokenName = dataTokenName + ":" + tableID;
-            } else {
-                // For ro table
-                String tableID = paimonTable.options().get("tableUuid");
-                if (null != tableID) {
-                    dataTokenName = dataTokenName + ":" + tableID;
-                }
-            }
-        }
-        LOG.debug("Decoded data token file name is " + dataTokenName);
-        dataTokenName = Base64Util.encodeBase64WithoutPadding(dataTokenName);
-        return dataTokenName;
     }
 
     @Override

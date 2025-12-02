@@ -14,22 +14,12 @@
 
 package com.starrocks.planner;
 
-import com.aliyun.datalake.common.impl.Base64Util;
-import com.aliyun.datalake.paimon.fs.DlfPaimonFileIO;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.starrocks.analysis.Expr;
 import com.starrocks.analysis.LiteralExpr;
-import com.starrocks.analysis.StringLiteral;
 import com.starrocks.analysis.TupleDescriptor;
 import com.starrocks.catalog.PaimonTable;
-import com.starrocks.common.util.DlfUtil;
-import com.starrocks.connector.CatalogConnector;
-import com.starrocks.connector.CatalogConnectorMetadata;
 import com.starrocks.connector.Connector;
-import com.starrocks.connector.paimon.PaimonMetadata;
 import com.starrocks.credential.CloudConfiguration;
-import com.starrocks.credential.CloudConfigurationFactory;
 import com.starrocks.qe.SessionVariable;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.ast.PartitionNames;
@@ -55,7 +45,6 @@ import org.apache.paimon.types.TimeType;
 import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarCharType;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -129,29 +118,6 @@ public class PaimonTableSink extends DataSink {
                             .map(it -> ((LiteralExpr) it).getRealObjectValue().toString()).collect(Collectors.toList()));
         }
         TCloudConfiguration tCloudConfiguration = new TCloudConfiguration();
-        if (this.paimonNativeTable.fileIO() instanceof DlfPaimonFileIO) {
-            try {
-                CatalogConnector connector = GlobalStateMgr.getCurrentState().getConnectorMgr().getConnector(catalogName);
-                PaimonMetadata paimonMetadata = (PaimonMetadata) ((CatalogConnectorMetadata) connector.getMetadata())
-                        .metadataOfDb(databaseName);
-                paimonMetadata.refreshDlfDataToken(databaseName, tableName);
-
-                String dataTokenPath = DlfUtil.getDataTokenPath(location);
-                if (!Strings.isNullOrEmpty(dataTokenPath)) {
-                    dataTokenPath = "/secret/DLF/data/" + Base64Util.encodeBase64WithoutPadding(dataTokenPath);
-                    File dataTokenFile = new File(dataTokenPath);
-
-                    if (dataTokenFile.exists()) {
-                        cloudConfiguration = CloudConfigurationFactory.buildCloudConfigurationForStorage(
-                                DlfUtil.setDataToken(dataTokenFile));
-                    } else {
-                        LOG.warn("Cannot find data token file " + dataTokenPath);
-                    }
-                }
-            } catch (Exception e) {
-                LOG.warn("Fail to get data token: " + e.getMessage());
-            }
-        }
         cloudConfiguration.toThrift(tCloudConfiguration);
         tPaimonTableSink.setCloud_configuration(tCloudConfiguration);
         tPaimonTableSink.setData_column_names(columnNames);

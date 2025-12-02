@@ -95,7 +95,7 @@
 
         <dependency>
             <groupId>com.aliyun.datalake</groupId>
-            <artifactId>dlf-sdk</artifactId>
+            <artifactId>dlf-hive3</artifactId>
             <version>${dlf.sdk.version}</version>
             <exclusions>
                 <exclusion>
