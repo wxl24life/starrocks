@@ -1102,4 +1102,10 @@ public class ReplayFromDumpTest extends ReplayFromDumpTestBase {
         PlanTestBase.assertContains(replayPair.second, "5:OlapScanNode\n" +
                 "     TABLE: tbl_5");
     }
+
+    @Test
+    public void testNestCTERewrite() throws Exception {
+        String plan = getPlanFragment("query_dump/nest_cte_reuse", TExplainLevel.NORMAL);
+        PlanTestBase.assertContains(plan, "MultiCastDataSinks");
+    }
 }
