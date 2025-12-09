@@ -223,7 +223,7 @@ public class ConnectProcessor {
 
     public void auditAfterExec(String origStmt, StatementBase parsedStmt, PQueryStatistics statistics,
                                String digestFromLeader) {
-        boolean isRoot = ctx.getCurrentUserIdentity() != null &&
+        boolean isRoot = ctx.getCurrentUserIdentity() != null && ctx.getCurrentUserIdentity().getUser() != null &&
                 ctx.getCurrentUserIdentity().getUser().equals(AuthenticationMgr.ROOT_USER);
         // slow query
         long endTime = System.currentTimeMillis();
