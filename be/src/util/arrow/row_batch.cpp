@@ -140,6 +140,10 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         *result = arrow::struct_(fields);
         break;
     }
+    case TYPE_BINARY:
+    case TYPE_VARBINARY:
+        *result = arrow::binary();
+        break;
     default:
         return Status::InvalidArgument(strings::Substitute("Unknown logical type($0)", type.type));
     }

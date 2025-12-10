@@ -388,6 +388,53 @@ struct ColumnToArrowConverter<LT, AT, is_nullable, ConvBinaryGuard<LT, AT>> {
 };
 
 // ------------------------------------------------------------------------------------
+// ConvBinary
+// ------------------------------------------------------------------------------------
+
+DEF_PRED_GUARD(ConvBinaryToBinaryGuard, is_conv_binary_to_binary, LogicalType, LT, ArrowTypeId, AT)
+#define IS_CONV_BINARY_TO_BINARY_CTOR(LT, AT) DEF_PRED_CASE_CTOR(is_conv_binary_to_binary, LT, AT)
+#define IS_CONV_BINARY_TO_BINARY_R(AT, ...) \
+    DEF_BINARY_RELATION_ENTRY_SEP_SEMICOLON_R(IS_CONV_BINARY_TO_BINARY_CTOR, AT, ##__VA_ARGS__)
+
+IS_CONV_BINARY_TO_BINARY_R(ArrowTypeId::BINARY, TYPE_BINARY, TYPE_VARBINARY)
+template <LogicalType LT, ArrowTypeId AT, bool is_nullable>
+struct ColumnToArrowConverter<LT, AT, is_nullable, ConvBinaryToBinaryGuard<LT, AT>> {
+    using StarRocksCppType = RunTimeCppType<LT>;
+    using StarRocksColumnType = RunTimeColumnType<LT>;
+    using ArrowType = ArrowTypeIdToType<AT>;
+    using ArrowBuilderType = typename arrow::TypeTraits<ArrowType>::BuilderType;
+
+    static inline arrow::Status convert(const ColumnPtr& column, int start_idx, int end_idx,
+                                        [[maybe_unused]] ColumnContext* column_context,
+                                        arrow::ArrayBuilder* array_builder) {
+        ARROW_RETURN_NOT_OK(check_const(column));
+        ArrowBuilderType* builder = down_cast<ArrowBuilderType*>(array_builder);
+
+        if constexpr (is_nullable) {
+            const auto* nullable_column = down_cast<NullableColumn*>(column.get());
+            const auto* data_column = down_cast<StarRocksColumnType*>(nullable_column->data_column().get());
+            ARROW_RETURN_NOT_OK(builder->Reserve(end_idx - start_idx));
+            for (auto i = start_idx; i < end_idx; ++i) {
+                if (nullable_column->is_null(i)) {
+                    ARROW_RETURN_NOT_OK(builder->AppendNull());
+                } else {
+                    const auto& slice = data_column->get_slice(i);
+                    ARROW_RETURN_NOT_OK(builder->Append(slice.data, slice.size));
+                }
+            }
+        } else {
+            const auto* data_column = down_cast<StarRocksColumnType*>(column.get());
+            ARROW_RETURN_NOT_OK(builder->Reserve(end_idx - start_idx));
+            for (auto i = start_idx; i < end_idx; ++i) {
+                const auto& slice = data_column->get_slice(i);
+                ARROW_RETURN_NOT_OK(builder->Append(slice.data, slice.size));
+            }
+        }
+        return arrow::Status::OK();
+    }
+};
+
+// ------------------------------------------------------------------------------------
 // ConvArray
 // ------------------------------------------------------------------------------------
 
@@ -744,7 +791,8 @@ static const std::unordered_map<int32_t, StarRocksToArrowConvertFunc> global_sta
         STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::LIST, TYPE_ARRAY),
         STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::STRUCT, TYPE_STRUCT),
         STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::MAP, TYPE_MAP),
-        STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::TIMESTAMP, TYPE_DATETIME)};
+        STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::TIMESTAMP, TYPE_DATETIME),
+        STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::BINARY, TYPE_BINARY, TYPE_VARBINARY)};
 
 static inline StarRocksToArrowConvertFunc resolve_convert_func(LogicalType lt, ArrowTypeId at, bool is_nullable) {
     if (is_always_convert_to_null(lt, at)) {
@@ -796,6 +844,7 @@ public:
     DEF_VISIT_METHOD(StructType);
     DEF_VISIT_METHOD(MapType);
     DEF_VISIT_METHOD(TimestampType);
+    DEF_VISIT_METHOD(BinaryType);
 
 #undef DEF_VISIT_METHOD
 
