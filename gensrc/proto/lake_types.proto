@@ -46,6 +46,8 @@ message DelvecCacheKeyPB {
 message FileMetaPB {
     optional string name = 1;
     optional int64 size = 2;
+    // stella: not used in 3.5 branch, just used to resolve compiler errors
+    optional bytes encryption_meta = 3;
 }
 
 message DelvecMetadataPB {
@@ -227,6 +229,8 @@ message TxnLogPB {
         repeated OpWrite op_writes = 2;
         map<uint32, DelvecDataPB> delvecs = 3;
         optional TabletSchemaPB source_schema = 4;
+        // used for shared-data replication to store the tablet meta replicated
+        optional TabletMetadataPB tablet_metadata = 5;
     }
 
     optional int64 tablet_id = 1;

@@ -290,6 +290,7 @@ set(EXEC_FILES
         ./storage/lake/starlet_location_provider_test.cpp
         ./storage/lake/rowset_test.cpp
         ./storage/lake/tablet_test.cpp
+        ./storage/lake/filenames_test.cpp
         ./storage/lake/lake_data_source_test.cpp
         ./storage/lake/lake_scan_node_test.cpp
         ./storage/lake/schema_change_test.cpp
@@ -310,6 +311,7 @@ set(EXEC_FILES
         ./storage/lake/load_spill_block_manager_test.cpp
         ./storage/lake/spill_mem_table_sink_test.cpp
         ./storage/lake/lake_meta_reader_test.cpp
+        ./storage/lake/lake_replication_txn_manager_test.cpp
         ./storage/rowset_update_state_test.cpp
         ./storage/rowset_column_update_state_test.cpp
         ./storage/rowset_column_partial_update_test.cpp
@@ -592,7 +594,6 @@ SET_TARGET_PROPERTIES(starrocks_test_objs PROPERTIES COMPILE_FLAGS "-fno-access-
 add_executable(starrocks_test test_main.cpp $<TARGET_OBJECTS:starrocks_test_objs>)
 
 TARGET_LINK_LIBRARIES(starrocks_test ${TEST_LINK_LIBS})
-
 # =================================================
 # test cases must be compiled as a standalone binary
 ADD_BE_TEST(storage/task/engine_storage_migration_task_test)
