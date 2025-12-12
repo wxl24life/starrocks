@@ -221,6 +221,15 @@ public class StarMgrMetaSyncer extends FrontendDaemon {
         }
     }
 
+    private boolean isSafeToDelete(long shardGroupId) {
+        if (GlobalStateMgr.getCurrentState().getStorageVolumeMgr().hasStorageVolumeBindAsVirtualGroup(shardGroupId)) {
+            LOG.debug("shard group {} can not be deleted for now, because it has been bind to storage volume",
+                    shardGroupId);
+            return false;
+        }
+        return true;
+    }
+
     /**
      * Delete redundant shard & shard group.
      * 1. List shard groups from FE and from StarMgr
@@ -257,6 +266,7 @@ public class StarMgrMetaSyncer extends FrontendDaemon {
             result.shardGroupInfos().stream()
                     .filter(x -> x.getGroupId() != 0)
                     .filter(x -> !groupIdFe.contains(x.getGroupId()))
+                    .filter(x -> isSafeToDelete(x.getGroupId()))
                     .forEach(x -> diffGroupInfoMap.put(x.getGroupId(), x));
 
             for (Map.Entry<Long, ShardGroupInfo> entry : diffGroupInfoMap.entrySet()) {

@@ -40,6 +40,7 @@ import com.starrocks.common.DdlException;
 import com.starrocks.common.ExceptionChecker;
 import com.starrocks.common.jmockit.Deencapsulation;
 import com.starrocks.server.GlobalStateMgr;
+import com.starrocks.server.WarehouseManager;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
@@ -186,6 +187,34 @@ public class StarOSAgentTest {
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Failed to allocate file path from StarMgr, error: INVALID_ARGUMENT:mocked exception",
                 () -> starosAgent.allocateFilePath("test-fskey", dbId, tableId));
+    }
+
+    @Test
+    public void testAllocateFilePathWithRootDir() throws StarClientException {
+        String serviceId = "1";
+        String storageVolumeId = "test-sv-1";
+        String rootDir = "/tmp/test-root";
+
+        Deencapsulation.setField(starosAgent, "serviceId", serviceId);
+        new Expectations(client) {
+            {
+                client.allocateFilePath(serviceId, storageVolumeId, "", rootDir);
+                result = FilePathInfo.newBuilder().build();
+            }
+        };
+
+        ExceptionChecker.expectThrowsNoException(() -> starosAgent.allocateFilePath(storageVolumeId, rootDir));
+
+        new Expectations(client) {
+            {
+                client.allocateFilePath(serviceId, storageVolumeId, "", rootDir);
+                result = new StarClientException(StatusCode.INVALID_ARGUMENT, "mocked exception");
+            }
+        };
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Failed to allocate file path from StarMgr, error: INVALID_ARGUMENT:mocked exception",
+                () -> starosAgent.allocateFilePath(storageVolumeId, rootDir));
     }
 
     @Test
@@ -749,4 +778,97 @@ public class StarOSAgentTest {
             Assertions.assertEquals(1000L, ids.get(0));
         });
     }
+
+    @Test
+    public void testCreateShardGroupForVirtualTablet() throws StarClientException {
+        String serviceId = "1";
+
+        long groupId = 333;
+        ShardGroupInfo info = ShardGroupInfo.newBuilder().setGroupId(groupId).build();
+        List<ShardGroupInfo> shardGroupInfos = new ArrayList<>(1);
+        shardGroupInfos.add(info);
+
+        Deencapsulation.setField(starosAgent, "serviceId", "1");
+
+        // normal case
+        new Expectations(client) {
+            {
+                client.createShardGroup(serviceId, (List<CreateShardGroupInfo>) any);
+                result = shardGroupInfos;
+                client.listShardGroup(serviceId);
+                result = shardGroupInfos;
+            }
+        };
+
+        ExceptionChecker.expectThrowsNoException(() -> {
+            long ret = starosAgent.createShardGroupForVirtualTablet();
+            Assertions.assertEquals(groupId, ret);
+
+            // list shard group
+            List<ShardGroupInfo> realGroupIds = starosAgent.listShardGroup();
+            Assertions.assertEquals(1, realGroupIds.size());
+            Assertions.assertEquals(groupId, realGroupIds.get(0).getGroupId());
+        });
+
+        // inject error
+        new Expectations(client) {
+            {
+                client.createShardGroup(serviceId, (List<CreateShardGroupInfo>) any);
+                result = new StarClientException(StatusCode.INTERNAL, "Mocked error");
+            }
+        };
+        Assertions.assertThrows(DdlException.class, () -> starosAgent.createShardGroupForVirtualTablet());
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Failed to create shard group. error: INTERNAL:Mocked error",
+                () -> starosAgent.createShardGroupForVirtualTablet());
+    }
+
+    @Test
+    public void testCreateShardWithVirtualTabletId() throws StarClientException {
+        long groupId = 333L;
+        long vTabletId = 1000L;
+        String serviceId = "1";
+
+        ShardInfo shardInfo = ShardInfo.newBuilder().setShardId(vTabletId).build();
+        List<ShardInfo> shardInfos = Lists.newArrayList(shardInfo);
+
+        Deencapsulation.setField(starosAgent, "serviceId", serviceId);
+
+        // normal case
+        new Expectations(client) {
+            {
+                client.createShard(serviceId, (List<CreateShardInfo>) any);
+                result = shardInfos;
+                client.getShardInfo(serviceId, Lists.newArrayList(vTabletId), StarOSAgent.DEFAULT_WORKER_GROUP_ID);
+                result = shardInfos;
+            }
+        };
+
+        FilePathInfo pathInfo = FilePathInfo.newBuilder().build();
+        FileCacheInfo cacheInfo = FileCacheInfo.newBuilder().build();
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("testProperty", "testValue");
+
+        ExceptionChecker.expectThrowsNoException(() -> {
+            starosAgent.createShardWithVirtualTabletId(pathInfo, cacheInfo, groupId, properties, vTabletId,
+                    WarehouseManager.DEFAULT_WAREHOUSE_ID);
+            ShardInfo info = starosAgent.getShardInfo(vTabletId, StarOSAgent.DEFAULT_WORKER_GROUP_ID);
+            Assertions.assertNotNull(info);
+            Assertions.assertEquals(vTabletId, info.getShardId());
+        });
+
+        // inject error
+        new Expectations(client) {
+            {
+                client.createShard(serviceId, (List<CreateShardInfo>) any);
+                result = new StarClientException(StatusCode.INTERNAL, "Mocked error");
+            }
+        };
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Failed to create virtual shard. error: INTERNAL:Mocked error",
+                () -> starosAgent.createShardWithVirtualTabletId(pathInfo, cacheInfo, groupId, properties, vTabletId,
+                        WarehouseManager.DEFAULT_WAREHOUSE_ID));
+    }
+
 }

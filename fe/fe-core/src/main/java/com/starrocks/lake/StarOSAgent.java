@@ -270,6 +270,17 @@ public class StarOSAgent {
         }
     }
 
+    public FilePathInfo allocateFilePath(String storageVolumeId, String rootDir) throws DdlException {
+        prepare();
+        try {
+            FilePathInfo pathInfo = client.allocateFilePath(serviceId, storageVolumeId, "", rootDir);
+            LOG.info("Allocate file path from starmgr: {}", pathInfo);
+            return pathInfo;
+        } catch (StarClientException e) {
+            throw new DdlException("Failed to allocate file path from StarMgr, error: " + e.getMessage());
+        }
+    }
+
     public boolean registerAndBootstrapService() {
         try {
             client.registerService("starrocks");
@@ -481,7 +492,25 @@ public class StarOSAgent {
         } catch (StarClientException e) {
             throw new DdlException("Failed to create shard group. error: " + e.getMessage());
         }
-        return shardGroupInfos.stream().map(ShardGroupInfo::getGroupId).collect(Collectors.toList()).get(0);
+        return shardGroupInfos.get(0).getGroupId();
+    }
+
+    // Used only for shared-data cluster replication
+    public long createShardGroupForVirtualTablet() throws DdlException {
+        prepare();
+        List<ShardGroupInfo> shardGroupInfos;
+        try {
+            List<CreateShardGroupInfo> createShardGroupInfos = new ArrayList<>();
+            createShardGroupInfos.add(CreateShardGroupInfo.newBuilder()
+                    .setPolicy(PlacementPolicy.SPREAD)
+                    .putProperties("createTime", String.valueOf(System.currentTimeMillis()))
+                    .build());
+            shardGroupInfos = client.createShardGroup(serviceId, createShardGroupInfos);
+            Preconditions.checkState(shardGroupInfos.size() == 1);
+        } catch (StarClientException e) {
+            throw new DdlException("Failed to create shard group. error: " + e.getMessage());
+        }
+        return shardGroupInfos.get(0).getGroupId();
     }
 
     public void deleteShardGroup(List<Long> groupIds) {
@@ -577,6 +606,34 @@ public class StarOSAgent {
             }
             throw new DdlException("Failed to alter partition shardGroups, PartitionNames: " +
                     partitionNamesBuilder.toString().trim() + e.getMessage());
+        }
+    }
+
+    // Used only for shared-data cluster replication
+    public void createShardWithVirtualTabletId(FilePathInfo pathInfo, FileCacheInfo cacheInfo, long groupId,
+                                      @NotNull Map<String, String> properties, long vTabletId,
+                                               long workerGroupId) throws DdlException {
+        Preconditions.checkState(vTabletId != 0);
+        prepare();
+        List<ShardInfo> shardInfos = null;
+        try {
+            List<CreateShardInfo> createShardInfoList = new ArrayList<>(1);
+
+            CreateShardInfo.Builder builder = CreateShardInfo.newBuilder();
+            builder.setReplicaCount(1)
+                    .addGroupIds(groupId)
+                    .setPathInfo(pathInfo)
+                    .setCacheInfo(cacheInfo)
+                    .putAllShardProperties(properties)
+                    .setScheduleToWorkerGroup(workerGroupId);
+
+            builder.setShardId(vTabletId);
+            createShardInfoList.add(builder.build());
+            shardInfos = client.createShard(serviceId, createShardInfoList);
+            Preconditions.checkState(shardInfos != null && shardInfos.size() == 1);
+            LOG.debug("Create virtual shards success. shard infos: {}", shardInfos);
+        } catch (Exception e) {
+            throw new DdlException("Failed to create virtual shard. error: " + e.getMessage());
         }
     }
 

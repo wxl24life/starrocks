@@ -54,6 +54,7 @@ import com.starrocks.thrift.TFinishTaskRequest;
 import com.starrocks.thrift.TIndexReplicationInfo;
 import com.starrocks.thrift.TPartitionReplicationInfo;
 import com.starrocks.thrift.TReplicaReplicationInfo;
+import com.starrocks.thrift.TRunMode;
 import com.starrocks.thrift.TSnapshotInfo;
 import com.starrocks.thrift.TStatusCode;
 import com.starrocks.thrift.TTableReplicationRequest;
@@ -141,7 +142,7 @@ public class ReplicationJob implements GsonPostProcessable {
         }
     }
 
-    private static class PartitionInfo {
+    protected static class PartitionInfo {
         @SerializedName(value = "partitionId")
         private final long partitionId;
 
@@ -160,14 +161,18 @@ public class ReplicationJob implements GsonPostProcessable {
         @SerializedName(value = "indexInfos")
         private final Map<Long, IndexInfo> indexInfos;
 
+        @SerializedName(value = "srcPartitionId")
+        protected final long srcPartitionId;
+
         public PartitionInfo(long partitionId, long version, long dataVersion,
-                long srcVersion, long srcVersionEpoch, Map<Long, IndexInfo> indexInfos) {
+                long srcVersion, long srcVersionEpoch, Map<Long, IndexInfo> indexInfos, long srcPartitionId) {
             this.partitionId = partitionId;
             this.version = version;
             this.dataVersion = dataVersion;
             this.srcVersion = srcVersion;
             this.srcVersionEpoch = srcVersionEpoch;
             this.indexInfos = indexInfos;
+            this.srcPartitionId = srcPartitionId;
         }
 
         public long getPartitionId() {
@@ -193,9 +198,13 @@ public class ReplicationJob implements GsonPostProcessable {
         public Map<Long, IndexInfo> getIndexInfos() {
             return indexInfos;
         }
+
+        public long getSrcPartitionId() {
+            return srcPartitionId;
+        }
     }
 
-    private static class IndexInfo {
+    protected static class IndexInfo {
         @SerializedName(value = "indexId")
         private final long indexId;
 
@@ -232,7 +241,7 @@ public class ReplicationJob implements GsonPostProcessable {
         }
     }
 
-    private static class TabletInfo {
+    protected static class TabletInfo {
         @SerializedName(value = "tabletId")
         private final long tabletId;
 
@@ -400,9 +409,21 @@ public class ReplicationJob implements GsonPostProcessable {
     @SerializedName(value = "state")
     private volatile ReplicationJobState state;
 
-    private Map<AgentTask, AgentTask> runningTasks = Maps.newConcurrentMap();
-    private volatile int taskNum = 0;
+    protected Map<AgentTask, AgentTask> runningTasks = Maps.newConcurrentMap();
+    protected volatile int taskNum = 0;
     private Map<AgentTask, AgentTask> finishedTasks = Maps.newConcurrentMap();
+
+    protected Table.TableType getTableType() {
+        return tableType;
+    }
+
+    protected Table.TableType getSrcTableType() {
+        return srcTableType;
+    }
+
+    protected Map<Long, PartitionInfo> getPartitionInfos() {
+        return partitionInfos;
+    }
 
     public String getJobId() {
         return jobId;
@@ -440,7 +461,7 @@ public class ReplicationJob implements GsonPostProcessable {
         return state;
     }
 
-    private void setState(ReplicationJobState state) {
+    protected void setState(ReplicationJobState state) {
         this.state = state;
         if (state.equals(ReplicationJobState.COMMITTED) || state.equals(ReplicationJobState.ABORTED)) {
             finishedTimeMs = System.currentTimeMillis();
@@ -650,6 +671,7 @@ public class ReplicationJob implements GsonPostProcessable {
         }
         OlapTable olapTable = (OlapTable) table;
 
+        TRunMode srcClusterRunMode = request.getSrc_cluster_run_mode();
         Locker locker = new Locker();
         locker.lockTableWithIntensiveDbLock(db.getId(), table.getId(), LockType.READ);
         try {
@@ -657,6 +679,10 @@ public class ReplicationJob implements GsonPostProcessable {
             tableDataSize = olapTable.getDataSize();
 
             for (TPartitionReplicationInfo tPartitionInfo : request.partition_replication_infos.values()) {
+                if (srcClusterRunMode == TRunMode.SHARED_DATA) {
+                    Preconditions.checkState(tPartitionInfo.getSrc_partition_id() > 0,
+                            "Source cluster partition id: " + tPartitionInfo.getSrc_partition_id() + " is invalid");
+                }
                 PhysicalPartition partition = olapTable.getPhysicalPartition(tPartitionInfo.partition_id);
                 if (partition == null) {
                     throw new MetaNotFoundException("Partition " + tPartitionInfo.partition_id + " in table "
@@ -701,7 +727,8 @@ public class ReplicationJob implements GsonPostProcessable {
             }
         }
 
-        return new TableInfo(request.table_id, tableType, Table.TableType.OLAP, tableDataSize,
+        TableType srcTableType = srcClusterRunMode == TRunMode.SHARED_DATA ? TableType.CLOUD_NATIVE : TableType.OLAP;
+        return new TableInfo(request.table_id, tableType, srcTableType, tableDataSize,
                 request.src_table_data_size, partitionInfos);
     }
 
@@ -718,7 +745,8 @@ public class ReplicationJob implements GsonPostProcessable {
             indexInfos.put(indexInfo.getIndexId(), indexInfo);
         }
         return new PartitionInfo(tPartitionInfo.partition_id, partition.getVisibleVersion(), partition.getDataVersion(),
-                tPartitionInfo.src_version, tPartitionInfo.src_version_epoch, indexInfos);
+                tPartitionInfo.src_version, tPartitionInfo.src_version_epoch, indexInfos,
+                tPartitionInfo.src_partition_id);
     }
 
     private static IndexInfo initIndexInfo(OlapTable olapTable, TIndexReplicationInfo tIndexInfo,
@@ -818,7 +846,7 @@ public class ReplicationJob implements GsonPostProcessable {
             indexInfos.put(indexInfo.getIndexId(), indexInfo);
         }
         return new PartitionInfo(partition.getId(), partition.getVisibleVersion(), partition.getDataVersion(),
-                srcPartition.getDataVersion(), srcPartition.getVersionEpoch(), indexInfos);
+                srcPartition.getDataVersion(), srcPartition.getVersionEpoch(), indexInfos, srcPartition.getId());
     }
 
     private static IndexInfo initIndexInfo(OlapTable table, OlapTable srcTable, MaterializedIndex index,
@@ -874,12 +902,12 @@ public class ReplicationJob implements GsonPostProcessable {
         return new TabletInfo(tablet.getId(), srcTablet.getId(), replicaInfos);
     }
 
-    private static TTabletType getTabletType(Table.TableType tableType) {
+    protected static TTabletType getTabletType(Table.TableType tableType) {
         return tableType == Table.TableType.CLOUD_NATIVE ? TTabletType.TABLET_TYPE_LAKE
                 : TTabletType.TABLET_TYPE_DISK;
     }
 
-    private void beginTransaction()
+    protected void beginTransaction()
             throws LabelAlreadyUsedException, DuplicatedRequestException, AnalysisException, RunningTxnExceedException {
         TransactionState.LoadJobSourceType loadJobSourceType = TransactionState.LoadJobSourceType.REPLICATION;
         TransactionState.TxnCoordinator coordinator = TransactionState.TxnCoordinator.fromThisFE();
@@ -889,7 +917,7 @@ public class ReplicationJob implements GsonPostProcessable {
                 Config.replication_transaction_timeout_sec);
     }
 
-    private void commitTransaction() throws StarRocksException {
+    protected void commitTransaction() throws StarRocksException {
         Pair<List<TabletCommitInfo>, List<TabletFailInfo>> tabletsCommitInfo = getTabletsCommitInfo();
 
         Map<Long, Long> partitionVersions = Maps.newHashMap();
@@ -932,7 +960,7 @@ public class ReplicationJob implements GsonPostProcessable {
         }
     }
 
-    private void abortTransaction(String reason) {
+    protected void abortTransaction(String reason) {
         Pair<List<TabletCommitInfo>, List<TabletFailInfo>> tabletsCommitInfo = getTabletsCommitInfo();
 
         try {
@@ -959,7 +987,7 @@ public class ReplicationJob implements GsonPostProcessable {
         return Pair.create(tabletCommitInfos, tabletFailInfos);
     }
 
-    private boolean isTransactionAborted() {
+    protected boolean isTransactionAborted() {
         TransactionState txnState = GlobalStateMgr.getServingState().getGlobalTransactionMgr()
                 .getTransactionState(databaseId, transactionId);
         if (txnState == null || txnState.getTransactionStatus() == TransactionStatus.ABORTED) {
@@ -1046,7 +1074,7 @@ public class ReplicationJob implements GsonPostProcessable {
         sendRunningTasks();
     }
 
-    private void sendRunningTasks() {
+    protected void sendRunningTasks() {
         if (runningTasks.isEmpty()) {
             throw new RuntimeException("Running tasks is empty");
         }
@@ -1077,7 +1105,7 @@ public class ReplicationJob implements GsonPostProcessable {
         runningTasks.clear();
     }
 
-    private boolean isAllTaskFinished() {
+    protected boolean isAllTaskFinished() {
         LOG.info("Replication job state: {}, finished tasks: {}/{}, database id: {}, table id: {}, transaction id: {}",
                 state, finishedTasks.size(), taskNum, databaseId, tableId, transactionId);
 
@@ -1092,7 +1120,7 @@ public class ReplicationJob implements GsonPostProcessable {
         return false;
     }
 
-    private boolean isCrashRecovery() {
+    protected boolean isCrashRecovery() {
         return runningTasks.isEmpty() && finishedTasks.isEmpty() && (taskNum == 0);
     }
 

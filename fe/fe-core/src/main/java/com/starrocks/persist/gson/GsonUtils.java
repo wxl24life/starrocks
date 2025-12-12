@@ -179,6 +179,8 @@ import com.starrocks.persist.PartitionPersistInfoV2;
 import com.starrocks.persist.RangePartitionPersistInfo;
 import com.starrocks.persist.SinglePartitionPersistInfo;
 import com.starrocks.proto.EncryptionKeyPB;
+import com.starrocks.replication.LakeReplicationJob;
+import com.starrocks.replication.ReplicationJob;
 import com.starrocks.replication.ReplicationTxnCommitAttachment;
 import com.starrocks.server.SharedDataStorageVolumeMgr;
 import com.starrocks.server.SharedNothingStorageVolumeMgr;
@@ -426,6 +428,11 @@ public class GsonUtils {
                     .registerSubtype(NativeAnalyzeJob.class, "NativeAnalyzeJob", true)
                     .registerSubtype(ExternalAnalyzeJob.class, "ExternalAnalyzeJob");
 
+    private static final RuntimeTypeAdapterFactory<ReplicationJob> REPLICATION_JOB_TYPE_ADAPTER_FACTORY =
+            RuntimeTypeAdapterFactory.of(ReplicationJob.class, "clazz")
+                    .registerSubtype(ReplicationJob.class, "ReplicationJob", true)
+                    .registerSubtype(LakeReplicationJob.class, "LakeReplicationJob");
+
     private static final JsonSerializer<LocalDateTime> LOCAL_DATE_TIME_TYPE_SERIALIZER =
             (dateTime, type, jsonSerializationContext) -> new JsonPrimitive(dateTime.toEpochSecond(ZoneOffset.UTC));
 
@@ -490,6 +497,7 @@ public class GsonUtils {
                 .registerTypeAdapterFactory(STORAGE_VOLUME_MGR_TYPE_RUNTIME_ADAPTER_FACTORY)
                 .registerTypeAdapterFactory(ANALYZE_STATUS_RUNTIME_TYPE_ADAPTER_FACTORY)
                 .registerTypeAdapterFactory(ANALYZE_JOB_RUNTIME_TYPE_ADAPTER_FACTORY)
+                .registerTypeAdapterFactory(REPLICATION_JOB_TYPE_ADAPTER_FACTORY)
                 .registerTypeAdapter(LocalDateTime.class, LOCAL_DATE_TIME_TYPE_SERIALIZER)
                 .registerTypeAdapter(LocalDateTime.class, LOCAL_DATE_TIME_TYPE_DESERIALIZER)
                 .registerTypeAdapter(QueryDumpInfo.class, DUMP_INFO_SERIALIZER)
