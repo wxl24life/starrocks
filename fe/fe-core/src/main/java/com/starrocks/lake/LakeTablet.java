@@ -21,6 +21,7 @@ import com.starrocks.catalog.Replica;
 import com.starrocks.catalog.Tablet;
 import com.starrocks.common.io.Text;
 import com.starrocks.persist.gson.GsonUtils;
+import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.WarehouseManager;
 import org.apache.logging.log4j.LogManager;
@@ -114,7 +115,7 @@ public class LakeTablet extends Tablet {
 
     @Override
     public Set<Long> getBackendIds() {
-        return getBackendIds(WarehouseManager.DEFAULT_WAREHOUSE_ID);
+        return getBackendIds(ConnectContext.get().getCurrentWarehouseId());
     }
 
     public Set<Long> getBackendIds(long warehouseId) {
