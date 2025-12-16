@@ -250,12 +250,26 @@ public class TaskRun implements Comparable<TaskRun> {
             // 2. It may pollute the properties of task run.
             newProperties.putAll(materializedView.getSessionProperties());
 
-            Warehouse w = GlobalStateMgr.getCurrentState().getWarehouseMgr().getWarehouse(
-                    materializedView.getWarehouseId());
-            newProperties.put(PROPERTIES_WAREHOUSE, w.getName());
+            // Determine the warehouse to use:
+            // If enable_mv_manual_refresh_use_context_warehouse is enabled and this is a manual refresh,
+            // prefer to use the warehouse from connection context instead of MV's warehouse property.
+            String warehouseName = null;
+            if (Config.enable_mv_manual_refresh_use_context_warehouse
+                    && executeOption != null && executeOption.isManual()
+                    && parentRunCtx != null) {
+                warehouseName = parentRunCtx.getCurrentWarehouseName();
+                LOG.info("Manual refresh MV {} with context warehouse: {}", mvId, warehouseName);
+            }
+            // If no context warehouse or config not enabled, fall back to MV's warehouse property
+            if (warehouseName == null || warehouseName.isEmpty()) {
+                Warehouse w = GlobalStateMgr.getCurrentState().getWarehouseMgr().getWarehouse(
+                        materializedView.getWarehouseId());
+                warehouseName = w.getName();
+            }
+            newProperties.put(PROPERTIES_WAREHOUSE, warehouseName);
 
             // set current warehouse
-            ctx.setCurrentWarehouse(w.getName());
+            ctx.setCurrentWarehouse(warehouseName);
         } catch (Exception e) {
             LOG.warn("refresh task properties failed:", e);
         }

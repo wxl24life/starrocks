@@ -3792,6 +3792,10 @@ public class Config extends ConfigBase {
             "query the rewritten mv directly rather than original base table to improve query performance.")
     public static boolean enable_mv_refresh_query_rewrite = false;
 
+    @ConfField(mutable = true, comment = "When enabled, manual refresh of materialized view will prefer to use " +
+            "the warehouse from current connection context instead of the warehouse property of the materialized view.")
+    public static boolean enable_mv_manual_refresh_use_context_warehouse = false;
+
     @ConfField(mutable = true, comment = "Whether do reload flag check after FE's image loaded." +
             " If one base mv has done reload, no need to do it again while other mv that related to it is reloading ")
     public static boolean enable_mv_post_image_reload_cache = true;
