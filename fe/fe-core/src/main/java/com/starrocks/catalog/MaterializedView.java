@@ -641,6 +641,10 @@ public class MaterializedView extends OlapTable implements GsonPreProcessable, G
     @SerializedName(value = "warehouseId")
     private long warehouseId = WarehouseManager.DEFAULT_WAREHOUSE_ID;
 
+    // The user who created this materialized view, used to determine the execution user for refresh tasks
+    @SerializedName(value = "mvCreator")
+    private UserIdentity mvCreator;
+
     protected volatile ParseNode defineQueryParseNode = null;
 
     // current refresh mode means the actual refresh mode of the mv,
@@ -893,6 +897,14 @@ public class MaterializedView extends OlapTable implements GsonPreProcessable, G
 
     public long getWarehouseId() {
         return warehouseId;
+    }
+
+    public UserIdentity getMvCreator() {
+        return mvCreator;
+    }
+
+    public void setMvCreator(UserIdentity mvCreator) {
+        this.mvCreator = mvCreator;
     }
 
     public int getMaxMVRewriteStaleness() {

@@ -156,9 +156,13 @@ public class TaskBuilder {
 
         task.setDefinition(materializedView.getTaskDefinition());
         task.setExpireTime(0L);
+        // Prefer using connect context for task execution user
         if (ConnectContext.get() != null) {
             task.setCreateUser(ConnectContext.get().getCurrentUserIdentity().getUser());
             task.setUserIdentity(ConnectContext.get().getCurrentUserIdentity());
+        } else if (materializedView.getMvCreator() != null) {
+            task.setCreateUser(materializedView.getMvCreator().getUser());
+            task.setUserIdentity(materializedView.getMvCreator());
         }
         handleSpecialTaskProperties(task);
         return task;

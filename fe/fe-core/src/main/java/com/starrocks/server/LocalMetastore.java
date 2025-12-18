@@ -3080,6 +3080,10 @@ public class LocalMetastore implements ConnectorMetadata, MVRepairHandler, Memor
         materializedView.setCurrentRefreshMode(stmt.getCurrentRefreshMode());
         // set encode row id version
         materializedView.setEncodeRowIdVersion(stmt.getEncodeRowIdVersion());
+        // set mv creator for task execution user
+        if (ConnectContext.get() != null) {
+            materializedView.setMvCreator(ConnectContext.get().getCurrentUserIdentity());
+        }
         // set partitionRefTableExprs
         if (stmt.getPartitionRefTableExpr() != null) {
             //avoid to get a list of null inside
