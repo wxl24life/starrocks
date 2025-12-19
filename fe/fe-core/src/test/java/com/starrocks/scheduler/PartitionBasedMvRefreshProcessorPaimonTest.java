@@ -102,7 +102,7 @@ public class PartitionBasedMvRefreshProcessorPaimonTest extends MVTestBase {
                                     .getAsyncRefreshContext().getBaseTableInfoVisibleVersionMap();
 
                     BaseTableInfo baseTableInfo = new BaseTableInfo("paimon0", "pmn_db1",
-                            "partitioned_table", "partitioned_table");
+                            "partitioned_table", "partitioned_table:paimon0.pmn_db1.partitioned_table");
                     versionMap.get(baseTableInfo).put("pt=2026-11-22",
                             new MaterializedView.BasePartitionInfo(1, 2, -1));
                     triggerRefreshMv(testDb, partitionedMaterializedView);

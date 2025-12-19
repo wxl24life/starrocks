@@ -21,6 +21,7 @@ import com.aliyun.datalake.core.DlfAuthContext;
 import com.aliyun.datalake.credential.SimpleStsCredentialsProvider;
 import com.aliyun.datalake.paimon.fs.DlfPaimonFileIO;
 import com.aliyun.datalake.paimon.table.DlfPaimonTable;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -29,6 +30,7 @@ import com.google.common.collect.Sets;
 import com.starrocks.analysis.DescriptorTable;
 import com.starrocks.analysis.Expr;
 import com.starrocks.analysis.LiteralExpr;
+import com.starrocks.common.FeConstants;
 import com.starrocks.common.util.DlfUtil;
 import com.starrocks.common.util.TimeUtils;
 import com.starrocks.connector.CatalogConnector;
@@ -125,6 +127,9 @@ public class PaimonTable extends Table {
 
     @Override
     public String getUUID() {
+        if (FeConstants.runningUnitTest) {
+            return String.join(".", catalogName, databaseName, tableName);
+        }
         if (Strings.isNullOrEmpty(this.uuid)) {
             this.uuid = String.join(".", catalogName, databaseName, tableName, paimonNativeTable.uuid().replace(".", "_"));
         }

@@ -103,6 +103,7 @@ public class ExplicitTxnTest {
     @Test
     public void testNotSupportStmt() throws IOException, DdlException {
         ConnectContext context = new ConnectContext();
+        context.setCurrentUserIdentity(UserIdentity.ROOT);
         context.setThreadLocalInfo();
         context.setGlobalStateMgr(GlobalStateMgr.getCurrentState());
 
