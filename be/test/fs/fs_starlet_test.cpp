@@ -172,7 +172,7 @@ TEST_P(StarletFileSystemTest, test_write_and_read) {
     ASSIGN_OR_ABORT(auto rf, fs->new_random_access_file(uri));
     ASSIGN_OR_ABORT(auto nr, rf->read_at(0, buf, sizeof(buf)));
     ASSIGN_OR_ABORT(auto stats2, rf->get_numeric_statistics());
-    EXPECT_EQ((*stats2).size(), 11);
+    EXPECT_EQ((*stats2).size(), 19);
     EXPECT_EQ("hello world!", std::string_view(buf, nr));
 
     ASSIGN_OR_ABORT(nr, rf->read_at(3, buf, sizeof(buf)));
