@@ -1327,11 +1327,7 @@ public class MaterializedView extends OlapTable implements GsonPreProcessable, G
             LOG.warn("failed to register mv metrics for mv: {}", this, e);
         }
 
-        ConnectContext connectContext = ConnectContext.buildInner();
-        connectContext.setQualifiedUser(AuthenticationMgr.ROOT_USER);
-        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
-        connectContext.setCurrentRoleIds(Sets.newHashSet(PrivilegeBuiltinConstants.ROOT_ROLE_ID));
-        connectContext.setThreadLocalInfo();
+        ConnectContext.setContextUserIfNeeded();
         // log reload cost
         long duration = System.currentTimeMillis() - startMillis;
         LOG.info("finish reloading mv {} in {}ms, total base table count: {}", getName(), duration, baseTableInfos.size());

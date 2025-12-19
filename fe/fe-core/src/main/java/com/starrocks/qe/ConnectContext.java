@@ -41,6 +41,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.starrocks.analysis.StringLiteral;
+import com.starrocks.authentication.AuthenticationMgr;
 import com.starrocks.authentication.OAuth2Context;
 import com.starrocks.authentication.UserProperty;
 import com.starrocks.authorization.AccessDeniedException;
@@ -404,6 +405,25 @@ public class ConnectContext {
 
     public SQLPlanStorage getSqlPlanStorage() {
         return sqlPlanStorage;
+    }
+
+    /**
+     * If ConnectContext is null or it's user is not set, create a ConnectContext and set user to root.
+     * This function is used for some inner task that may access dlf but is not related to a specific user.
+     */
+    public static void setContextUserIfNeeded() {
+        if (ConnectContext.get() == null) {
+            ConnectContext connectContext = ConnectContext.buildInner();
+            connectContext.setQualifiedUser(AuthenticationMgr.ROOT_USER);
+            connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+            connectContext.setThreadLocalInfo();
+        } else {
+            ConnectContext context = ConnectContext.get();
+            if (context.getQualifiedUser() == null && context.getCurrentUserIdentity() == null) {
+                context.setQualifiedUser(AuthenticationMgr.ROOT_USER);
+                context.setCurrentUserIdentity(UserIdentity.ROOT);
+            }
+        }
     }
 
     public void putPreparedStmt(String stmtName, PrepareStmtContext ctx) {
