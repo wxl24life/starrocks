@@ -35,6 +35,7 @@ import com.starrocks.thrift.TTableType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.table.DataTable;
 
@@ -104,6 +105,11 @@ public class PaimonTable extends Table {
     // For refresh table only
     public void setPaimonNativeTable(org.apache.paimon.table.Table paimonNativeTable) {
         this.paimonNativeTable = paimonNativeTable;
+    }
+
+    public boolean isSystemTable() {
+        Identifier identifier = new Identifier(databaseName, tableName);
+        return identifier.isSystemTable();
     }
 
     @Override

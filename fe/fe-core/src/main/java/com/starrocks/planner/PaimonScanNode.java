@@ -195,7 +195,7 @@ public class PaimonScanNode extends ScanNode {
         for (Split split : splits) {
             if (split instanceof DataSplit || split instanceof FormatDataSplit) {
                 Optional<List<RawFile>> optionalRawFiles = split.convertToRawFiles();
-                boolean nativeSupportedFormat = optionalRawFiles.isPresent()
+                boolean nativeSupportedFormat = !paimonTable.isSystemTable() && optionalRawFiles.isPresent()
                         && optionalRawFiles.get().stream().allMatch(p -> fromType(p.format()) != THdfsFileFormat.UNKNOWN) ||
                         split instanceof FormatDataSplit && (formatTableFormat == FormatTable.Format.ORC || formatTableFormat == FormatTable.Format.PARQUET);
 
