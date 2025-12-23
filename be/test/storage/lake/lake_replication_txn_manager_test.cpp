@@ -44,6 +44,7 @@
 #include "storage/lake/transactions.h"
 #include "storage/lake/update_manager.h"
 #include "storage/options.h"
+#include "storage/protobuf_file.h"
 #include "storage/rowset/rowset_options.h"
 #include "storage/rowset/segment.h"
 #include "storage/tablet_manager.h"
@@ -513,6 +514,162 @@ TEST_P(SharedDataReplicationTxnManagerTest, test_replicate_normal_encrypted) {
     // Verify compaction_inputs: since target tablet was empty before replication,
     // old_rowsets is empty, so compaction_inputs should also be empty.
     EXPECT_EQ(0, status_or.value()->compaction_inputs_size());
+}
+#ifdef USE_STAROS
+TEST(LakeReplicationTxnManagerTest, test_convert_s3_path_to_starlet_uri) {
+    // Test case from user: convert S3 path to starlet URI
+    std::string s3_path =
+            "s3://cdp-hangzhou/cdp-hangzhou/5/186d104c-7078-4d21-ae3f-087873046b97/db135540/135542/135541/meta/"
+            "0000000000021178_0000000000000002.meta";
+    int64_t shard_id = 12345;
+
+    std::string expected_uri =
+            "staros://12345/cdp-hangzhou/5/186d104c-7078-4d21-ae3f-087873046b97/db135540/135542/135541/meta/"
+            "0000000000021178_0000000000000002.meta";
+    std::string actual_uri = lake::convert_s3_path_to_starlet_uri(s3_path, shard_id);
+
+    EXPECT_EQ(expected_uri, actual_uri);
+}
+#endif
+
+class TryBuildSourceTabletMetaWithFallbackTest : public testing::Test {
+public:
+    TryBuildSourceTabletMetaWithFallbackTest() = default;
+    ~TryBuildSourceTabletMetaWithFallbackTest() override = default;
+
+protected:
+    void SetUp() override {
+        (void)fs::remove_all(_test_dir);
+        CHECK_OK(fs::create_directories(_test_dir));
+        _location_provider = std::make_shared<lake::FixedLocationProvider>(_test_dir);
+        _mem_tracker = std::make_unique<MemTracker>(1024 * 1024);
+        _update_manager = std::make_unique<lake::UpdateManager>(_location_provider, _mem_tracker.get());
+        _tablet_mgr = std::make_unique<lake::TabletManager>(_location_provider, _update_manager.get(), 16384);
+        _replication_txn_manager = std::make_unique<lake::LakeReplicationTxnManager>(_tablet_mgr.get());
+
+        // Create a simple tablet metadata for testing
+        _tablet_metadata = std::make_shared<TabletMetadata>();
+        _tablet_metadata->set_id(_src_tablet_id);
+        _tablet_metadata->set_version(_version);
+        _tablet_metadata->set_next_rowset_id(1);
+        auto schema = _tablet_metadata->mutable_schema();
+        schema->set_keys_type(DUP_KEYS);
+        schema->set_id(next_id());
+        schema->set_num_short_key_columns(1);
+        auto c0 = schema->add_column();
+        c0->set_unique_id(next_id());
+        c0->set_name("c0");
+        c0->set_type("INT");
+        c0->set_is_key(true);
+        c0->set_is_nullable(false);
+
+        // Create shared filesystem for testing
+        auto fs_or = FileSystem::CreateSharedFromString(_test_dir);
+        CHECK(fs_or.ok());
+        _shared_fs = fs_or.value();
+    }
+
+    void TearDown() override {
+        ExecEnv::GetInstance()->delete_file_thread_pool()->wait();
+        ASSERT_OK(fs::remove_all(_test_dir));
+    }
+
+    // Helper to create metadata file at a specific path (for test purpose)
+    // Uses ProtobufFile directly since TabletManager::put_tablet_metadata with custom path is private
+    Status create_metadata_at_path(const std::string& meta_dir) {
+        RETURN_IF_ERROR(fs::create_directories(meta_dir));
+        auto filename = lake::tablet_metadata_filename(_src_tablet_id, _version);
+        auto filepath = lake::join_path(meta_dir, filename);
+        ProtobufFile file(filepath);
+        return file.save(*_tablet_metadata);
+    }
+
+    // Build path formats for testing
+    // Current format: {base}/db{db_id}/{table_id}/{partition_id}/meta
+    std::string build_current_format_meta_dir() {
+        return lake::join_path(_test_dir, fmt::format("db{}/{}/{}/meta", _src_db_id, _src_table_id, _src_partition_id));
+    }
+    std::string build_current_format_data_dir() {
+        return lake::join_path(_test_dir, fmt::format("db{}/{}/{}/data", _src_db_id, _src_table_id, _src_partition_id));
+    }
+
+    // Legacy format 1: {base}/{table_id}/{partition_id}/meta (without db_id)
+    std::string build_legacy1_format_meta_dir() {
+        return lake::join_path(_test_dir, fmt::format("{}/{}/meta", _src_table_id, _src_partition_id));
+    }
+    std::string build_legacy1_format_data_dir() {
+        return lake::join_path(_test_dir, fmt::format("{}/{}/data", _src_table_id, _src_partition_id));
+    }
+
+    // Legacy format 2: {base}/{table_id}/meta (without db_id and partition_id)
+    std::string build_legacy2_format_meta_dir() {
+        return lake::join_path(_test_dir, fmt::format("{}/meta", _src_table_id));
+    }
+    std::string build_legacy2_format_data_dir() {
+        return lake::join_path(_test_dir, fmt::format("{}/data", _src_table_id));
+    }
+
+protected:
+    constexpr static const char* const kTestDirectory = "test_fallback_meta";
+
+    std::unique_ptr<TabletManager> _tablet_mgr;
+    std::shared_ptr<lake::LocationProvider> _location_provider;
+    std::unique_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<lake::UpdateManager> _update_manager;
+    std::unique_ptr<lake::LakeReplicationTxnManager> _replication_txn_manager;
+    std::shared_ptr<TabletMetadata> _tablet_metadata;
+    std::shared_ptr<FileSystem> _shared_fs;
+
+    std::string _test_dir = kTestDirectory;
+    int64_t _src_tablet_id = 63457;
+    int64_t _src_db_id = 56764;
+    int64_t _src_table_id = 56970;
+    int64_t _src_partition_id = 63453;
+    int64_t _version = 2;
+    TTransactionId _txn_id = 12345;
+};
+
+TEST_F(TryBuildSourceTabletMetaWithFallbackTest, test_fallback_to_legacy2_format_success) {
+    // Create metadata ONLY at legacy2 format path (without db_id and partition_id)
+    // This forces all three attempts to be tried
+    std::string legacy2_meta_dir = build_legacy2_format_meta_dir();
+    std::string legacy2_data_dir = build_legacy2_format_data_dir();
+    ASSERT_OK(create_metadata_at_path(legacy2_meta_dir));
+
+    // Start with current format paths (which don't exist)
+    std::string test_meta_dir = build_current_format_meta_dir();
+    std::string test_data_dir = build_current_format_data_dir();
+
+    // Verify initial paths contain db_id and partition_id
+    EXPECT_NE(std::string::npos, test_meta_dir.find(fmt::format("db{}", _src_db_id)));
+    EXPECT_NE(std::string::npos, test_meta_dir.find(std::to_string(_src_partition_id)));
+
+    auto result = _replication_txn_manager->try_build_source_tablet_meta_with_fallback(
+            _src_tablet_id, _version, _src_db_id, _txn_id, test_meta_dir, test_data_dir, _shared_fs);
+
+    // Verify success and paths updated to legacy2 format
+    ASSERT_TRUE(result.ok()) << result.status();
+    EXPECT_EQ(legacy2_meta_dir, test_meta_dir);
+    EXPECT_EQ(legacy2_data_dir, test_data_dir);
+    EXPECT_EQ(_src_tablet_id, result.value()->id());
+    EXPECT_EQ(_version, result.value()->version());
+
+    // Verify final paths don't contain db_id or partition_id
+    EXPECT_EQ(std::string::npos, test_meta_dir.find(fmt::format("db{}", _src_db_id)));
+    EXPECT_EQ(std::string::npos, test_meta_dir.find(std::to_string(_src_partition_id)));
+}
+
+TEST_F(TryBuildSourceTabletMetaWithFallbackTest, test_all_attempts_fail_not_found) {
+    // Don't create any metadata files - all attempts should fail
+    std::string test_meta_dir = build_current_format_meta_dir();
+    std::string test_data_dir = build_current_format_data_dir();
+
+    auto result = _replication_txn_manager->try_build_source_tablet_meta_with_fallback(
+            _src_tablet_id, _version, _src_db_id, _txn_id, test_meta_dir, test_data_dir, _shared_fs);
+
+    // Verify failure with NotFound error
+    ASSERT_FALSE(result.ok());
+    EXPECT_TRUE(result.status().is_not_found()) << result.status();
 }
 
 INSTANTIATE_TEST_SUITE_P(SharedDataReplicationTxnManagerTest, SharedDataReplicationTxnManagerTest,
