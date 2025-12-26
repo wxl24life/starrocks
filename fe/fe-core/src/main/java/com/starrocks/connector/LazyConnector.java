@@ -57,10 +57,6 @@ public class LazyConnector implements Connector {
                             Authorizer.getInstance()
                                     .setAccessControl(context.getCatalogName(), new RangerStarRocksAccessController());
                         } else if (properties.get(PaimonConnector.PAIMON_CATALOG_TYPE) != null
-                                && properties.get(PaimonConnector.PAIMON_CATALOG_TYPE).equalsIgnoreCase("dlf-paimon")) {
-                            Authorizer.getInstance().setAccessControl(context.getCatalogName(),
-                                    new DlfAccessController(properties));
-                        } else if (properties.get(PaimonConnector.PAIMON_CATALOG_TYPE) != null
                                 && properties.get(PaimonConnector.PAIMON_CATALOG_TYPE).equalsIgnoreCase("rest")) {
                             // dlf 2.5 server will check, do nothing
                             Authorizer.getInstance().setAccessControl(context.getCatalogName(), new BlankAccessController());

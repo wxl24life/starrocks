@@ -684,6 +684,12 @@ under the License.
         </dependency>
 
         <dependency>
+            <groupId>com.aliyun.datalake</groupId>
+            <artifactId>dlf-hive-paimon</artifactId>
+            <version>${dlf.sdk.version}</version>
+        </dependency>
+
+        <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-bundle</artifactId>
             <version>${paimon.version}</version>

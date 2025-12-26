@@ -186,11 +186,6 @@ public class ConnectorTableMetadataProcessor extends FrontendDaemon {
                 continue;
             }
 
-            // ignore DLF 2.0
-            if (!paimonCatalog.options().isEmpty() && paimonCatalog.options().get("metastore").equalsIgnoreCase("dlf-paimon")) {
-                return;
-            }
-
             LOG.info("Start to refresh paimon catalog {}", catalogName);
             for (String dbName : paimonCatalog.listDatabases()) {
                 try {

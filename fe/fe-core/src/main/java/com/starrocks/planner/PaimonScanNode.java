@@ -182,7 +182,7 @@ public class PaimonScanNode extends ScanNode {
             return;
         }
         String paimonTableFileFormat = this.paimonTable.getNativeTable().options().get(CoreOptions.FILE_FORMAT.key());
-        boolean forceJNIReader = ConnectContext.get().getSessionVariable().getPaimonForceJNIReader();
+        boolean forceJNIReader = ConnectContext.get().getSessionVariable().getPaimonForceJNIReader() || paimonTable.isSystemTable();
 
         FormatTable.Format formatTableFormat = null;
         if (paimonTable.getNativeTable() instanceof FormatTable) {
@@ -195,7 +195,7 @@ public class PaimonScanNode extends ScanNode {
         for (Split split : splits) {
             if (split instanceof DataSplit || split instanceof FormatDataSplit) {
                 Optional<List<RawFile>> optionalRawFiles = split.convertToRawFiles();
-                boolean nativeSupportedFormat = !paimonTable.isSystemTable() && optionalRawFiles.isPresent()
+                boolean nativeSupportedFormat = optionalRawFiles.isPresent()
                         && optionalRawFiles.get().stream().allMatch(p -> fromType(p.format()) != THdfsFileFormat.UNKNOWN) ||
                         split instanceof FormatDataSplit && (formatTableFormat == FormatTable.Format.ORC || formatTableFormat == FormatTable.Format.PARQUET);
 
@@ -218,7 +218,7 @@ public class PaimonScanNode extends ScanNode {
                     FormatDataSplit formatDataSplit = (FormatDataSplit) split;
                     partitionValue = formatDataSplit.partition();
                 }
-                if (!selectedPartitions.containsKey(partitionValue)) {
+                if (!selectedPartitions.containsKey(partitionValue) && !paimonTable.isSystemTable()) {
                     partitionId = paimonTable.nextPartitionId();
                     selectedPartitions.put(partitionValue, partitionId);
                     // optimize for spark native writer where there is no partition columns in data files

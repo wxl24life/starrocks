@@ -46,8 +46,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-import static com.aliyun.datalake.core.constant.DataLakeConfig.CATALOG_ID;
-import static com.aliyun.datalake.core.constant.DataLakeConfig.CATALOG_INSTANCE_ID;
 import static com.aliyun.datalake.core.constant.DataLakeConfig.DLF_AUTH_USER_NAME;
 import static org.apache.paimon.options.CatalogOptions.METASTORE;
 import static org.apache.paimon.options.CatalogOptions.URI;
@@ -90,7 +88,7 @@ public class PaimonConnector implements Connector {
                 throw new StarRocksConnectorException("The property %s must be set if paimon catalog is hive.",
                         HIVE_METASTORE_URIS);
             }
-        } else if (catalogType.equalsIgnoreCase("dlf") || catalogType.equalsIgnoreCase("dlf-hive")) {
+        } else if (catalogType.equalsIgnoreCase("dlf")) {
             String dlfCatalogId = properties.get(DLF_CATALOG_ID);
             if (null != dlfCatalogId && !dlfCatalogId.isEmpty()) {
                 this.paimonOptions.setString(DLF_CATALOG_ID, dlfCatalogId);
@@ -99,16 +97,6 @@ public class PaimonConnector implements Connector {
             // dependency, so we set this config to let dlf-sdk-assembly use hive3 manually.
             this.paimonOptions.setString("hive.dlf.imetastoreclient.class",
                     "com.aliyun.datalake.metastore.hive3.ProxyMetaStoreClient");
-        } else if (catalogType.equalsIgnoreCase("dlf-paimon")) {
-            if (Strings.isNullOrEmpty(properties.get(CATALOG_ID))) {
-                // CATALOG_INSTANCE_ID is deprecated
-                if (null != properties.get(CATALOG_INSTANCE_ID)) {
-                    properties.put(CATALOG_ID, properties.get(CATALOG_INSTANCE_ID));
-                    properties.remove(CATALOG_INSTANCE_ID);
-                } else {
-                    throw new StarRocksConnectorException("The property %s must be set.", CATALOG_ID);
-                }
-            }
         } else if (catalogType.equalsIgnoreCase("rest")) {
             // DLF 2.5
             if ("dlf".equalsIgnoreCase(properties.get("token.provider"))) {
@@ -118,9 +106,7 @@ public class PaimonConnector implements Connector {
         }
         if (Strings.isNullOrEmpty(warehousePath)
                 && !catalogType.equals("hive")
-                && !catalogType.equalsIgnoreCase("dlf")
-                && !catalogType.equalsIgnoreCase("dlf-hive")
-                && !catalogType.equalsIgnoreCase("dlf-paimon")) {
+                && !catalogType.equalsIgnoreCase("dlf")) {
             throw new StarRocksConnectorException("The property %s must be set.", PAIMON_CATALOG_WAREHOUSE);
         }
         // use only for oss-hdfs
@@ -199,8 +185,7 @@ public class PaimonConnector implements Connector {
             String catalogKey = "";
             String ramUser = "";
             // DLF 2.5 or DLF 2.0
-            if ((catalogType.equalsIgnoreCase("rest") && this.paimonOptions.get("token.provider").equalsIgnoreCase("dlf"))
-                    || catalogType.equalsIgnoreCase("dlf-paimon")) {
+            if (catalogType.equalsIgnoreCase("rest") && this.paimonOptions.get("token.provider").equalsIgnoreCase("dlf")) {
                 ramUser = DlfUtil.getRamUser();
                 boolean noAK = Strings.isNullOrEmpty(this.paimonOptions.get("dlf.access-key-id"))
                         || Strings.isNullOrEmpty(this.paimonOptions.get("dlf.access-key-secret"));
