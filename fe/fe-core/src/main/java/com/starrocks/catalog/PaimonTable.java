@@ -21,7 +21,6 @@ import com.aliyun.datalake.core.DlfAuthContext;
 import com.aliyun.datalake.credential.SimpleStsCredentialsProvider;
 import com.aliyun.datalake.paimon.fs.DlfPaimonFileIO;
 import com.aliyun.datalake.paimon.table.DlfPaimonTable;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;

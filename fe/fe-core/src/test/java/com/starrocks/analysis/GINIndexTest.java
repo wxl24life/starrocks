@@ -114,17 +114,6 @@ public class GINIndexTest extends PlanTestBase {
                     put(SearchParamsKey.DEFAULT_SEARCH_ANALYZER.name().toLowerCase(Locale.ROOT), "english");
                     put(SearchParamsKey.RERANK.name().toLowerCase(Locale.ROOT), "false");
                 }}, KeysType.DUP_KEYS));
-
-        new MockUp<RunMode>() {
-            @Mock
-            public boolean isSharedDataMode() {
-                return true;
-            }
-        };
-        Assertions.assertThrows(
-                SemanticException.class,
-                () -> InvertedIndexUtil.checkInvertedIndexValid(c2, null, KeysType.DUP_KEYS),
-                "The inverted index does not support shared data mode");
     }
 
     @Test

@@ -18,7 +18,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableMap;
 import com.starrocks.catalog.Database;
 import com.starrocks.catalog.DiskInfo;
-import com.starrocks.common.Config;
 import com.starrocks.common.DdlException;
 import com.starrocks.common.StarRocksException;
 import com.starrocks.http.rest.ActionStatus;
@@ -69,13 +68,9 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.MethodOrderer.MethodName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -86,7 +81,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @TestMethodOrder(MethodName.class)
-@RunWith(Parameterized.class)
 public class TransactionLoadActionTest extends StarRocksHttpTestCase {
 
     private static final String OK = ActionStatus.OK.name();
@@ -103,16 +97,6 @@ public class TransactionLoadActionTest extends StarRocksHttpTestCase {
     private static HttpServer beServer;
     private static int TEST_HTTP_PORT = 0;
 
-    public TransactionLoadActionTest(String mode) {
-        Config.run_mode = mode;
-        RunMode.detectRunMode();
-    }
-
-    @Parameterized.Parameters(name = "run mode = {0}")
-    public static Collection<String> parameters() {
-        return Arrays.asList(RunMode.SHARED_DATA.getName(), RunMode.SHARED_NOTHING.getName());
-    }
-
     @Mocked
     private StreamLoadMgr streamLoadMgr;
 
@@ -120,24 +104,16 @@ public class TransactionLoadActionTest extends StarRocksHttpTestCase {
     private GlobalTransactionMgr globalTransactionMgr;
 
     @Mocked
-    private StarOSAgent starOSAgent;
+    protected StarOSAgent starOSAgent;
 
     @Override
-    protected void doSetUp() {
-        if (RunMode.isSharedNothingMode()) {
-            Backend backend4 = new Backend(1234, "localhost", 8040);
-            backend4.setBePort(9300);
-            backend4.setAlive(true);
-            backend4.setHttpPort(TEST_HTTP_PORT);
-            backend4.setDisks(new ImmutableMap.Builder<String, DiskInfo>().put("1", new DiskInfo("")).build());
-            GlobalStateMgr.getCurrentState().getNodeMgr().getClusterInfo().addBackend(backend4);
-        } else {
-            ComputeNode computeNode = new ComputeNode(1234, "localhost", 8040);
-            computeNode.setBePort(9300);
-            computeNode.setAlive(true);
-            computeNode.setHttpPort(TEST_HTTP_PORT);
-            GlobalStateMgr.getCurrentState().getNodeMgr().getClusterInfo().addComputeNode(computeNode);
-        }
+    protected void doSetUp() throws StarRocksException {
+        Backend backend4 = new Backend(1234, "localhost", 8040);
+        backend4.setBePort(9300);
+        backend4.setAlive(true);
+        backend4.setHttpPort(TEST_HTTP_PORT);
+        backend4.setDisks(new ImmutableMap.Builder<String, DiskInfo>().put("1", new DiskInfo("")).build());
+        GlobalStateMgr.getCurrentState().getNodeMgr().getClusterInfo().addBackend(backend4);
 
         new MockUp<GlobalStateMgr>() {
             @Mock
@@ -343,6 +319,17 @@ public class TransactionLoadActionTest extends StarRocksHttpTestCase {
 
     @Test
     public void transactionLoadCoordinatorMgrWithoutChannelTest() throws Exception {
+        if (RunMode.isSharedDataMode()) {
+            new Expectations() {
+                {
+                    starOSAgent.getWorkersByWorkerGroup(anyLong);
+                    times = 1;
+                    List<Long> list = new ArrayList<>();
+                    list.add(1234L);
+                    result = list;
+                }
+            };
+        }
 
         String label = RandomStringUtils.randomAlphanumeric(32);
         Request request = newRequest(TransactionOperation.TXN_BEGIN, (uriBuilder, reqBuilder) -> {
@@ -373,6 +360,17 @@ public class TransactionLoadActionTest extends StarRocksHttpTestCase {
 
     @Test
     public void transactionLoadCoordinatorMgrMultiBeOnSameNodeWithoutChannelTest() throws Exception {
+        if (RunMode.isSharedDataMode()) {
+            new Expectations() {
+                {
+                    starOSAgent.getWorkersByWorkerGroup(anyLong);
+                    times = 1;
+                    List<Long> list = new ArrayList<>();
+                    list.add(1234L);
+                    result = list;
+                }
+            };
+        }
 
         String label = RandomStringUtils.randomAlphanumeric(32);
         Request request = newRequest(TransactionOperation.TXN_BEGIN, (uriBuilder, reqBuilder) -> {
@@ -437,6 +435,17 @@ public class TransactionLoadActionTest extends StarRocksHttpTestCase {
 
     @Test
     public void transactionLoadCoordinatorMgrOneBeOnNodeWithoutChannelTest() throws Exception {
+        if (RunMode.isSharedDataMode()) {
+            new Expectations() {
+                {
+                    starOSAgent.getWorkersByWorkerGroup(anyLong);
+                    times = 1;
+                    List<Long> list = new ArrayList<>();
+                    list.add(1234L);
+                    result = list;
+                }
+            };
+        }
 
         String label = RandomStringUtils.randomAlphanumeric(32);
         Request request = newRequest(TransactionOperation.TXN_BEGIN, (uriBuilder, reqBuilder) -> {

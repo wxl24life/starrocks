@@ -15,8 +15,10 @@
 package com.starrocks.http;
 
 import com.starrocks.common.DdlException;
+import com.starrocks.common.StarRocksException;
 import com.starrocks.http.rest.TransactionLoadAction;
 import com.starrocks.http.rest.TransactionResult;
+import com.starrocks.lake.StarOSAgent;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.RunMode;
 import com.starrocks.server.WarehouseManager;
@@ -28,11 +30,8 @@ import mockit.Mock;
 import mockit.MockUp;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.runners.Parameterized;
 
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -42,17 +41,8 @@ public class TransactionLoadActionOnSharedDataClusterTest extends TransactionLoa
     private static HttpServer beServer;
     private static int TEST_HTTP_PORT = 0;
 
-    public TransactionLoadActionOnSharedDataClusterTest(String mode) {
-        super(mode);
-    }
-
-    @Parameterized.Parameters(name = "run mode = {0}")
-    public static Collection<String> parameters() {
-        return Collections.singletonList(RunMode.SHARED_DATA.getName());
-    }
-
     @Override
-    protected void doSetUp() {
+    protected void doSetUp() throws StarRocksException {
         new MockUp<RunMode>() {
             @Mock
             public RunMode getCurrentRunMode() {
@@ -69,6 +59,11 @@ public class TransactionLoadActionOnSharedDataClusterTest extends TransactionLoa
             @Mock
             boolean isLeader() {
                 return true;
+            }
+
+            @Mock
+            StarOSAgent getStarOSAgent() {
+                return starOSAgent;
             }
         };
 
