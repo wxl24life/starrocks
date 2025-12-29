@@ -23,6 +23,7 @@
 #include "storage/lake/tablet.h"
 #include "storage/lake/tablet_metadata.h"
 #include "storage/lake/update_manager.h"
+#include "storage/options.h"
 #include "testutil/sync_point.h"
 #include "util/dynamic_cache.h"
 #include "util/phmap/phmap_fwd_decl.h"
@@ -367,6 +368,27 @@ private:
                 if (copied_tablet_meta.has_delvec_meta()) {
                     _metadata->mutable_delvec_meta()->Clear();
                     _metadata->mutable_delvec_meta()->CopyFrom(copied_tablet_meta.delvec_meta());
+
+                    // Preload delvecs into builder for primary index rebuild during replication.
+                    // When rebuilding primary index, the delvec loader uses base_version to fetch
+                    // delvecs from old metadata, but the old metadata doesn't contain delvec info
+                    // for rowsets replicated from source cluster. By preloading delvecs into
+                    // builder's cache, the delvec loader can find them via MetaFileBuilder::find_delvec.
+                    for (const auto& [segment_id, delvec_info] : _metadata->delvec_meta().delvecs()) {
+                        DelVector delvec;
+                        auto st = lake::get_del_vec(_tablet.tablet_mgr(), *_metadata, segment_id, false,
+                                                    LakeIOOptions{}, &delvec);
+                        if (!st.ok()) {
+                            LOG(WARNING) << "Failed to preload delvec for segment " << segment_id
+                                         << " during replication: " << st.to_string();
+                            continue;
+                        }
+                        if (delvec.cardinality() > 0) {
+                            auto delvec_ptr = std::make_shared<DelVector>();
+                            delvec_ptr->copy_from(delvec);
+                            _builder.append_delvec(delvec_ptr, segment_id);
+                        }
+                    }
                 }
 
                 _metadata->set_next_rowset_id(copied_tablet_meta.next_rowset_id());
