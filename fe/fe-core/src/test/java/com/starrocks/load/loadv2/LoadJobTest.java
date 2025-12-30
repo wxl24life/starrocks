@@ -63,7 +63,6 @@ import com.starrocks.transaction.RunningTxnExceedException;
 import com.starrocks.transaction.TransactionState;
 import com.starrocks.warehouse.Warehouse;
 import mockit.Expectations;
-import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -325,7 +324,7 @@ public class LoadJobTest {
 
     @Test
     public void testUpdateStateToFinished(@Mocked MetricRepo metricRepo,
-                                          @Injectable LoadTask loadTask1,
+                                          @Mocked LoadTask loadTask1,
                                           @Mocked LongCounterMetric longCounterMetric) {
 
         MetricRepo.COUNTER_LOAD_FINISHED = longCounterMetric;
@@ -437,10 +436,10 @@ public class LoadJobTest {
         loadJob.setWarehouseId(1L);
 
         List<Comparable> showInfo = loadJob.getShowInfo();
-        Assertions.assertEquals("Warehouse id: 1 not exist.", showInfo.get(showInfo.size() - 1));
+        Assert.assertEquals("Warehouse id: 1 not exist.", showInfo.get(showInfo.size() - 1));
 
         TLoadInfo loadInfo = loadJob.toThrift();
-        Assertions.assertEquals("Warehouse id: 1 not exist.", loadInfo.getWarehouse());
+        Assert.assertEquals("Warehouse id: 1 not exist.", loadInfo.getWarehouse());
     }
 
     @Test
