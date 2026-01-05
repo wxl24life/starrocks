@@ -33,12 +33,26 @@ TEST_F(GinFunctionsTest, tokenizeTest) {
         Columns columns;
 
         auto tokenizer = BinaryColumn::create();
+        auto content = BinaryColumn::create();
         tokenizer->append("error_tokenizer");
+        content->append("hello world");
         columns.emplace_back(ConstColumn::create(tokenizer));
+        columns.emplace_back(ConstColumn::create(content));
 
         ctx->set_constant_columns(columns);
 
-        ASSERT_FALSE(GinFunctions::tokenize_prepare(ctx.get(), FunctionContext::THREAD_LOCAL).ok());
+        // Will not judge at prepare phrase.
+        ASSERT_TRUE(GinFunctions::tokenize_prepare(ctx.get(), FunctionContext::THREAD_LOCAL).ok());
+        // Will return origin column directly.
+        auto ret = GinFunctions::tokenize(ctx.get(), columns);
+        ASSERT_TRUE(ret.ok());
+        ASSERT_TRUE(GinFunctions::tokenize_close(ctx.get(), FunctionContext::THREAD_LOCAL).ok());
+
+        auto nullable_result = ColumnHelper::as_column<NullableColumn>(ret.value());
+        auto v = ColumnHelper::as_column<ArrayColumn>(nullable_result->data_column());
+        auto res_array = v->get(0).get_array();
+
+        ASSERT_EQ("hello world", res_array[0].get_slice().to_string());
     }
     {
         std::unique_ptr<FunctionContext> ctx(FunctionContext::create_test_context());
