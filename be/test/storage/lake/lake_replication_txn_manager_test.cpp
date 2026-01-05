@@ -209,7 +209,7 @@ protected:
             txn_info.set_combined_txn_log(false);
             txn_info.set_commit_time(0);
             auto txn_info_span = std::span<const TxnInfoPB>(&txn_info, 1);
-            ASSERT_OK(lake::publish_version(_tablet_mgr.get(), _src_tablet_id, version, version + 1, txn_info_span);
+            ASSERT_OK(lake::publish_version(_tablet_mgr.get(), _src_tablet_id, version, version + 1, txn_info_span));
             version++;
         }
         ASSIGN_OR_ABORT(auto new_tablet_metadata, _tablet_mgr->get_tablet_metadata(_src_tablet_id, version));
