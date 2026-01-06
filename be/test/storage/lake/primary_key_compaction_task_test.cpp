@@ -1372,6 +1372,12 @@ TEST_P(LakePrimaryKeyCompactionTest, test_major_compaction) {
 
     auto l0_max_mem_usage = config::l0_max_mem_usage;
     config::l0_max_mem_usage = 10;
+    // Disable inline major compaction during upsert to avoid sstables being compacted before
+    // the explicit major compaction task. This ensures the test can verify orphan_files_size
+    // after the major compaction task completes.
+    auto lake_pk_index_publish_enable_inline_major_compaction =
+            config::lake_pk_index_publish_enable_inline_major_compaction;
+    config::lake_pk_index_publish_enable_inline_major_compaction = false;
     auto version = 1;
     auto tablet_id = _tablet_metadata->id();
     for (int i = 0; i < N; i++) {
@@ -1414,6 +1420,7 @@ TEST_P(LakePrimaryKeyCompactionTest, test_major_compaction) {
     EXPECT_EQ(N, new_tablet_metadata->orphan_files_size());
 
     config::l0_max_mem_usage = l0_max_mem_usage;
+    config::lake_pk_index_publish_enable_inline_major_compaction = lake_pk_index_publish_enable_inline_major_compaction;
 }
 
 TEST_P(LakePrimaryKeyCompactionTest, test_major_compaction_thread_safe) {
