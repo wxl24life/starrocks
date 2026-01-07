@@ -15,7 +15,6 @@
 package com.starrocks.connector;
 
 import com.starrocks.authorization.BlankAccessController;
-import com.starrocks.authorization.DlfAccessController;
 import com.starrocks.authorization.NativeAccessController;
 import com.starrocks.authorization.ranger.hive.RangerHiveAccessController;
 import com.starrocks.authorization.ranger.starrocks.RangerStarRocksAccessController;
