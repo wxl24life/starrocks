@@ -46,6 +46,7 @@ import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.DoubleType;
 import org.apache.paimon.types.FloatType;
 import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.SmallIntType;
 import org.apache.paimon.types.TimestampType;
@@ -55,6 +56,8 @@ import org.apache.paimon.types.VarCharType;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -69,11 +72,14 @@ public class PaimonPredicateConverter extends ScalarOperatorVisitor<Predicate, V
     private final PredicateBuilder builder;
     private final List<String> fieldNames;
     private final List<DataType> fieldTypes;
+    // Session timezone for interpreting StarRocks DATETIME literals when pushing down to Paimon LocalZonedTimestampType.
+    private final ZoneId sessionZoneId;
 
-    public PaimonPredicateConverter(RowType rowType) {
+    public PaimonPredicateConverter(RowType rowType, ZoneId sessionZoneId) {
         this.builder = new PredicateBuilder(rowType);
         this.fieldTypes = rowType.getFieldTypes();
         this.fieldNames = rowType.getFields().stream().map(DataField::name).collect(Collectors.toList());
+        this.sessionZoneId = sessionZoneId == null ? ZoneOffset.UTC : sessionZoneId;
     }
 
     public Predicate convert(ScalarOperator operator) {
@@ -220,7 +226,7 @@ public class PaimonPredicateConverter extends ScalarOperatorVisitor<Predicate, V
         return operator.accept(new ExtractLiteralValue(), dataType);
     }
 
-    private static class ExtractLiteralValue extends ScalarOperatorVisitor<Object, DataType> {
+    private class ExtractLiteralValue extends ScalarOperatorVisitor<Object, DataType> {
         @Override
         public Object visit(ScalarOperator scalarOperator, DataType dataType) {
             return null;
@@ -266,7 +272,17 @@ public class PaimonPredicateConverter extends ScalarOperatorVisitor<Predicate, V
                     LocalDate epochDay = Instant.ofEpochSecond(0).atOffset(ZoneOffset.UTC).toLocalDate();
                     return (int) ChronoUnit.DAYS.between(epochDay, localDate);
                 case DATETIME:
-                    return fromLocalDateTime(operator.getDatetime());
+                    LocalDateTime localDateTime = operator.getDatetime();
+                    if (dataType instanceof LocalZonedTimestampType) {
+                        // Paimon LocalZonedTimestampType stores instants in UTC.
+                        // StarRocks DATETIME literal needs to be converted to UTC instant.
+                        LocalDateTime utcDateTime = localDateTime.atZone(sessionZoneId)
+                                .withZoneSameInstant(ZoneOffset.UTC)
+                                .toLocalDateTime();
+                        return fromLocalDateTime(utcDateTime);
+                    } else {
+                        return fromLocalDateTime(localDateTime);
+                    }
                 default:
                     return null;
             }
@@ -290,7 +306,7 @@ public class PaimonPredicateConverter extends ScalarOperatorVisitor<Predicate, V
                 case HLL, VARCHAR -> !(dataType instanceof VarCharType);
                 case CHAR -> !(dataType instanceof CharType);
                 case DATE -> !(dataType instanceof DateType);
-                case DATETIME -> !(dataType instanceof TimestampType);
+                case DATETIME -> !(dataType instanceof TimestampType) && !(dataType instanceof LocalZonedTimestampType);
                 default -> true;
             };
         }
@@ -301,7 +317,7 @@ public class PaimonPredicateConverter extends ScalarOperatorVisitor<Predicate, V
                 res = operator.castTo(com.starrocks.catalog.Type.BOOLEAN);
             } else if (dataType instanceof DateType) {
                 res = operator.castTo(com.starrocks.catalog.Type.DATE);
-            } else if (dataType instanceof TimestampType) {
+            } else if (dataType instanceof TimestampType || dataType instanceof LocalZonedTimestampType) {
                 res = operator.castTo(com.starrocks.catalog.Type.DATETIME);
             } else if (dataType instanceof VarCharType) {
                 res = operator.castTo(com.starrocks.catalog.Type.STRING);

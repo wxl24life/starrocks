@@ -27,6 +27,7 @@ import com.starrocks.common.Config;
 import com.starrocks.common.DdlException;
 import com.starrocks.common.profile.Timer;
 import com.starrocks.common.profile.Tracers;
+import com.starrocks.common.util.TimeUtils;
 import com.starrocks.connector.ColumnTypeConverter;
 import com.starrocks.connector.ConnectorMetadatRequestContext;
 import com.starrocks.connector.ConnectorMetadata;
@@ -622,7 +623,9 @@ public class PaimonMetadata implements ConnectorMetadata {
         List<ScalarOperator> scalarOperators = Utils.extractConjuncts(predicate);
         List<Predicate> predicates = new ArrayList<>(scalarOperators.size());
 
-        PaimonPredicateConverter converter = new PaimonPredicateConverter(paimonTable.getNativeTable().rowType());
+        ZoneId sessionZoneId = ZoneId.of(TimeUtils.getSessionTimeZone());
+        PaimonPredicateConverter converter =
+                new PaimonPredicateConverter(paimonTable.getNativeTable().rowType(), sessionZoneId);
         for (ScalarOperator operator : scalarOperators) {
             Predicate filter = converter.convert(operator);
             if (filter != null) {

@@ -49,6 +49,7 @@ import org.apache.paimon.types.DateType;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.FloatType;
 import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.SmallIntType;
 import org.apache.paimon.types.TimestampType;
@@ -59,6 +60,8 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
 
@@ -75,7 +78,8 @@ public class PaimonPredicateConverterTest {
                     new DataField(6, "f6", new BigIntType()),
                     new DataField(7, "f7", new DecimalType()),
                     new DataField(8, "f8", new SmallIntType()),
-                    new DataField(9, "f9", new TinyIntType()));
+                    new DataField(9, "f9", new TinyIntType()),
+                    new DataField(10, "f10", new LocalZonedTimestampType()));
     private static final ColumnRefOperator F0 = new ColumnRefOperator(0, Type.INT, "f0", true, false);
     private static final ColumnRefOperator F1 = new ColumnRefOperator(1, Type.VARCHAR, "f1", true, false);
     private static final ColumnRefOperator F2 = new ColumnRefOperator(2, Type.FLOAT, "f2", true, false);
@@ -86,7 +90,9 @@ public class PaimonPredicateConverterTest {
     private static final ColumnRefOperator F7 = new ColumnRefOperator(7, Type.DEFAULT_DECIMAL128, "f7", true, false);
     private static final ColumnRefOperator F8 = new ColumnRefOperator(8, Type.SMALLINT, "f8", true, false);
     private static final ColumnRefOperator F9 = new ColumnRefOperator(9, Type.TINYINT, "f9", true, false);
-    private static final PaimonPredicateConverter CONVERTER = new PaimonPredicateConverter(new RowType(DATA_FIELDS));
+    private static final ColumnRefOperator F10 = new ColumnRefOperator(10, Type.DATETIME, "f10", true, false);
+    private static final ZoneId ZONE_ID = ZoneId.of("Asia/Shanghai");
+    private static final PaimonPredicateConverter CONVERTER = new PaimonPredicateConverter(new RowType(DATA_FIELDS), ZONE_ID);
 
     @Test
     public void testNull() {
@@ -365,7 +371,26 @@ public class PaimonPredicateConverterTest {
         result = CONVERTER.convert(new BinaryPredicateOperator(BinaryType.EQ, cast8, stringTime));
         Assertions.assertTrue(result instanceof LeafPredicate);
         LeafPredicate leafPredicate8 = (LeafPredicate) result;
-        Assertions.assertEquals(1735689600000L, ((Timestamp) (leafPredicate8.literals().get(0))).getMillisecond());
+        long expectedMillis = LocalDate.parse("2025-01-01").atTime(0, 0, 0, 0)
+                .atZone(ZoneOffset.UTC)
+                .toInstant()
+                .toEpochMilli();
+        Assertions.assertEquals(expectedMillis, ((Timestamp) (leafPredicate8.literals().get(0))).getMillisecond());
+        // timestamp with local time zone
+        ConstantOperator dt = ConstantOperator.createDatetime(
+                LocalDate.parse("2025-01-01").atTime(0, 0, 0, 0));
+        ScalarOperator op = new BinaryPredicateOperator(BinaryType.EQ, F10, dt);
+        result = CONVERTER.convert(op);
+
+        Assertions.assertTrue(result instanceof LeafPredicate);
+        LeafPredicate leafPredicate = (LeafPredicate) result;
+        Assertions.assertTrue(leafPredicate.function() instanceof Equal);
+        expectedMillis = LocalDate.parse("2025-01-01").atTime(0, 0, 0, 0)
+                .atZone(ZONE_ID)
+                .toInstant()
+                .toEpochMilli();
+        Assertions.assertEquals(expectedMillis, ((Timestamp) leafPredicate.literals().get(0)).getMillisecond());
+
         // smallInt to string
         ConstantOperator si = ConstantOperator.createSmallInt((short) 200);
         CastOperator cast9 = new CastOperator(Type.VARCHAR, F1);
