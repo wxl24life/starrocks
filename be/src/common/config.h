@@ -1161,7 +1161,7 @@ CONF_mInt64(starlet_star_cache_mem_size_bytes, "134217728");
 CONF_Int32(starlet_star_cache_disk_size_percent, "80");
 CONF_Int64(starlet_star_cache_disk_size_bytes, "0");
 CONF_Int32(starlet_star_cache_block_size_bytes, "1048576");
-CONF_mBool(starlet_enable_index_cache, "false");
+CONF_mBool(starlet_enable_index_cache, "true");
 CONF_Int32(starlet_index_cache_block_size_bytes, "32768");
 CONF_Int32(starlet_index_cache_disk_size_percent, "5");
 CONF_Int64(starlet_index_cache_disk_size_bytes, "0");
