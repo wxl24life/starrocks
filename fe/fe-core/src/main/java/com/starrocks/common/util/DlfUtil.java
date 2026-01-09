@@ -26,6 +26,7 @@ import com.starrocks.authentication.AuthenticationMgr;
 import com.starrocks.connector.share.credential.CloudConfigurationConstants;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
+import com.starrocks.sql.ast.UserIdentity;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -49,11 +50,12 @@ public class DlfUtil {
 
     public static String getRamUser() {
         if (ConnectContext.get() != null) {
+            UserIdentity userIdentity = ConnectContext.get().getCurrentUserIdentity();
             String qualifiedUser = ConnectContext.get().getQualifiedUser();
-            if (!Strings.isNullOrEmpty(qualifiedUser)) {
+            if (userIdentity != null) {
+                return getRamUser(userIdentity.getUser());
+            } else if (!Strings.isNullOrEmpty(qualifiedUser)) {
                 return getRamUser(qualifiedUser);
-            } else if (ConnectContext.get().getCurrentUserIdentity() != null) {
-                return getRamUser(ConnectContext.get().getCurrentUserIdentity().getUser());
             }
         }
         // Some background threads may not have created a ConnectContext or set a user
