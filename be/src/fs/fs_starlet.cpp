@@ -776,7 +776,12 @@ std::shared_ptr<FileSystem> new_fs_starlet(int64_t shard_id, bool use_s3_raw_pat
     if (use_s3_raw_path_mode) {
         // S3 raw path mode: use the input path as-is without normalize_path processing
         // This is required for S3 storage type to support partitioned prefix feature
-        conf["s3.use_raw_path_with_scheme"] = "true";
+        //
+        // The configuration is passed to StarOSWorker::build_conf_from_shard_info() which
+        // forwards it to ShardInfo::fslib_conf_from_this() as initial configuration.
+        // When cache is enabled, fslib_conf_from_this() will automatically add "cachefs."
+        // prefix to all configuration keys.
+        conf[staros::starlet::fslib::kS3UseRawPathWithScheme] = "true";
     }
     // For non-S3 storage types (use_s3_raw_path_mode=false), use default configuration
     // Starlet will use normalize_path to combine sys.root with the relative path

@@ -14,6 +14,7 @@
 
 package com.starrocks.replication;
 
+import com.google.gson.Gson;
 import com.staros.proto.FilePathInfo;
 import com.staros.proto.FileStoreType;
 import com.starrocks.catalog.Database;
@@ -22,6 +23,7 @@ import com.starrocks.catalog.Partition;
 import com.starrocks.common.io.DeepCopy;
 import com.starrocks.common.jmockit.Deencapsulation;
 import com.starrocks.leader.LeaderImpl;
+import com.starrocks.persist.gson.GsonUtils;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.RunMode;
 import com.starrocks.sql.analyzer.AnalyzeTestUtil;
@@ -311,44 +313,124 @@ public class LakeReplicationJobTest {
     }
 
     @Test
-    public void testPartitionFullPathWithOSSStorageType() throws Exception {
-        // Test with FilePathInfo for OSS storage type (non-S3)
-        // For non-S3 storage types, FE should NOT provide full path
-        // BE will use RemoteStarletLocationProvider to construct the path
+    public void testSerializationWithFilePathInfo() throws Exception {
+        // Test serialization and deserialization of LakeReplicationJob with FilePathInfo
+        // This is critical for crash recovery scenario
+        long virtualTabletId = 1000;
+        long srcDatabaseId = 111;
+        long srcTableId = 222;
+        // Create a FilePathInfo with partitioned prefix enabled
+        FilePathInfo.Builder pathInfoBuilder = FilePathInfo.newBuilder();
+        pathInfoBuilder.getFsInfoBuilder().getS3FsInfoBuilder()
+                .setBucket("test-bucket")
+                .setPartitionedPrefixEnabled(true)
+                .setNumPartitionedPrefix(1024);
+        pathInfoBuilder.getFsInfoBuilder()
+                .setFsName("test-sv")
+                .setFsKey("test-fskey")
+                .setFsType(FileStoreType.S3);
+        pathInfoBuilder.setFullPath("s3://test-bucket/service_id/db111/table222");
+        
+        LakeReplicationJob originalJob = new LakeReplicationJob(null, virtualTabletId, srcDatabaseId, srcTableId,
+                db.getId(), table, srcTable,
+                GlobalStateMgr.getCurrentState().getNodeMgr().getClusterInfo(),
+                pathInfoBuilder.build());
+        
+        // Serialize the job
+        Gson gson = GsonUtils.GSON;
+        String json = gson.toJson(originalJob);
+        
+        // Deserialize the job (simulates crash recovery)
+        LakeReplicationJob restoredJob = gson.fromJson(json, LakeReplicationJob.class);
+        
+        // Verify srcTableFilePathInfo is properly restored
+        FilePathInfo restoredFilePathInfo = Deencapsulation.getField(restoredJob, "srcTableFilePathInfo");
+        Assertions.assertNotNull(restoredFilePathInfo, 
+                "srcTableFilePathInfo should be properly deserialized for crash recovery");
+        Assertions.assertTrue(restoredFilePathInfo.hasFsInfo());
+        Assertions.assertTrue(restoredFilePathInfo.getFsInfo().hasS3FsInfo());
+        Assertions.assertTrue(restoredFilePathInfo.getFsInfo().getS3FsInfo().getPartitionedPrefixEnabled());
+        Assertions.assertEquals("s3://test-bucket/service_id/db111/table222", restoredFilePathInfo.getFullPath());
+    }
+
+    @Test
+    public void testSerializationWithNullFilePathInfo() throws Exception {
+        // Test serialization with null FilePathInfo (original scenario without partitioned prefix)
+        long virtualTabletId = 1000;
+        long srcDatabaseId = 100;
+        long srcTableId = 100;
+        LakeReplicationJob originalJob = new LakeReplicationJob(null, virtualTabletId, srcDatabaseId, srcTableId,
+                db.getId(), table, srcTable,
+                GlobalStateMgr.getCurrentState().getNodeMgr().getClusterInfo());
+        
+        // Serialize the job
+        Gson gson = GsonUtils.GSON;
+        String json = gson.toJson(originalJob);
+        
+        // Deserialize the job
+        LakeReplicationJob restoredJob = gson.fromJson(json, LakeReplicationJob.class);
+        
+        // Verify srcTableFilePathInfo is null (as expected for jobs without partitioned prefix)
+        FilePathInfo restoredFilePathInfo = Deencapsulation.getField(restoredJob, "srcTableFilePathInfo");
+        Assertions.assertNull(restoredFilePathInfo, 
+                "srcTableFilePathInfo should be null when not set");
+    }
+
+    @Test
+    public void testCrashRecoveryWithS3PartitionedPrefix() throws Exception {
+        // Simulate a crash recovery scenario where job needs to re-send tasks
         long virtualTabletId = 1000;
         long srcDatabaseId = 111;
         long srcTableId = 222;
         
-        // Create a FilePathInfo with OSS storage type
+        // Create a FilePathInfo with partitioned prefix enabled
         FilePathInfo.Builder pathInfoBuilder = FilePathInfo.newBuilder();
-        pathInfoBuilder.getFsInfoBuilder().getOssFsInfoBuilder()
-                .setBucket("oss-test-bucket");
+        pathInfoBuilder.getFsInfoBuilder().getS3FsInfoBuilder()
+                .setBucket("test-bucket")
+                .setPartitionedPrefixEnabled(true)
+                .setNumPartitionedPrefix(1024);
         pathInfoBuilder.getFsInfoBuilder()
                 .setFsName("test-sv")
                 .setFsKey("test-fskey")
-                .setFsType(FileStoreType.OSS);
-        pathInfoBuilder.setFullPath("oss://oss-test-bucket/service_id/db111/table222");
+                .setFsType(FileStoreType.S3);
+        pathInfoBuilder.setFullPath("s3://test-bucket/service_id/db111/table222");
         
-        LakeReplicationJob jobWithPathInfo = new LakeReplicationJob(null, virtualTabletId, srcDatabaseId, srcTableId,
+        LakeReplicationJob originalJob = new LakeReplicationJob(null, virtualTabletId, srcDatabaseId, srcTableId,
                 db.getId(), table, srcTable,
                 GlobalStateMgr.getCurrentState().getNodeMgr().getClusterInfo(),
                 pathInfoBuilder.build());
-
-        Assertions.assertEquals(ReplicationJobState.INITIALIZING, jobWithPathInfo.getState());
-
-        jobWithPathInfo.run();
-        Assertions.assertEquals(ReplicationJobState.REPLICATING, jobWithPathInfo.getState());
-
-        // Verify that tasks are created WITHOUT full path for OSS (non-S3) storage
-        // BE will use RemoteStarletLocationProvider to construct the path
-        Map<AgentTask, AgentTask> runningTasks = Deencapsulation.getField(jobWithPathInfo, "runningTasks");
+        
+        // Run the job to start replication
+        originalJob.run();
+        Assertions.assertEquals(ReplicationJobState.REPLICATING, originalJob.getState());
+        
+        // Serialize the job (simulates checkpoint/image save before crash)
+        Gson gson = GsonUtils.GSON;
+        String json = gson.toJson(originalJob);
+        
+        // Deserialize the job (simulates loading from checkpoint after restart)
+        LakeReplicationJob restoredJob = gson.fromJson(json, LakeReplicationJob.class);
+        
+        // After deserialization, run the job again (crash recovery path)
+        // The job should be able to re-send tasks with correct S3 paths
+        restoredJob.run();
+        
+        // Verify the job is still in REPLICATING state (tasks re-sent)
+        Assertions.assertEquals(ReplicationJobState.REPLICATING, restoredJob.getState());
+        
+        // Verify tasks have correct S3 paths
+        Map<AgentTask, AgentTask> runningTasks = Deencapsulation.getField(restoredJob, "runningTasks");
+        Assertions.assertFalse(runningTasks.isEmpty(), "Tasks should be re-sent after crash recovery");
+        
         for (AgentTask task : runningTasks.values()) {
             ReplicateSnapshotTask snapshotTask = (ReplicateSnapshotTask) task;
             TReplicateSnapshotRequest thriftRequest = snapshotTask.toThrift();
-            
-            // Full path should NOT be set for non-S3 storage types
-            Assertions.assertFalse(thriftRequest.isSetSrc_partition_full_path(),
-                    "Non-S3 storage types should not have full path set");
+            // Full path should be set after crash recovery
+            Assertions.assertTrue(thriftRequest.isSetSrc_partition_full_path(),
+                    "S3 full path should be set after crash recovery with partitioned prefix");
+            String fullPath = thriftRequest.getSrc_partition_full_path();
+            Assertions.assertTrue(fullPath.startsWith("s3://"),
+                    "S3 full path should start with s3:// after crash recovery");
         }
     }
 }

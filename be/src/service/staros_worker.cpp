@@ -323,22 +323,16 @@ absl::StatusOr<std::shared_ptr<fslib::FileSystem>> StarOSWorker::build_filesyste
 
 absl::StatusOr<std::pair<std::shared_ptr<std::string>, std::shared_ptr<fslib::FileSystem>>>
 StarOSWorker::build_filesystem_from_shard_info(const ShardInfo& info, const Configuration& conf) {
-    auto localconf = build_conf_from_shard_info(info);
+    // Pass the external configuration to build_conf_from_shard_info as initial configuration.
+    // The shard info configuration will be merged on top of it in fslib_conf_from_this().
+    auto localconf = build_conf_from_shard_info(info, conf.empty() ? nullptr : &conf);
     if (!localconf.ok()) {
         return localconf.status();
     }
+
     auto scheme = build_scheme_from_shard_info(info);
     if (!scheme.ok()) {
         return scheme.status();
-    }
-
-    // Merge external configuration into localconf.
-    // This allows caller to override specific configuration items.
-    // External conf takes precedence over shard_info conf.
-    for (const auto& [key, value] : conf) {
-        VLOG(3) << "Merging configuration: " << key << " = " << value << ", shard_id: " << info.id
-                << ", scheme: " << *scheme;
-        (*localconf)[key] = value;
     }
 
     if (need_enable_cache(info) || fslib::FLAGS_enable_index_cache) {
@@ -384,9 +378,10 @@ absl::StatusOr<std::string> StarOSWorker::build_scheme_from_shard_info(const Sha
     return scheme;
 }
 
-absl::StatusOr<fslib::Configuration> StarOSWorker::build_conf_from_shard_info(const ShardInfo& info) {
+absl::StatusOr<fslib::Configuration> StarOSWorker::build_conf_from_shard_info(const ShardInfo& info,
+                                                                              const Configuration* initial_conf) {
     // use the remote fsroot as the default cache identifier
-    return info.fslib_conf_from_this(need_enable_cache(info) || fslib::FLAGS_enable_index_cache, "");
+    return info.fslib_conf_from_this(need_enable_cache(info) || fslib::FLAGS_enable_index_cache, "", initial_conf);
 }
 
 absl::StatusOr<std::pair<std::shared_ptr<std::string>, std::shared_ptr<fslib::FileSystem>>>
