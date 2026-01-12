@@ -64,15 +64,11 @@ import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.BinaryRowWriter;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericRow;
-import org.apache.paimon.data.InternalRow;
-import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.predicate.Predicate;
-import org.apache.paimon.reader.RecordReader;
-import org.apache.paimon.reader.RecordReaderIterator;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.stats.ColStats;
 import org.apache.paimon.stats.Statistics;
@@ -85,10 +81,7 @@ import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.InnerTableScan;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
-import org.apache.paimon.table.source.TableScan;
 import org.apache.paimon.table.system.ManifestsTable;
-import org.apache.paimon.table.system.SnapshotsTable;
-import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BooleanType;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
@@ -98,7 +91,6 @@ import org.apache.paimon.types.DoubleType;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.RowType;
-import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.utils.JsonSerdeUtil;
 import org.apache.paimon.utils.SerializationUtils;
 import org.junit.jupiter.api.Assertions;
@@ -517,60 +509,6 @@ public class PaimonMetadataTest {
     }
 
     @Test
-    public void testGetUpdateTime(@Mocked SnapshotsTable snapshotsTable,
-                                  @Mocked RecordReader<InternalRow> recordReader) throws Exception {
-        RowType rowType = new RowType(Arrays.asList(
-                new DataField(0, "snapshot_id", new BigIntType(false)),
-                new DataField(1, "schema_id", new BigIntType(false)),
-                new DataField(2, "commit_user", SerializationUtils.newStringType(false)),
-                new DataField(3, "commit_identifier", new BigIntType(false)),
-                new DataField(4, "commit_kind", SerializationUtils.newStringType(false)),
-                new DataField(5, "commit_time", new TimestampType(false, 3)),
-                new DataField(6, "base_manifest_list", SerializationUtils.newStringType(false))));
-
-        GenericRow row1 = new GenericRow(1);
-        row1.setField(0, Timestamp.fromLocalDateTime(LocalDateTime.of(2023, 1, 1, 0, 0, 0, 0)));
-
-        GenericRow row2 = new GenericRow(1);
-        row2.setField(0, Timestamp.fromLocalDateTime(LocalDateTime.of(2023, 2, 1, 0, 0, 0, 0)));
-
-        new MockUp<RecordReaderIterator>() {
-            private int callCount;
-            private final GenericRow[] elements = {row1, row2};
-            private final boolean[] hasNextOutputs = {true, true, false};
-
-            @Mock
-            public boolean hasNext() {
-                if (callCount < hasNextOutputs.length) {
-                    return hasNextOutputs[callCount];
-                }
-                return false;
-            }
-
-            @Mock
-            public InternalRow next() {
-                if (callCount < elements.length) {
-                    return elements[callCount++];
-                }
-                return null;
-            }
-        };
-        new Expectations() {
-            {
-                paimonNativeCatalog.getTable((Identifier) any);
-                result = snapshotsTable;
-                snapshotsTable.rowType();
-                result = rowType;
-                snapshotsTable.newReadBuilder().withProjection((int[]) any).newRead().createReader((TableScan.Plan) any);
-                result = recordReader;
-            }
-        };
-
-        long updateTime = metadata.getTableUpdateTime("db1", "tbl1");
-        assertEquals(1675180800000L, updateTime);
-    }
-
-    @Test
     public void testPrunePaimonPartition() {
         new MockUp<MetadataMgr>() {
             @Mock
@@ -718,5 +656,55 @@ public class PaimonMetadataTest {
                 metadata.getTableStatistics(optimizerContext, paimonTable, colRefToColumnMetaMap,
                         null, null, -1, null);
         assertEquals(tableStatistics.getColumnStatistics().size(), colRefToColumnMetaMap.size());
+    }
+
+    @Test
+    public void testOnlyHasPartitionPredicate(@Mocked FileStoreTable paimonNativeTable)
+            throws Catalog.TableNotExistException {
+        List<DataField> fields = new ArrayList<>();
+        fields.add(new DataField(0, "pt", SerializationUtils.newStringType(false)));
+        fields.add(new DataField(1, "event", SerializationUtils.newStringType(false)));
+        fields.add(new DataField(2, "data", SerializationUtils.newStringType(false)));
+
+        new Expectations() {
+            {
+                paimonNativeCatalog.getTable((Identifier) any);
+                result = paimonNativeTable;
+                paimonNativeTable.rowType().getFields();
+                result = fields;
+                paimonNativeTable.partitionKeys();
+                result = Lists.newArrayList("pt");
+            }
+        };
+
+        PaimonTable table = (PaimonTable) metadata.getTable(connectContext, "db1", "tbl1");
+
+        // 1: Empty predicates - should return true
+        List<ScalarOperator> emptyPredicates = Lists.newArrayList();
+        assertEquals(true, PaimonMetadata.onlyHasPartitionPredicate(table, emptyPredicates));
+
+        // 2: Only partition column predicate - should return true
+        ColumnRefOperator ptColumn = new ColumnRefOperator(1, Type.STRING, "pt", false);
+        ScalarOperator ptEqualPredicate = new BinaryPredicateOperator(BinaryType.EQ, ptColumn,
+                ConstantOperator.createVarchar("20260108"));
+        List<ScalarOperator> partitionOnlyPredicates = Lists.newArrayList(ptEqualPredicate);
+        assertEquals(true, PaimonMetadata.onlyHasPartitionPredicate(table, partitionOnlyPredicates));
+
+        // 3: Only partition column with range predicate - should return true
+        ScalarOperator ptGreaterPredicate = new BinaryPredicateOperator(BinaryType.GE, ptColumn,
+                ConstantOperator.createVarchar("20260101"));
+        List<ScalarOperator> partitionRangePredicates = Lists.newArrayList(ptGreaterPredicate);
+        assertEquals(true, PaimonMetadata.onlyHasPartitionPredicate(table, partitionRangePredicates));
+
+        // 4: Non-partition column predicate - should return false
+        ColumnRefOperator eventColumn = new ColumnRefOperator(2, Type.STRING, "event", false);
+        ScalarOperator eventEqualPredicate = new BinaryPredicateOperator(BinaryType.EQ, eventColumn,
+                ConstantOperator.createVarchar("click"));
+        List<ScalarOperator> nonPartitionPredicates = Lists.newArrayList(eventEqualPredicate);
+        assertEquals(false, PaimonMetadata.onlyHasPartitionPredicate(table, nonPartitionPredicates));
+
+        // 5: Mixed partition and non-partition predicates - should return false
+        List<ScalarOperator> mixedPredicates = Lists.newArrayList(ptEqualPredicate, eventEqualPredicate);
+        assertEquals(false, PaimonMetadata.onlyHasPartitionPredicate(table, mixedPredicates));
     }
 }

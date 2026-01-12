@@ -406,25 +406,27 @@ public class PaimonMetadata implements ConnectorMetadata {
             ReadBuilder readBuilder = paimonTable.getNativeTable().newReadBuilder();
             int[] projected =
                     params.getFieldNames().stream().mapToInt(name -> (paimonTable.getFieldNames().indexOf(name))).toArray();
-            List<Predicate> predicates = extractPredicates(paimonTable, params.getPredicate());
-            readBuilder = readBuilder.withFilter(predicates);
+            List<ScalarOperator> originalConjuncts = Utils.extractConjuncts(params.getPredicate());
+            List<Predicate> pushedPredicates = convertPredicates(paimonTable, originalConjuncts);
+            readBuilder = readBuilder.withFilter(pushedPredicates);
             boolean countOptimize = params.getFieldNames().size() == 1 &&
                     params.getFieldNames().get(0).equalsIgnoreCase("___COUNT___");
             if (!countOptimize) {
                 readBuilder = readBuilder.withProjection(projected);
             }
             boolean pruneManifestsByLimit = params.getLimit() != -1 && params.getLimit() < Integer.MAX_VALUE
-                    && onlyHasPartitionPredicate(table, params.getPredicate());
+                     && onlyHasPartitionPredicate(table, originalConjuncts)
+                    && originalConjuncts.size() == pushedPredicates.size();
             if (pruneManifestsByLimit) {
                 readBuilder = readBuilder.withLimit((int) params.getLimit());
             }
             InnerTableScan scan = (InnerTableScan) readBuilder.newScan();
             PaimonMetricRegistry paimonMetricRegistry = new PaimonMetricRegistry();
             List<Split> splits = scan.withMetricRegistry(paimonMetricRegistry).plan().splits();
-            traceScanMetrics(paimonMetricRegistry, splits, table.getCatalogTableName(), predicates,
+            traceScanMetrics(paimonMetricRegistry, splits, table.getCatalogTableName(), pushedPredicates,
                     String.valueOf(Objects.hash(params.getPredicate())));
 
-            PaimonSplitsInfo paimonSplitsInfo = new PaimonSplitsInfo(predicates, splits);
+            PaimonSplitsInfo paimonSplitsInfo = new PaimonSplitsInfo(pushedPredicates, splits);
             paimonSplits.put(filter, paimonSplitsInfo);
             List<RemoteFileDesc> remoteFileDescs = ImmutableList.of(
                     PaimonRemoteFileDesc.createPaimonRemoteFileDesc(paimonSplitsInfo));
@@ -619,14 +621,12 @@ public class PaimonMetadata implements ConnectorMetadata {
         return rowCount;
     }
 
-    private List<Predicate> extractPredicates(PaimonTable paimonTable, ScalarOperator predicate) {
-        List<ScalarOperator> scalarOperators = Utils.extractConjuncts(predicate);
-        List<Predicate> predicates = new ArrayList<>(scalarOperators.size());
-
+    private List<Predicate> convertPredicates(PaimonTable paimonTable, List<ScalarOperator> originalConjuncts) {
+        List<Predicate> predicates = new ArrayList<>(originalConjuncts.size());
         ZoneId sessionZoneId = ZoneId.of(TimeUtils.getSessionTimeZone());
         PaimonPredicateConverter converter =
                 new PaimonPredicateConverter(paimonTable.getNativeTable().rowType(), sessionZoneId);
-        for (ScalarOperator operator : scalarOperators) {
+        for (ScalarOperator operator : originalConjuncts) {
             Predicate filter = converter.convert(operator);
             if (filter != null) {
                 predicates.add(filter);
@@ -766,34 +766,23 @@ public class PaimonMetadata implements ConnectorMetadata {
         }
     }
 
-    public static boolean onlyHasPartitionPredicate(Table table, ScalarOperator predicate) {
-        if (predicate == null) {
+    public static boolean onlyHasPartitionPredicate(Table table, List<ScalarOperator> originalConjuncts) {
+        if (originalConjuncts.isEmpty()) {
             return true;
         }
-
-        List<ScalarOperator> scalarOperators = Utils.extractConjuncts(predicate);
-
-        List<String> predicateColumns = new ArrayList<>();
-        for (ScalarOperator operator : scalarOperators) {
+        List<String> partitionColNames = table.getPartitionColumnNames();
+        for (ScalarOperator operator : originalConjuncts) {
             String columnName = null;
             if (operator.getChild(0) instanceof ColumnRefOperator) {
                 columnName = ((ColumnRefOperator) operator.getChild(0)).getName();
             }
-
             if (columnName == null || columnName.isEmpty()) {
                 return false;
             }
-
-            predicateColumns.add(columnName);
-        }
-
-        List<String> partitionColNames = table.getPartitionColumnNames();
-        for (String columnName : predicateColumns) {
             if (!partitionColNames.contains(columnName)) {
                 return false;
             }
         }
-
         return true;
     }
 }
