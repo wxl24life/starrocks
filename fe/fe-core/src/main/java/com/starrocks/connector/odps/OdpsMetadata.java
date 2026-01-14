@@ -85,7 +85,7 @@ import java.util.stream.Collectors;
 
 import static com.google.common.cache.CacheLoader.asyncReloading;
 import static com.starrocks.connector.PartitionUtil.toHivePartitionName;
-import static java.util.concurrent.TimeUnit.HOURS;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 public class OdpsMetadata implements ConnectorMetadata {
     private static final Logger LOG = LogManager.getLogger(OdpsMetadata.class);
@@ -461,7 +461,7 @@ public class OdpsMetadata implements ConnectorMetadata {
     private static CacheBuilder<Object, Object> newCacheBuilder(long expiresAfterWriteSec, long maximumSize) {
         CacheBuilder<Object, Object> cacheBuilder = CacheBuilder.newBuilder();
         if (expiresAfterWriteSec >= 0) {
-            cacheBuilder.expireAfterWrite(expiresAfterWriteSec, HOURS);
+            cacheBuilder.expireAfterWrite(expiresAfterWriteSec, SECONDS);
         }
         cacheBuilder.maximumSize(maximumSize);
         return cacheBuilder;
