@@ -217,11 +217,9 @@ public class CompactionScheduler extends Daemon {
                                                   boolean enableCompactionService) {
         int index = 0;
         // if enable compaction service, the compaction task will be scheduled to the compaction service warehouse.
+        // Determine the actual warehouse ID at the beginning to ensure consistency throughout the scheduling process
         long scheduledWarehouseId = warehouseId;
         if (enableCompactionService) {
-            // Because the config of compaction warehouses can be changed dynamically,
-            // It's possible that the warehouse checked there maybe not the same as the one actually scheduled,
-            // but this doesn't have a significant impact.
             Warehouse csWarehouse = GlobalStateMgr.getCurrentState().getWarehouseMgr().getCompactionServiceWarehouse();
             scheduledWarehouseId = csWarehouse.getId();
         }
@@ -229,7 +227,9 @@ public class CompactionScheduler extends Daemon {
         int numRunningTasks = numRunningTasks(scheduledWarehouseId);
         while (numRunningTasks < compactionLimit && index < partitionStatisticsSnapshots.size()) {
             PartitionStatisticsSnapshot partitionStatisticsSnapshot = partitionStatisticsSnapshots.get(index++);
-            CompactionJob job = startCompaction(partitionStatisticsSnapshot, warehouseId, enableCompactionService);
+            // Pass the determined scheduledWarehouseId to ensure consistency
+            CompactionJob job = startCompaction(partitionStatisticsSnapshot, warehouseId,
+                    scheduledWarehouseId, enableCompactionService);
             if (job == null) {
                 continue;
             }
@@ -237,11 +237,12 @@ public class CompactionScheduler extends Daemon {
             runningCompactions.put(partitionStatisticsSnapshot.getPartition(), job);
             if (LOG.isDebugEnabled()) {
                 Warehouse warehouse = GlobalStateMgr.getCurrentState().getWarehouseMgr().getWarehouse(warehouseId);
-                Warehouse csWarehouse = GlobalStateMgr.getCurrentState().getWarehouseMgr().getCompactionServiceWarehouse();
+                Warehouse csWarehouse = GlobalStateMgr.getCurrentState().getWarehouseMgr().getWarehouse(scheduledWarehouseId);
                 LOG.debug("Created new compaction job. partition={} txnId={} OriginWarehouse={} " +
                                 "enableCompactionService={} compactionService={}",
-                        partitionStatisticsSnapshot.toString(), job.getTxnId(), warehouse.getName(),
-                        enableCompactionService, csWarehouse.getName());
+                        partitionStatisticsSnapshot.toString(), job.getTxnId(), 
+                        warehouse != null ? warehouse.getName() : "null",
+                        enableCompactionService, csWarehouse != null ? csWarehouse.getName() : "null");
             }
         }
     }
@@ -366,6 +367,7 @@ public class CompactionScheduler extends Daemon {
 
     protected CompactionJob startCompaction(PartitionStatisticsSnapshot partitionStatisticsSnapshot,
                                             long warehouseId,
+                                            long scheduledWarehouseId,
                                             boolean enableCompactionService) {
         PartitionIdentifier partitionIdentifier = partitionStatisticsSnapshot.getPartition();
         Database db = stateMgr.getLocalMetastore().getDb(partitionIdentifier.getDbId());
@@ -404,7 +406,8 @@ public class CompactionScheduler extends Daemon {
             currentVersion = partition.getVisibleVersion();
 
 
-            beToTablets = collectPartitionTablets(partition, warehouseId, tabletsToPeerCacheNode, enableCompactionService);
+            beToTablets = collectPartitionTablets(partition, warehouseId, scheduledWarehouseId,
+                    tabletsToPeerCacheNode, enableCompactionService);
             if (beToTablets.isEmpty()) {
                 compactionManager.enableCompactionAfter(partitionIdentifier, Config.lake_compaction_interval_ms_on_failure);
                 return null;
@@ -412,7 +415,10 @@ public class CompactionScheduler extends Daemon {
 
             // Note: call `beginTransaction()` in the scope of database reader lock to make sure no shadow index will
             // be added to this table(i.e., no schema change) before calling `beginTransaction()`.
-            txnId = beginTransaction(partitionIdentifier, warehouseId, enableCompactionService);
+            
+            // Use the scheduledWarehouseId that was determined at the beginning of the scheduling process
+            // to ensure consistency throughout the entire compaction flow
+            txnId = beginTransaction(partitionIdentifier, scheduledWarehouseId, enableCompactionService);
 
             partition.setMinRetainVersion(currentVersion);
 
@@ -428,7 +434,7 @@ public class CompactionScheduler extends Daemon {
 
         long nextCompactionInterval = Config.lake_compaction_interval_ms_on_success;
         CompactionJob job = new CompactionJob(db, table, partition, txnId,
-                Config.lake_compaction_allow_partial_success, warehouseId);
+                Config.lake_compaction_allow_partial_success, scheduledWarehouseId);
         try {
             List<CompactionTask> tasks = createCompactionTasks(currentVersion, beToTablets, tabletsToPeerCacheNode, txnId,
                     job.getAllowPartialSuccess(), partitionStatisticsSnapshot.getPriority());
@@ -508,19 +514,19 @@ public class CompactionScheduler extends Daemon {
     @NotNull
     @VisibleForTesting
     protected Map<Long, List<Long>> collectPartitionTablets(PhysicalPartition partition, long warehouseId,
+                                                            long scheduledWarehouseId,
                                                             Map<Long, List<String>> tabletsToPeerCacheNode,
                                                             boolean enableCompactionService) {
         List<MaterializedIndex> visibleIndexes =
                 partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE);
         Map<Long, List<Long>> beToTablets = new HashMap<>();
         WarehouseManager manager = GlobalStateMgr.getCurrentState().getWarehouseMgr();
-        Warehouse csWarehouse = manager.getCompactionServiceWarehouse();
         try {
             for (MaterializedIndex index : visibleIndexes) {
                 for (Tablet tablet : index.getTablets()) {
-                    if (enableCompactionService && csWarehouse.getId() != warehouseId) {
+                    if (enableCompactionService && scheduledWarehouseId != warehouseId) {
                         ComputeNode compactionServiceCnNode = manager.getComputeNodeAssignedToTablet(
-                                csWarehouse.getName(), (LakeTablet) tablet);
+                                scheduledWarehouseId, (LakeTablet) tablet);
                         ComputeNode computeNode = manager.getComputeNodeAssignedToTablet(
                                 warehouseId, (LakeTablet) tablet);
                         if (computeNode == null || compactionServiceCnNode == null) {
@@ -534,7 +540,8 @@ public class CompactionScheduler extends Daemon {
                         beToTablets.computeIfAbsent(compactionServiceCnNode.getId(),
                                 k -> Lists.newArrayList()).add(tablet.getId());
                     } else {
-                        ComputeNode computeNode = manager.getComputeNodeAssignedToTablet(warehouseId, (LakeTablet) tablet);
+                        ComputeNode computeNode = manager.
+                                getComputeNodeAssignedToTablet(scheduledWarehouseId, (LakeTablet) tablet);
                         if (computeNode == null) {
                             beToTablets.clear();
                             return beToTablets;
@@ -562,10 +569,6 @@ public class CompactionScheduler extends Daemon {
         TransactionState.TxnSourceType txnSourceType = TransactionState.TxnSourceType.FE;
         TransactionState.TxnCoordinator coordinator = new TransactionState.TxnCoordinator(txnSourceType, HOST_NAME);
         String label = String.format("COMPACTION_%d-%d-%d-%d", dbId, tableId, partitionId, currentTs);
-        if (enableCompactionService) {
-            Warehouse warehouse = GlobalStateMgr.getCurrentState().getWarehouseMgr().getCompactionServiceWarehouse();
-            warehouseId = warehouse.getId();
-        }
 
         return transactionMgr.beginTransaction(dbId, Lists.newArrayList(tableId), label, coordinator,
                 loadJobSourceType, Config.lake_compaction_default_timeout_second, warehouseId);

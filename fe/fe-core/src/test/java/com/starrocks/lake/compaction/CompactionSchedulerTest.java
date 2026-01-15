@@ -37,6 +37,9 @@ import com.starrocks.system.SystemInfoService;
 import com.starrocks.transaction.DatabaseTransactionMgr;
 import com.starrocks.transaction.GlobalTransactionMgr;
 import com.starrocks.utframe.MockedWarehouseManager;
+import com.starrocks.warehouse.DefaultWarehouse;
+import com.starrocks.warehouse.Warehouse;
+import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -121,9 +124,11 @@ public class CompactionSchedulerTest {
             }
         };
         table.setState(OlapTable.OlapTableState.SCHEMA_CHANGE);
-        Assertions.assertNull(compactionScheduler.startCompaction(snapshot, WarehouseManager.DEFAULT_WAREHOUSE_ID, false));
+        Assertions.assertNull(compactionScheduler.startCompaction(snapshot, WarehouseManager.DEFAULT_WAREHOUSE_ID,
+                WarehouseManager.DEFAULT_WAREHOUSE_ID, false));
         table.setState(OlapTable.OlapTableState.NORMAL);
-        Assertions.assertNull(compactionScheduler.startCompaction(snapshot, WarehouseManager.DEFAULT_WAREHOUSE_ID, false));
+        Assertions.assertNull(compactionScheduler.startCompaction(snapshot, WarehouseManager.DEFAULT_WAREHOUSE_ID,
+                WarehouseManager.DEFAULT_WAREHOUSE_ID, false));
     }
 
     @Test
@@ -326,7 +331,7 @@ public class CompactionSchedulerTest {
 
             Map<Long, List<String>> tabletsToPeerCacheNode = new HashMap<>();
             Map<Long, List<Long>> resultMap = compactionScheduler.collectPartitionTablets(p10, warehouseId,
-                    tabletsToPeerCacheNode, false);
+                    warehouseId, tabletsToPeerCacheNode, false);
             Assertions.assertEquals(2, resultMap.size());
             List<Long> tabletListOnC1 = resultMap.get(c1.getId());
             Assertions.assertEquals(1, tabletListOnC1.size());
@@ -352,7 +357,7 @@ public class CompactionSchedulerTest {
 
             Map<Long, List<String>> tabletsToPeerCacheNode = new HashMap<>();
             Map<Long, List<Long>> resultMap = compactionScheduler.collectPartitionTablets(p20, warehouseId,
-                    tabletsToPeerCacheNode, false);
+                    warehouseId, tabletsToPeerCacheNode, false);
             // no compute node for tablet3
             Assertions.assertEquals(0, resultMap.size());
         }
@@ -372,7 +377,7 @@ public class CompactionSchedulerTest {
 
             Map<Long, List<String>> tabletsToPeerCacheNode = new HashMap<>();
             Map<Long, List<Long>> resultMap = compactionScheduler.collectPartitionTablets(p20, warehouseId,
-                    tabletsToPeerCacheNode, false);
+                    warehouseId, tabletsToPeerCacheNode, false);
             // exception found for tablet4
             Assertions.assertEquals(0, resultMap.size());
         }
@@ -418,12 +423,13 @@ public class CompactionSchedulerTest {
         new MockUp<CompactionScheduler>() {
             @Mock
             protected CompactionJob startCompaction(PartitionStatisticsSnapshot partitionStatisticsSnapshot,
-                                                    long warehouseId) {
+                                                    long warehouseId, long scheduledWarehouseId,
+                                                    boolean enableCompactionService) {
                 Database db = new Database();
                 Table table = new LakeTable();
                 long partitionId = partitionStatisticsSnapshot.getPartition().getPartitionId();
                 PhysicalPartition partition = new PhysicalPartition(partitionId, "aaa", partitionId, null);
-                return new CompactionJob(db, table, partition, 100, false);
+                return new CompactionJob(db, table, partition, 100, false, scheduledWarehouseId);
             }
         };
         compactionScheduler.runOneCycle();
@@ -879,7 +885,121 @@ public class CompactionSchedulerTest {
                     compactionScheduler.getRunningCompactions().get(partitionIdentifier).getWarehouseId());
         }
     }
+
+    @Test
+    public void testCompactionServiceWarehouseConsistency(@Mocked CompactionMgr compactionMgr) {
+        // This test verifies that when compaction service is enabled,
+        // the CompactionJob records the correct compaction service warehouse ID
+        // and this ID remains consistent throughout the compaction lifecycle.
+        MockedWarehouseManager mockedWarehouseManager = new MockedWarehouseManager();
+
+        long originWarehouseId = 2000L;
+        long compactionServiceWarehouseId = 3000L;
+        long partitionId = 1000L;
+
+        PartitionIdentifier partitionIdentifier = new PartitionIdentifier(1, 2, partitionId);
+        PartitionStatistics statistics = new PartitionStatistics(partitionIdentifier);
+        statistics.setWarehouseId(originWarehouseId);
+        Quantiles q = Quantiles.compute(Lists.newArrayList(1.0, 2.0, 3.0));
+        statistics.setCompactionScore(q);
+        PartitionStatisticsSnapshot snapshot = new PartitionStatisticsSnapshot(statistics);
+
+        List<PartitionStatisticsSnapshot> partitionStatisticsSnapshots = new ArrayList<>();
+        partitionStatisticsSnapshots.add(snapshot);
+
+        // Mock GlobalStateMgr to return our mocked warehouse manager
+        new MockUp<GlobalStateMgr>() {
+            @Mock
+            public WarehouseManager getWarehouseMgr() {
+                return mockedWarehouseManager;
+            }
+        };
+
+        // Mock warehouse manager to return a specific compaction service warehouse
+        new MockUp<WarehouseManager>() {
+            @Mock
+            public Warehouse getCompactionServiceWarehouse() {
+                return new DefaultWarehouse(compactionServiceWarehouseId, "compaction_service_warehouse");
+            }
+            
+            @Mock
+            public Warehouse getWarehouse(long warehouseId) {
+                if (warehouseId == originWarehouseId) {
+                    return new DefaultWarehouse(originWarehouseId, "origin_warehouse");
+                } else if (warehouseId == compactionServiceWarehouseId) {
+                    return new DefaultWarehouse(compactionServiceWarehouseId, "compaction_service_warehouse");
+                }
+                return new DefaultWarehouse(WarehouseManager.DEFAULT_WAREHOUSE_ID, 
+                        WarehouseManager.DEFAULT_WAREHOUSE_NAME);
+            }
+            
+            @Mock
+            public boolean warehouseExists(long warehouseId) {
+                return true;
+            }
+        };
+
+        // Setup expectations for the mocked CompactionMgr
+        new Expectations() {
+            {
+                compactionMgr.choosePartitionsToCompact((Set<PartitionIdentifier>) any, (Set<Long>) any);
+                result = partitionStatisticsSnapshots;
+                compactionMgr.getStatistics(partitionIdentifier);
+                result = statistics;
+            }
+        };
+
+        MockedCompactionScheduler compactionScheduler = new MockedCompactionScheduler(
+                compactionMgr, null, null, null, "");
+
+        // Case 1: With compaction service enabled, should use compaction service warehouse
+        Config.enable_lake_compaction_service = true;
+        Config.lake_compaction_max_tasks = -1;
+        Config.lake_enable_bind_compaction_with_load_warehouse = true;
+        mockedWarehouseManager.setWarehouseExisted(true);
+
+        compactionScheduler.getRunningCompactions().clear();
+        compactionScheduler.tryCompactionSchedule();
+
+        // Verify that the CompactionJob uses compaction service warehouse ID
+        assertEquals(1, compactionScheduler.getRunningCompactions().size());
+        CompactionJob job = compactionScheduler.getRunningCompactions().get(partitionIdentifier);
+        Assertions.assertNotNull(job);
+        // The warehouse ID should be compaction service warehouse, not the origin warehouse
+        assertEquals("CompactionJob should record compaction service warehouse ID when compaction service is enabled",
+                compactionServiceWarehouseId, job.getWarehouseId());
+        Assertions.assertNotEquals(originWarehouseId, job.getWarehouseId(),
+                "CompactionJob should not use origin warehouse ID when compaction service is enabled");
+
+        // Case 2: With compaction service disabled, should use origin warehouse (bind warehouse)
+        Config.enable_lake_compaction_service = false;
+        compactionScheduler.getRunningCompactions().clear();
+        
+        // Setup expectations again for the second call
+        new Expectations() {
+            {
+                compactionMgr.choosePartitionsToCompact((Set<PartitionIdentifier>) any, (Set<Long>) any);
+                result = partitionStatisticsSnapshots;
+                compactionMgr.getStatistics(partitionIdentifier);
+                result = statistics;
+            }
+        };
+        
+        compactionScheduler.tryCompactionSchedule();
+
+        assertEquals(1, compactionScheduler.getRunningCompactions().size());
+        job = compactionScheduler.getRunningCompactions().get(partitionIdentifier);
+        Assertions.assertNotNull(job);
+        // When compaction service is disabled, should use the binding warehouse
+        assertEquals("CompactionJob should use origin warehouse ID when compaction service is disabled",
+                originWarehouseId, job.getWarehouseId());
+
+        // Reset config
+        Config.enable_lake_compaction_service = false;
+        Config.lake_enable_bind_compaction_with_load_warehouse = false;
+    }
 }
+
 class MockedCompactionScheduler extends CompactionScheduler {
     MockedCompactionScheduler(CompactionMgr compactionManager, SystemInfoService systemInfoService,
                               GlobalTransactionMgr transactionMgr,
@@ -888,10 +1008,10 @@ class MockedCompactionScheduler extends CompactionScheduler {
     }
     @Override
     protected CompactionJob startCompaction(PartitionStatisticsSnapshot partitionStatisticsSnapshot, long warehouseId,
-                                            boolean enableCompactionService) {
+                                            long scheduledWarehouseId, boolean enableCompactionService) {
         Database db = new Database();
         Table table = new LakeTable();
         PhysicalPartition partition = new PhysicalPartition(123, "aaa", 123, null);
-        return new CompactionJob(db, table, partition, 100, false, warehouseId);
+        return new CompactionJob(db, table, partition, 100, false, scheduledWarehouseId);
     }
 }
