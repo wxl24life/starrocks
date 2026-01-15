@@ -38,6 +38,7 @@ void CompactionTaskStats::collect(const OlapReaderStatistics& reader_stats) {
     io_bytes_read_peer_cache = reader_stats.bytes_read_peer_cache;
     io_count_peer_cache = reader_stats.io_count_peer_cache;
     io_ns_read_peer_cache = reader_stats.io_ns_read_peer_cache;
+    peer_hit_count = reader_stats.peer_hit_count;
     // read segment count is managed else where
     // read_segment_count = reader_stats.segments_read_count;
 }
@@ -61,6 +62,7 @@ CompactionTaskStats CompactionTaskStats::operator+(const CompactionTaskStats& th
     diff.io_bytes_read_peer_cache += that.io_bytes_read_peer_cache;
     diff.io_count_peer_cache += that.io_count_peer_cache;
     diff.io_ns_read_peer_cache += that.io_ns_read_peer_cache;
+    diff.peer_hit_count += that.peer_hit_count;
     // read segment count is managed else where
     // diff.read_segment_count += that.read_segment_count;
     diff.write_segment_count += that.write_segment_count;
@@ -85,6 +87,7 @@ CompactionTaskStats CompactionTaskStats::operator-(const CompactionTaskStats& th
     diff.io_bytes_read_peer_cache -= that.io_bytes_read_peer_cache;
     diff.io_count_peer_cache -= that.io_count_peer_cache;
     diff.io_ns_read_peer_cache -= that.io_ns_read_peer_cache;
+    diff.peer_hit_count -= that.peer_hit_count;
     // read segment count is managed else where
     // diff.read_segment_count -= that.read_segment_count;
     diff.write_segment_count -= that.write_segment_count;
@@ -111,6 +114,7 @@ std::string CompactionTaskStats::to_json_stats() {
     root.AddMember("read_peer_cache_mb", rapidjson::Value(io_bytes_read_peer_cache / BYTES_UNIT_MB), allocator);
     root.AddMember("read_peer_cache_count", rapidjson::Value(io_count_peer_cache), allocator);
     root.AddMember("read_peer_cache_sec", rapidjson::Value(io_ns_read_peer_cache / TIME_UNIT_NS_PER_SECOND), allocator);
+    root.AddMember("peer_hit_count", rapidjson::Value(peer_hit_count), allocator);
 
     root.AddMember("segment_init_sec", rapidjson::Value(segment_init_ns / TIME_UNIT_NS_PER_SECOND), allocator);
     root.AddMember("column_iterator_init_sec", rapidjson::Value(column_iterator_init_ns / TIME_UNIT_NS_PER_SECOND),

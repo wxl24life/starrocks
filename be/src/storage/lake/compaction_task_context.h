@@ -54,6 +54,7 @@ struct CompactionTaskStats {
     int64_t io_bytes_read_peer_cache = 0;
     int64_t io_count_peer_cache = 0;
     int64_t io_ns_read_peer_cache = 0;
+    int64_t peer_hit_count = 0;
     int64_t read_segment_count = 0;
     int64_t write_segment_count = 0;
     int64_t write_segment_bytes = 0;

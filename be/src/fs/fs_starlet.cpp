@@ -261,6 +261,7 @@ public:
         stats->append(kBytesReadPeerCache, read_stats.bytes_read_peer_cache);
         stats->append(kIOCountPeerCache, read_stats.io_count_peer_cache);
         stats->append(kIONsReadPeerCache, read_stats.io_ns_read_peer_cache);
+        stats->append(kPeerHitCount, read_stats.peer_hit_count);
         return std::move(stats);
     }
 

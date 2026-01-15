@@ -2665,6 +2665,8 @@ void SegmentIterator::_update_stats(io::SeekableInputStream* rfile) {
             _opts.stats->io_count += value;
         } else if (name == kIONsReadPeerCache) {
             _opts.stats->io_ns_read_peer_cache += value;
+        } else if (name == kPeerHitCount) {
+            _opts.stats->peer_hit_count += value;
         }
     }
 }
