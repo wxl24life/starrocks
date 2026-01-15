@@ -133,6 +133,9 @@ struct RandomAccessFileOptions {
     FileEncryptionInfo encryption_info;
     bool skip_disk_cache = false;
     OperationKind op_type = OperationKind::UNDEFINED;
+
+    // Peer nodes for peer cache (list of IP addresses/hostnames)
+    std::vector<std::string> peer_nodes;
 };
 
 struct DirEntry {
@@ -352,6 +355,22 @@ public:
     }
 };
 
+// Replication type for cache replication during write
+enum class ReplicationType {
+    NO_SET = 0,         // Not set, use default behavior
+    NO_REPLICATION = 1, // Explicitly disable replication
+    SYNC = 2,           // Synchronous replication (wait for all replicas)
+    ASYNC = 3           // Asynchronous replication (non-blocking)
+};
+
+// Options for cache replication during write
+struct CacheReplicationOptions {
+    ReplicationType replication_type = ReplicationType::NO_SET;
+    std::string service_id;
+    int64_t shard_id = 0;
+    std::vector<std::string> replicas; // Target replica node addresses
+};
+
 // Creation-time options for WritableFile
 struct WritableFileOptions {
     // Call Sync() during Close().
@@ -372,6 +391,10 @@ struct WritableFileOptions {
     std::string content_type;
 
     OperationKind op_type = OperationKind::UNDEFINED;
+    std::vector<std::string> peer_nodes;
+
+    // Cache replication options for starlet filesystem
+    CacheReplicationOptions replication_options;
 };
 
 // A `SequentialFile` is an `io::InputStream` with a name.

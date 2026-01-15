@@ -123,6 +123,20 @@ Status HorizontalGeneralTabletWriter::reset_segment_writer() {
     if (_is_compaction) {
         wopts.op_type = OperationKind::COMPACTION;
     }
+
+    // Set cache replication options if peer nodes are specified
+    // This enables starlet's built-in cache replication during write
+    if (!_peer_nodes.empty() && _is_compaction && config::lake_enable_segment_warmup) {
+        wopts.replication_options.replication_type = ReplicationType::ASYNC;
+        wopts.replication_options.shard_id = _tablet_id;
+        // peer_nodes contains only host, need to append starlet_port to form host:port
+        for (const auto& host : _peer_nodes) {
+            wopts.replication_options.replicas.push_back(fmt::format("{}:{}", host, config::starlet_port));
+        }
+        LOG(INFO) << "Enabling cache replication for segment write. tablet_id=" << _tablet_id
+                  << " replicas=" << wopts.replication_options.replicas.size();
+    }
+
     std::unique_ptr<WritableFile> of;
     std::string segment_location;
     if (_location_provider && _fs) {
@@ -279,6 +293,10 @@ Status VerticalGeneralTabletWriter::flush_columns() {
 }
 
 Status VerticalGeneralTabletWriter::finish(SegmentPB* segment) {
+    // Note: Cache replication is now handled by starlet's built-in mechanism
+    // when replication_options is set in WritableFileOptions during segment creation.
+    // See create_segment_writer() for replication setup.
+
     for (auto& segment_writer : _segment_writers) {
         uint64_t segment_size = 0;
         uint64_t footer_position = 0;
@@ -289,6 +307,7 @@ Status VerticalGeneralTabletWriter::finish(SegmentPB* segment) {
         _data_size += segment_size;
         collect_writer_stats(_stats, segment_writer.get());
         _stats.segment_count++;
+
         segment_writer.reset();
     }
     _segment_writers.clear();
@@ -332,6 +351,20 @@ StatusOr<std::shared_ptr<SegmentWriter>> VerticalGeneralTabletWriter::create_seg
     if (_is_compaction) {
         wopts.op_type = OperationKind::COMPACTION;
     }
+
+    // Set cache replication options if peer nodes are specified
+    // This enables starlet's built-in cache replication during write
+    if (!_peer_nodes.empty() && _is_compaction && config::lake_enable_segment_warmup) {
+        wopts.replication_options.replication_type = ReplicationType::ASYNC;
+        wopts.replication_options.shard_id = _tablet_id;
+        // peer_nodes contains only host, need to append starlet_port to form host:port
+        for (const auto& host : _peer_nodes) {
+            wopts.replication_options.replicas.push_back(fmt::format("{}:{}", host, config::starlet_port));
+        }
+        LOG(INFO) << "Enabling cache replication for vertical segment write. tablet_id=" << _tablet_id
+                  << " replicas=" << wopts.replication_options.replicas.size();
+    }
+
     std::unique_ptr<WritableFile> of;
     std::string segment_location;
     if (_location_provider && _fs) {

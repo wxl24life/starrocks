@@ -807,7 +807,9 @@ Status SegmentIterator::_init_column_iterator_by_cid(const ColumnId cid, const C
     iter_opts.has_preaggregation = _opts.has_preaggregation;
 
     RandomAccessFileOptions opts{.skip_fill_local_cache = !_opts.lake_io_opts.fill_data_cache,
-                                 .buffer_size = _opts.lake_io_opts.buffer_size};
+                                 .buffer_size = _opts.lake_io_opts.buffer_size,
+                                 .skip_disk_cache = _opts.lake_io_opts.skip_disk_cache,
+                                 .peer_nodes = _opts.lake_io_opts.peer_nodes};
     bool is_compaction =
             (_opts.reader_type == READER_BASE_COMPACTION || _opts.reader_type == READER_CUMULATIVE_COMPACTION);
     if (is_compaction) {
@@ -2655,6 +2657,14 @@ void SegmentIterator::_update_stats(io::SeekableInputStream* rfile) {
             _opts.stats->shared_buffered_direct_io_bytes += value;
         } else if (name == kDirectIoTimer) {
             _opts.stats->shared_buffered_direct_io_time_ns += value;
+        } else if (name == kBytesReadPeerCache) {
+            _opts.stats->bytes_read_peer_cache += value;
+            _opts.stats->compressed_bytes_read += value;
+        } else if (name == kIOCountPeerCache) {
+            _opts.stats->io_count_peer_cache += value;
+            _opts.stats->io_count += value;
+        } else if (name == kIONsReadPeerCache) {
+            _opts.stats->io_ns_read_peer_cache += value;
         }
     }
 }

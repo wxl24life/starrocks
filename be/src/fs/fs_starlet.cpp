@@ -234,7 +234,8 @@ public:
 
         const auto& read_stats = (*stream_st)->get_io_stats();
         auto stats = std::make_unique<io::NumericStatistics>();
-        stats->reserve(22);
+
+        stats->reserve(25);
         stats->append(kBytesReadLocalDisk, read_stats.bytes_read_local_disk);
         stats->append(kBytesWriteLocalDisk, read_stats.bytes_write_local_disk);
         stats->append(kBytesReadRemote, read_stats.bytes_read_remote);
@@ -257,6 +258,9 @@ public:
         stats->append(kIONsReadLocalDiskIndex, index_read_stats.io_ns_read_local_disk);
         stats->append(kIONsWriteLocalDiskIndex, index_read_stats.io_ns_write_local_disk);
         stats->append(kIONsRemoteIndex, index_read_stats.io_ns_read_remote);
+        stats->append(kBytesReadPeerCache, read_stats.bytes_read_peer_cache);
+        stats->append(kIOCountPeerCache, read_stats.io_count_peer_cache);
+        stats->append(kIONsReadPeerCache, read_stats.io_ns_read_peer_cache);
         return std::move(stats);
     }
 
@@ -378,6 +382,10 @@ public:
         if (info.size.has_value()) {
             opt.file_size = info.size.value();
         }
+        // Set peer nodes for peer cache
+        if (!opts.peer_nodes.empty()) {
+            opt.peer_nodes = opts.peer_nodes;
+        }
         auto file_st = (*fs_st)->open(pair.first, std::move(opt));
 
         if (!file_st.ok()) {
@@ -440,6 +448,34 @@ public:
         }
         fslib_opts.enable_data_cache = enable_datacache;
         set_api_kind(fslib_opts, opts);
+
+        // Set cache replication options if specified
+        if (opts.replication_options.replication_type != ReplicationType::NO_SET &&
+            !opts.replication_options.replicas.empty()) {
+            auto& repl_opts = fslib_opts.replication_options;
+            repl_opts.service_id = opts.replication_options.service_id;
+            repl_opts.shard_id = opts.replication_options.shard_id;
+            repl_opts.replicas = opts.replication_options.replicas;
+            // Convert starrocks ReplicationType to starlet ReplicationType
+            switch (opts.replication_options.replication_type) {
+            case ReplicationType::SYNC:
+                repl_opts.replication_type = staros::ReplicationType::SYNC;
+                break;
+            case ReplicationType::ASYNC:
+                repl_opts.replication_type = staros::ReplicationType::ASYNC;
+                break;
+            case ReplicationType::NO_REPLICATION:
+                repl_opts.replication_type = staros::ReplicationType::NO_REPLICATION;
+                break;
+            default:
+                repl_opts.replication_type = staros::ReplicationType::NO_SET;
+                break;
+            }
+            VLOG(10) << "Cache replication enabled for " << path
+                     << ", replicas=" << opts.replication_options.replicas.size()
+                     << ", type=" << static_cast<int>(opts.replication_options.replication_type);
+        }
+
         auto file_st = (*fs_st)->create(pair.first, fslib_opts);
         if (!file_st.ok()) {
             return to_status(file_st.status());

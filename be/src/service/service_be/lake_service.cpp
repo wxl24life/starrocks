@@ -20,6 +20,7 @@
 #include <butil/time.h> // NOLINT
 
 #include "agent/agent_server.h"
+#include "cache/block_cache/block_cache.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "fs/fs_util.h"

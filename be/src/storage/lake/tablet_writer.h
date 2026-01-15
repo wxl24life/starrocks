@@ -140,6 +140,8 @@ public:
         _location_provider = std::move(location_provider);
     }
 
+    void set_peer_nodes(std::vector<std::string> peer_nodes) { _peer_nodes = std::move(peer_nodes); }
+
     const OlapWriterStatistics& stats() const { return _stats; }
 
     const DictColumnsValidMap& global_dict_columns_valid_info() const { return _global_dict_columns_valid_info; }
@@ -163,6 +165,7 @@ protected:
     OlapWriterStatistics _stats;
 
     bool _is_compaction = false;
+    std::vector<std::string> _peer_nodes; // Peer nodes for segment warmup (used in compaction)
     DictColumnsValidMap _global_dict_columns_valid_info;
 };
 
