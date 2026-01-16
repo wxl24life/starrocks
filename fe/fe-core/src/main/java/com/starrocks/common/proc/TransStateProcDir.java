@@ -72,11 +72,16 @@ public class TransStateProcDir implements ProcDirInterface {
             throw new AnalysisException("State is not set");
         }
 
-        if (!state.equals("running") && !state.equals("finished")) {
-            throw new AnalysisException("State is invalid");
-        }
-
         long dbId = ProcUtils.getDbId(dbIdOrName);
-        return new TransProcDir(dbId, state);
+
+        if (state.equals("running") || state.equals("finished")) {
+            return new TransProcDir(dbId, state);
+        } else if (state.equals("all_jobs")) {
+            // Unified view of all job types (transactions + alter jobs)
+            return new UnifiedJobsProcDir(dbId, false);
+        } else {
+            throw new AnalysisException("State is invalid: " + state 
+                    + ". Valid values are: running, finished, all_jobs");
+        }
     }
 }
