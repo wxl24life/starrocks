@@ -2365,7 +2365,14 @@ Status SegmentIterator::_init_inverted_index_iterators() {
 }
 
 Status SegmentIterator::_apply_inverted_index() {
-    RETURN_IF(_scan_range.empty(), Status::OK());
+    DCHECK_EQ(_predicate_columns, _opts.pred_tree.num_columns());
+    if (_scan_range.empty()) {
+        if (config::clear_predicates_for_empty_scan_range) {
+            // Since no any rows need to be read, all predicates could be erased for this segment.
+            _opts.pred_tree = PredicateTree();
+        }
+        return Status::OK();
+    }
     RETURN_IF(!_opts.enable_gin_filter, Status::OK());
 
     RETURN_IF_ERROR(_init_inverted_index_iterators());

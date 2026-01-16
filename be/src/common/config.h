@@ -554,6 +554,8 @@ CONF_String(query_scratch_dirs, "${STARROCKS_HOME}");
 
 CONF_String(tmp_file_dir, "tmp");
 
+CONF_mBool(clear_predicates_for_empty_scan_range, "false");
+
 // set enable may reduce IO costs, but it will increase memory pressure.
 CONF_mBool(inverted_index_ram_dir_enable, "false");
 
