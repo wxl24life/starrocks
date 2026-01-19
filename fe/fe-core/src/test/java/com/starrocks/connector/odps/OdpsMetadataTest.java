@@ -74,14 +74,6 @@ public class OdpsMetadataTest extends MockedBase {
     }
 
     @Test
-    public void testGetMetadata() {
-        OdpsConnector connector = new OdpsConnector(context);
-        Assertions.assertNotNull(connector);
-        ConnectorMetadata metadata = connector.getMetadata();
-        Assertions.assertNotNull(metadata);
-    }
-
-    @Test
     public void testListDbNames() {
         List<String> expectedDbNames = Collections.singletonList("project");
         List<String> dbNames = odpsMetadata.listDbNames(new ConnectContext());

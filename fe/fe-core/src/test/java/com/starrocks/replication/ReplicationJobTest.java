@@ -22,6 +22,7 @@ import com.starrocks.catalog.Partition;
 import com.starrocks.catalog.Tablet;
 import com.starrocks.common.AlreadyExistsException;
 import com.starrocks.common.AnalysisException;
+import com.starrocks.common.Config;
 import com.starrocks.common.io.DeepCopy;
 import com.starrocks.common.jmockit.Deencapsulation;
 import com.starrocks.common.proc.BaseProcResult;
@@ -379,6 +380,8 @@ public class ReplicationJobTest {
 
     @Test
     public void testProcNodeFetchResultWithRunningJob() throws AnalysisException, AlreadyExistsException {
+        boolean enableReplication = Config.emr_serveless_replication_enable;
+        Config.emr_serveless_replication_enable = true;
         ReplicationJob jobProc = new ReplicationJob(null, "test_proc_token", db.getId(), table, srcTable,
                 GlobalStateMgr.getCurrentState().getNodeMgr().getClusterInfo());
         GlobalStateMgr.getCurrentState().getReplicationMgr().addReplicationJob(jobProc);
@@ -393,5 +396,6 @@ public class ReplicationJobTest {
                         "FinishedTime", "State", "Progress", "Error"),
                 result.getColumnNames());
         GlobalStateMgr.getCurrentState().getReplicationMgr().removeRunningJob(jobProc);
+        Config.emr_serveless_replication_enable = enableReplication;
     }
 }
