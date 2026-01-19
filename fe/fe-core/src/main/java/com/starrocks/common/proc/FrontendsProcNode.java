@@ -59,8 +59,9 @@ import java.util.List;
 public class FrontendsProcNode implements ProcNodeInterface {
     private static final Logger LOG = LogManager.getLogger(FrontendsProcNode.class);
 
+    // For compatibility reasons, we make <NAME,IP> as the first two column in EMR
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Id").add("Name").add("IP").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
+            .add("Name").add("IP").add("ID").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
             .add("Role").add("ClusterId").add("Join").add("Alive").add("ReplayedJournalId")
             .add("LastHeartbeat").add("IsHelper").add("ErrMsg").add("StartTime").add("Version")
             .build();
