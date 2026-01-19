@@ -31,6 +31,10 @@ class CompactionProfile {
     private long readRemoteSec;
     @SerializedName(value = "read_remote_mb")
     private long readRemoteMb;
+    @SerializedName(value = "read_peer_cache_sec")
+    private long readPeerCacheSec;
+    @SerializedName(value = "read_peer_cache_mb")
+    private long readPeerCacheMb;
     @SerializedName(value = "read_segment_count")
     private long readSegmentCount;
     @SerializedName(value = "write_segment_count")
@@ -41,6 +45,8 @@ class CompactionProfile {
     private long writeRemoteSec;
     @SerializedName(value = "in_queue_sec")
     private int inQueueSec;
+    @SerializedName(value = "peak_memory_usage_mb")
+    private long peakMemoryUsageMb;
 
     public CompactionProfile(@NotNull CompactStat stat) {
         subTaskCount = stat.subTaskCount;
@@ -54,6 +60,13 @@ class CompactionProfile {
         writeSegmentMb = stat.writeSegmentBytes / 1048576;
         writeRemoteSec = stat.writeTimeRemote / 1000000000L;
         inQueueSec = stat.inQueueTimeSec;
+        
+        // peer cache stats
+        readPeerCacheSec = (stat.readTimePeer != null) ? stat.readTimePeer / 1000000000L : 0L;
+        readPeerCacheMb = (stat.readBytesPeer != null) ? stat.readBytesPeer / 1048576 : 0L;
+        
+        // peak memory usage
+        peakMemoryUsageMb = (stat.peakMemoryUsage != null) ? stat.peakMemoryUsage / 1048576 : 0L;
     }
 
     @Override

@@ -129,6 +129,7 @@ void CompactionTaskCallback::finish_task(std::unique_ptr<CompactionTaskContext>&
     compact_stat->set_total_compact_input_file_size(context->stats->input_file_size);
     compact_stat->set_read_bytes_peer(context->stats->io_bytes_read_peer_cache);
     compact_stat->set_read_time_peer(context->stats->io_ns_read_peer_cache);
+    compact_stat->set_peak_memory_usage(context->stats->peak_mem_usage);
 
     DCHECK(_request != nullptr);
     _status.update(context->status);

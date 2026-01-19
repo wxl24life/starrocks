@@ -194,6 +194,9 @@ public class CompactionJob {
         stat.writeSegmentBytes = 0L;
         stat.writeTimeRemote = 0L;
         stat.inQueueTimeSec = 0;
+        stat.readTimePeer = 0L;
+        stat.readBytesPeer = 0L;
+        stat.peakMemoryUsage = 0L;
         for (CompactionTask task : tasks) {
             List<CompactStat> subStats = task.getCompactStats();
             if (subStats == null) {
@@ -230,6 +233,15 @@ public class CompactionJob {
                 }
                 if (subStat.writeTimeRemote != null) {
                     stat.writeTimeRemote += subStat.writeTimeRemote;
+                }
+                if (subStat.readTimePeer != null) {
+                    stat.readTimePeer += subStat.readTimePeer;
+                }
+                if (subStat.readBytesPeer != null) {
+                    stat.readBytesPeer += subStat.readBytesPeer;
+                }
+                if (subStat.peakMemoryUsage != null) {
+                    stat.peakMemoryUsage = Math.max(stat.peakMemoryUsage, subStat.peakMemoryUsage);
                 }
             }
             stat.subTaskCount += subTaskCount;
