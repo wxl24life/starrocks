@@ -361,8 +361,8 @@ StatusOr<std::shared_ptr<SegmentWriter>> VerticalGeneralTabletWriter::create_seg
         for (const auto& host : _peer_nodes) {
             wopts.replication_options.replicas.push_back(fmt::format("{}:{}", host, config::starlet_port));
         }
-        LOG(INFO) << "Enabling cache replication for vertical segment write. tablet_id=" << _tablet_id
-                  << " replicas=" << wopts.replication_options.replicas.size();
+        VLOG(10) << "Enabling cache replication for vertical segment write. tablet_id=" << _tablet_id
+                 << " replicas=" << wopts.replication_options.replicas.size();
     }
 
     std::unique_ptr<WritableFile> of;
