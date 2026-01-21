@@ -44,7 +44,7 @@ public class StarManagerHttpServiceActionTest {
         StarManagerHttpServiceAction starManagerHttpServiceAction = new StarManagerHttpServiceAction(controller);
         starManagerHttpServiceAction.registerAction(controller);
 
-        BaseRequest request = new BaseRequest(null, null, null);
+        BaseRequest request = new BaseRequest(null, null);
         BaseResponse response = new BaseResponse();
 
         ConnectContext connectContext = new ConnectContext();
