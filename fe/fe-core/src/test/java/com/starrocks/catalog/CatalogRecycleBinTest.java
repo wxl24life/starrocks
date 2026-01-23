@@ -78,13 +78,7 @@ public class CatalogRecycleBinTest {
     }
 
     private static void waitTableToBeDone(CatalogRecycleBin recycleBin, long id, long time) {
-        while (recycleBin.isDeletingTable(id)) {
-            recycleBin.eraseTable(time);
-            try {
-                Thread.sleep(100);
-            } catch (Exception ignore) {
-            }
-        }
+        // For shared-nothing mode, table deletion is synchronous, so this is a no-op.
     }
 
     private static void waitPartitionToBeDone(CatalogRecycleBin recycleBin, long id, long time) {
