@@ -84,6 +84,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -239,11 +240,9 @@ public class PaimonScanNode extends ScanNode {
                         InternalRowPartitionComputer partitionComputer
                                 = FileStorePathFactory.getPartitionComputer(
                                 RowType.of(partitionColumnTypes.toArray(new DataType[0])), partitionDefaultName, false);
-                        String partitionPath = PartitionPathUtils.generatePartitionPath(
-                                partitionComputer.generatePartValues(partitionValue));
-                        List<String> partitionValues = Arrays.stream(partitionPath.split("/"))
-                                .map(part -> part.split("=")[1])
-                                .collect(Collectors.toList());
+                        LinkedHashMap<String, String> spec = partitionComputer.generatePartValues(partitionValue);
+                        List<String> partitionValues = new ArrayList<>(spec.values());
+                        String partitionPath = PartitionPathUtils.generatePartitionPath(spec);
                         try {
                             PartitionKey key = PartitionUtil.createPartitionKey(partitionValues,
                                     paimonTable.getPartitionColumns(),
