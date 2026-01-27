@@ -1766,6 +1766,67 @@ public class LocalMetastore implements ConnectorMetadata, MVRepairHandler, Memor
         }
     }
 
+    /**
+     * Add a new physical partition to an existing logical partition.
+     * This method is used by HTTP API for cross-cluster data replication scenarios.
+     *
+     * @param db            the database
+     * @param olapTable     the table
+     * @param partitionName the partition name (null for non-partitioned table)
+     * @param bucketNum     the bucket number (0 to use system default)
+     * @param warehouseId   the warehouse id for compute resource allocation
+     */
+    public void addPhysicalPartition(Database db, OlapTable olapTable, String partitionName,
+                                     int bucketNum, long warehouseId) throws DdlException {
+        Partition partition;
+
+        if (partitionName == null) {
+            // For non-partitioned table, get the single partition
+            if (olapTable.getPartitionInfo().isPartitioned()) {
+                throw new DdlException("Partition name must be specified for partitioned table");
+            }
+            Collection<Partition> partitions = olapTable.getPartitions();
+            if (partitions.size() != 1) {
+                throw new DdlException("Non-partitioned table should have exactly one partition");
+            }
+            partition = partitions.iterator().next();
+        } else {
+            partition = olapTable.getPartition(partitionName);
+            if (partition == null) {
+                throw new DdlException("Partition '" + partitionName + "' does not exist");
+            }
+        }
+
+        // Validate distribution type
+        if (partition.getDistributionInfo().getType() != DistributionInfo.DistributionInfoType.RANDOM) {
+            throw new DdlException("Only random distribution table supports adding physical partition");
+        }
+
+        // Get compute resource
+        final WarehouseManager warehouseManager = GlobalStateMgr.getCurrentState().getWarehouseMgr();
+        final CRAcquireContext acquireContext = CRAcquireContext.of(warehouseId);
+        final ComputeResource computeResource = warehouseManager.acquireComputeResource(acquireContext);
+
+        // If user specified bucket number, we need to set it on the table temporarily
+        long originalMutableBucketNum = olapTable.getMutableBucketNum();
+        try {
+            if (bucketNum > 0) {
+                olapTable.setMutableBucketNum(bucketNum);
+            }
+
+            // Add one physical partition
+            addSubPartitions(db, olapTable, partition, 1, computeResource);
+
+            LOG.info("Successfully added physical partition to partition '{}' in table '{}'",
+                    partition.getName(), olapTable.getName());
+        } finally {
+            // Restore the original mutable bucket num
+            if (bucketNum > 0) {
+                olapTable.setMutableBucketNum(originalMutableBucketNum);
+            }
+        }
+    }
+
     public void replayAddSubPartition(PhysicalPartitionPersistInfoV2 info) throws DdlException {
         Database db = this.getDb(info.getDbId());
         try (AutoCloseableLock ignore = new AutoCloseableLock(db.getId(), info.getTableId(), LockType.WRITE)) {
