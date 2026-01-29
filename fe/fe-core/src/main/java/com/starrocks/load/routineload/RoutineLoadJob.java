@@ -1133,6 +1133,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback
 
             try {
                 routineLoadTaskInfo.afterVisible(txnState, txnOperated);
+                GlobalStateMgr.getCurrentState().getOperationListenerBus().onLoadJobTransactionFinish(txnState);
             } catch (StarRocksException e) {
                 LOG.warn("failed to execute 'routineLoadTaskInfo.afterVisible', txnId {}, label {}. " +
                         "this should not happen", txnState.getTransactionId(), routineLoadTaskInfo.getLabel());
