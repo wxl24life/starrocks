@@ -696,6 +696,56 @@ struct ColumnToArrowConverter<LT, AT, is_nullable, ConvMapGuard<LT, AT>> {
     }
 };
 
+DEF_PRED_GUARD(ConvDate32Guard, is_conv_date32, LogicalType, LT, ArrowTypeId, AT)
+#define IS_CONV_DATE32_CTOR(LT, AT) DEF_PRED_CASE_CTOR(is_conv_date32, LT, AT)
+#define IS_CONV_DATE32_R(AT, ...) DEF_BINARY_RELATION_ENTRY_SEP_SEMICOLON_R(IS_CONV_DATE32_CTOR, AT, ##__VA_ARGS__)
+
+IS_CONV_DATE32_R(ArrowTypeId::DATE32, TYPE_DATE)
+
+template <LogicalType LT, ArrowTypeId AT, bool is_nullable>
+struct ColumnToArrowConverter<LT, AT, is_nullable, ConvDate32Guard<LT, AT>> {
+    using StarRocksCppType = RunTimeCppType<LT>;
+    using StarRocksColumnType = RunTimeColumnType<LT>;
+    using ArrowType = ArrowTypeIdToType<AT>;
+    using ArrowBuilderType = typename arrow::TypeTraits<ArrowType>::BuilderType;
+
+    static inline arrow::Status convert(const ColumnPtr& column, int start_idx, int end_idx,
+                                        [[maybe_unused]] ColumnContext* column_context,
+                                        arrow::ArrayBuilder* array_builder) {
+        ARROW_RETURN_NOT_OK(check_const(column));
+        ArrowBuilderType* builder = down_cast<ArrowBuilderType*>(array_builder);
+
+        // Unix epoch date (1970-01-01) in Julian day
+        static constexpr int32_t UNIX_EPOCH_JULIAN = 2440588;
+
+        if constexpr (is_nullable) {
+            const auto* nullable_column = down_cast<NullableColumn*>(column.get());
+            const auto* data_column = down_cast<StarRocksColumnType*>(nullable_column->data_column().get());
+            const auto& data = data_column->get_data();
+            for (auto i = start_idx; i < end_idx; ++i) {
+                if (nullable_column->is_null(i)) {
+                    ARROW_RETURN_NOT_OK(builder->AppendNull());
+                } else {
+                    // Convert Julian day to days since Unix epoch
+                    // StarRocks DateValue stores date as Julian day number
+                    // Arrow Date32 stores date as days since 1970-01-01
+                    int32_t days_since_epoch = data[i]._julian - UNIX_EPOCH_JULIAN;
+                    ARROW_RETURN_NOT_OK(builder->Append(days_since_epoch));
+                }
+            }
+        } else {
+            const auto* data_column = down_cast<StarRocksColumnType*>(column.get());
+            const auto& data = data_column->get_data();
+            for (auto i = start_idx; i < end_idx; ++i) {
+                // Convert Julian day to days since Unix epoch
+                int32_t days_since_epoch = data[i]._julian - UNIX_EPOCH_JULIAN;
+                ARROW_RETURN_NOT_OK(builder->Append(days_since_epoch));
+            }
+        }
+        return arrow::Status::OK();
+    }
+};
+
 DEF_PRED_GUARD(ConvTimestampGuard, is_conv_timestamp, LogicalType, LT, ArrowTypeId, AT)
 #define IS_CONV_TIMESTAMP_CTOR(LT, AT) DEF_PRED_CASE_CTOR(is_conv_timestamp, LT, AT)
 #define IS_CONV_TIMESTAMP_R(AT, ...) \
@@ -792,7 +842,8 @@ static const std::unordered_map<int32_t, StarRocksToArrowConvertFunc> global_sta
         STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::STRUCT, TYPE_STRUCT),
         STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::MAP, TYPE_MAP),
         STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::TIMESTAMP, TYPE_DATETIME),
-        STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::BINARY, TYPE_BINARY, TYPE_VARBINARY)};
+        STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::BINARY, TYPE_BINARY, TYPE_VARBINARY),
+        STARROCKS_TO_ARROW_CONV_ENTRY_R(ArrowTypeId::DATE32, TYPE_DATE)};
 
 static inline StarRocksToArrowConvertFunc resolve_convert_func(LogicalType lt, ArrowTypeId at, bool is_nullable) {
     if (is_always_convert_to_null(lt, at)) {
@@ -845,6 +896,7 @@ public:
     DEF_VISIT_METHOD(MapType);
     DEF_VISIT_METHOD(TimestampType);
     DEF_VISIT_METHOD(BinaryType);
+    DEF_VISIT_METHOD(Date32Type);
 
 #undef DEF_VISIT_METHOD
 
