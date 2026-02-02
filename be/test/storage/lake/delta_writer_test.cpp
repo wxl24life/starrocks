@@ -710,4 +710,121 @@ TEST_F(LakeDeltaWriterTest, test_write_oom) {
     GlobalEnv::GetInstance()->load_mem_tracker()->set_limit(old_limit);
 }
 
+// Test fast cancel functionality: after cancel() is called,
+// subsequent write() and flush() operations should fail immediately.
+TEST_F(LakeDeltaWriterTest, test_fast_cancel) {
+    // Prepare data for writing
+    static const int kChunkSize = 128;
+    auto chunk0 = generate_data(kChunkSize);
+    auto indexes = std::vector<uint32_t>(kChunkSize);
+    for (int i = 0; i < kChunkSize; i++) {
+        indexes[i] = i;
+    }
+
+    // Create and open DeltaWriter
+    auto txn_id = next_id();
+    auto tablet_id = _tablet_metadata->id();
+    ASSIGN_OR_ABORT(auto delta_writer, DeltaWriterBuilder()
+                                               .set_tablet_manager(_tablet_mgr.get())
+                                               .set_tablet_id(tablet_id)
+                                               .set_txn_id(txn_id)
+                                               .set_partition_id(_partition_id)
+                                               .set_mem_tracker(_mem_tracker.get())
+                                               .set_schema_id(_tablet_schema->id())
+                                               .set_profile(&_dummy_runtime_profile)
+                                               .build());
+    ASSERT_OK(delta_writer->open());
+
+    // First write should succeed
+    ASSERT_OK(delta_writer->write(chunk0, indexes.data(), indexes.size()));
+
+    // Cancel the writer with a specific error status
+    delta_writer->cancel(Status::Cancelled("transaction aborted"));
+
+    // Subsequent write should fail with the cancel status
+    auto write_st = delta_writer->write(chunk0, indexes.data(), indexes.size());
+    ASSERT_TRUE(write_st.is_cancelled());
+    ASSERT_TRUE(write_st.message().find("transaction aborted") != std::string::npos);
+
+    // Subsequent flush should also fail with the cancel status
+    auto flush_st = delta_writer->flush();
+    ASSERT_TRUE(flush_st.is_cancelled());
+
+    // Close should still work
+    delta_writer->close();
+}
+
+// Test that cancel() with OK status is a no-op
+TEST_F(LakeDeltaWriterTest, test_cancel_with_ok_status) {
+    // Prepare data for writing
+    static const int kChunkSize = 128;
+    auto chunk0 = generate_data(kChunkSize);
+    auto indexes = std::vector<uint32_t>(kChunkSize);
+    for (int i = 0; i < kChunkSize; i++) {
+        indexes[i] = i;
+    }
+
+    // Create and open DeltaWriter
+    auto txn_id = next_id();
+    auto tablet_id = _tablet_metadata->id();
+    ASSIGN_OR_ABORT(auto delta_writer, DeltaWriterBuilder()
+                                               .set_tablet_manager(_tablet_mgr.get())
+                                               .set_tablet_id(tablet_id)
+                                               .set_txn_id(txn_id)
+                                               .set_partition_id(_partition_id)
+                                               .set_mem_tracker(_mem_tracker.get())
+                                               .set_schema_id(_tablet_schema->id())
+                                               .set_profile(&_dummy_runtime_profile)
+                                               .build());
+    ASSERT_OK(delta_writer->open());
+
+    // Cancel with OK status should be a no-op
+    delta_writer->cancel(Status::OK());
+
+    // Write should still succeed
+    ASSERT_OK(delta_writer->write(chunk0, indexes.data(), indexes.size()));
+
+    // Finish and close
+    ASSERT_OK(delta_writer->finish_with_txnlog());
+    delta_writer->close();
+}
+
+// Test that multiple cancel() calls only use the first error status
+TEST_F(LakeDeltaWriterTest, test_multiple_cancel) {
+    // Prepare data for writing
+    static const int kChunkSize = 128;
+    auto chunk0 = generate_data(kChunkSize);
+    auto indexes = std::vector<uint32_t>(kChunkSize);
+    for (int i = 0; i < kChunkSize; i++) {
+        indexes[i] = i;
+    }
+
+    // Create and open DeltaWriter
+    auto txn_id = next_id();
+    auto tablet_id = _tablet_metadata->id();
+    ASSIGN_OR_ABORT(auto delta_writer, DeltaWriterBuilder()
+                                               .set_tablet_manager(_tablet_mgr.get())
+                                               .set_tablet_id(tablet_id)
+                                               .set_txn_id(txn_id)
+                                               .set_partition_id(_partition_id)
+                                               .set_mem_tracker(_mem_tracker.get())
+                                               .set_schema_id(_tablet_schema->id())
+                                               .set_profile(&_dummy_runtime_profile)
+                                               .build());
+    ASSERT_OK(delta_writer->open());
+
+    // First cancel with a specific status
+    delta_writer->cancel(Status::Cancelled("first cancel"));
+
+    // Second cancel with a different status should be ignored
+    delta_writer->cancel(Status::InternalError("second cancel"));
+
+    // Write should fail with the first cancel status
+    auto write_st = delta_writer->write(chunk0, indexes.data(), indexes.size());
+    ASSERT_TRUE(write_st.is_cancelled());
+    ASSERT_TRUE(write_st.message().find("first cancel") != std::string::npos);
+
+    delta_writer->close();
+}
+
 } // namespace starrocks::lake
