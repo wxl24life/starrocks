@@ -262,11 +262,13 @@ public class PaimonScanNode extends ScanNode {
                         List<RawFile> rawFiles = optionalRawFiles.get();
                         DataSplit dataSplit = (DataSplit) split;
                         Optional<List<DeletionFile>> deletionFiles = dataSplit.deletionFiles();
+                        // If row count is not available, count(1) optimization will not take effect
+                        Long recordCount = dataSplit.mergedRowCountAvailable() ? dataSplit.mergedRowCount() : null;
                         for (int i = 0; i < rawFiles.size(); i++) {
                             if (deletionFiles.isPresent()) {
-                                splitRawFileScanRangeLocations(rawFiles.get(i), deletionFiles.get().get(i), partitionId, dataSplit.mergedRowCount());
+                                splitRawFileScanRangeLocations(rawFiles.get(i), deletionFiles.get().get(i), partitionId, recordCount);
                             } else {
-                                splitRawFileScanRangeLocations(rawFiles.get(i), null, partitionId, dataSplit.mergedRowCount());
+                                splitRawFileScanRangeLocations(rawFiles.get(i), null, partitionId, recordCount);
                             }
                         }
                     } else {
@@ -360,7 +362,8 @@ public class PaimonScanNode extends ScanNode {
         return optKey;
     }
 
-    public void splitRawFileScanRangeLocations(RawFile rawFile, @Nullable DeletionFile deletionFile, long partitionId, long recordCount) {
+    public void splitRawFileScanRangeLocations(RawFile rawFile, @Nullable DeletionFile deletionFile,
+                                               long partitionId, @Nullable Long recordCount) {
         SessionVariable sv = SessionVariable.DEFAULT_SESSION_VARIABLE;
         long splitSize = sv.getConnectorMaxSplitSize();
         long totalSize = rawFile.length();
@@ -379,7 +382,7 @@ public class PaimonScanNode extends ScanNode {
                                         long splitSize,
                                         @Nullable DeletionFile deletionFile,
                                         long partitionId,
-                                        long recordCount) {
+                                        @Nullable Long recordCount) {
         int loop = 0;
         long remainingBytes = length;
         do {
@@ -425,7 +428,7 @@ public class PaimonScanNode extends ScanNode {
                                               @Nullable DeletionFile deletionFile,
                                               long partitionId,
                                               int loop,
-                                              long recordCount) {
+                                              @Nullable Long recordCount) {
         TScanRangeLocations scanRangeLocations = new TScanRangeLocations();
 
         THdfsScanRange hdfsScanRange = new THdfsScanRange();
@@ -443,10 +446,13 @@ public class PaimonScanNode extends ScanNode {
         }
 
         hdfsScanRange.setIs_first_split(true);
-        if (loop == 0) {
-            hdfsScanRange.setRecord_count(recordCount);
-        } else {
-            hdfsScanRange.setRecord_count(0L);
+        // If record count is not set, count(1) optimization will not take effect nd be will scan all files
+        if (recordCount != null) {
+            if (loop == 0) {
+                hdfsScanRange.setRecord_count(recordCount);
+            } else {
+                hdfsScanRange.setRecord_count(0L);
+            }
         }
 
         if (null != deletionFile) {

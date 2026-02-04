@@ -190,4 +190,62 @@ public class PaimonScanNodeTest {
         TScanRangeLocations tScanRangeLocations = scanNode.getScanRangeLocations(10).get(0);
         Assertions.assertEquals(THdfsFileFormat.UNKNOWN, tScanRangeLocations.getScan_range().getHdfs_scan_range().getFile_format());
     }
+
+    @Test
+    public void testSplitRawFileScanRangeWithNullRecordCount(@Mocked PaimonTable table, @Mocked RawFile rawFile) {
+        new Expectations() {
+            {
+                rawFile.format();
+                result = "orc";
+                rawFile.path();
+                result = "/path/to/bucket/data_file.orc";
+                rawFile.length();
+                result = 1024L;
+                rawFile.offset();
+                result = 0L;
+            }
+        };
+
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        desc.setTable(table);
+        PaimonScanNode scanNode = new PaimonScanNode(new PlanNodeId(0), desc, "XXX");
+
+        // Test with null recordCount
+        DeletionFile deletionFileWithoutCardinality = new DeletionFile("dummy", 1, 2, null);
+        scanNode.splitRawFileScanRangeLocations(rawFile, deletionFileWithoutCardinality, 0L, null);
+
+        Assert.assertEquals(1, scanNode.getScanRangeLocations(10).size());
+        TScanRangeLocations tScanRangeLocations = scanNode.getScanRangeLocations(10).get(0);
+        Assert.assertFalse(tScanRangeLocations.getScan_range().getHdfs_scan_range().isSetRecord_count());
+    }
+
+    @Test
+    public void testSplitRawFileScanRangeWithRecordCount(@Mocked PaimonTable table, @Mocked RawFile rawFile) {
+        new Expectations() {
+            {
+                rawFile.format();
+                result = "orc";
+                rawFile.path();
+                result = "/path/to/bucket/data_file.orc";
+                rawFile.length();
+                result = 1024L;
+                rawFile.offset();
+                result = 0L;
+            }
+        };
+
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        desc.setTable(table);
+        PaimonScanNode scanNode = new PaimonScanNode(new PlanNodeId(0), desc, "XXX");
+
+        // Test with valid recordCount
+        DeletionFile deletionFileWithCardinality = new DeletionFile("dummy", 1, 2, 100L);
+        scanNode.splitRawFileScanRangeLocations(rawFile, deletionFileWithCardinality, 0L, 500L);
+
+        Assert.assertEquals(1, scanNode.getScanRangeLocations(10).size());
+        TScanRangeLocations tScanRangeLocations = scanNode.getScanRangeLocations(10).get(0);
+        // When recordCount is provided, record_count should be set
+        Assert.assertTrue(tScanRangeLocations.getScan_range().getHdfs_scan_range().isSetRecord_count());
+        Assert.assertEquals(500L, tScanRangeLocations.getScan_range().getHdfs_scan_range().getRecord_count());
+    }
 }
