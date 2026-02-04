@@ -28,7 +28,6 @@ import com.starrocks.credential.CloudCredential;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.s3a.S3AFileSystem;
 
-import java.util.HashMap;
 import java.util.Map;
 
 
@@ -46,7 +45,6 @@ public class AliyunCloudCredential implements CloudCredential {
     private final String region;
     private final String stsToken;
     private final String stsFilePath;
-    private final Map<String, String> dlfOptions;
     private final boolean useDefaultCredential;
 
     public AliyunCloudCredential(String accessKey, String secretKey, String endpoint) {
@@ -59,7 +57,6 @@ public class AliyunCloudCredential implements CloudCredential {
         this.region = "";
         this.stsToken = "";
         this.stsFilePath = "";
-        this.dlfOptions = new HashMap<>();
         this.useDefaultCredential = false;
     }
 
@@ -75,23 +72,6 @@ public class AliyunCloudCredential implements CloudCredential {
         this.region = region;
         this.stsToken = stsToken;
         this.stsFilePath = stsFilePath;
-        this.dlfOptions = new HashMap<>();
-        this.useDefaultCredential = useDefaultCredential;
-    }
-
-    public AliyunCloudCredential(String accessKey, String secretKey, String endpoint, String region, String stsToken,
-                                 String stsFilePath, Map<String, String> dlfOptions, boolean useDefaultCredential) {
-        Preconditions.checkNotNull(accessKey);
-        Preconditions.checkNotNull(secretKey);
-        Preconditions.checkNotNull(endpoint);
-        Preconditions.checkNotNull(region);
-        this.accessKey = accessKey;
-        this.secretKey = secretKey;
-        this.endpoint = endpoint;
-        this.region = region;
-        this.stsToken = stsToken;
-        this.stsFilePath = stsFilePath;
-        this.dlfOptions = dlfOptions;
         this.useDefaultCredential = useDefaultCredential;
     }
 
@@ -141,12 +121,6 @@ public class AliyunCloudCredential implements CloudCredential {
         properties.put(CloudConfigurationConstants.ALIYUN_OSS_STS_FILE_PATH, stsFilePath);
         properties.put(CloudConfigurationConstants.ALIYUN_OSS_USE_DEFAULT_CREDENTIAL,
                 String.valueOf(useDefaultCredential));
-        // add prefix for dlf conf
-        if (!dlfOptions.isEmpty()) {
-            for (Map.Entry<String, String> entry : dlfOptions.entrySet()) {
-                properties.put("dlf_config." + entry.getKey(), entry.getValue());
-            }
-        }
     }
 
     @Override

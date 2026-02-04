@@ -41,14 +41,16 @@
 
 namespace starrocks {
 
-PaimonNativeWriter::PaimonNativeWriter(PaimonTableDescriptor* paimon_table, std::vector<ExprContext*> partition_expr,
-                                       std::vector<ExprContext*> bucket_expr, std::vector<ExprContext*> output_expr,
+PaimonNativeWriter::PaimonNativeWriter(PaimonTableDescriptor* paimon_table, const TCloudConfiguration& cloud_conf,
+                                       std::vector<ExprContext*> partition_expr, std::vector<ExprContext*> bucket_expr,
+                                       std::vector<ExprContext*> output_expr,
                                        std::vector<std::string> data_column_names,
                                        std::vector<std::string> data_column_types,
                                        RuntimeProfile::Counter* convert_timer, bool is_static_partition_sink,
                                        std::vector<std::string> partition_column_names,
                                        std::vector<std::string> partition_column_values)
         : _paimon_table(paimon_table),
+          _cloud_conf(cloud_conf),
           _output_expr(std::move(output_expr)),
           _partition_expr(std::move(partition_expr)),
           _bucket_expr(std::move(bucket_expr)),
@@ -64,11 +66,15 @@ PaimonNativeWriter::~PaimonNativeWriter() = default;
 Status PaimonNativeWriter::do_init(RuntimeState* runtime_state) {
     RETURN_IF_ERROR(get_arrow_schema());
 
-    const std::map<std::string, std::string>& paimon_options = _paimon_table->get_paimon_options();
+    std::map<std::string, std::string> paimon_options = _paimon_table->get_paimon_options();
     const std::string& root_path = paimon_options.at(PaimonOptions::ROOT_PATH);
 
+    for (const auto& [key, value] : _cloud_conf.cloud_properties) {
+        paimon_options[key] = value;
+    }
+
     std::string paimon_native_commit_user = runtime_state->query_options().paimon_native_commit_user;
-    if (paimon_native_commit_user == "") {
+    if (paimon_native_commit_user.empty()) {
         paimon_native_commit_user = "root";
     }
 

@@ -28,14 +28,16 @@ namespace starrocks::pipeline {
 class PaimonTableSinkOperator final : public Operator {
 public:
     PaimonTableSinkOperator(OperatorFactory* factory, int32_t id, int32_t plan_node_id,
-                            PaimonTableDescriptor* paimon_table, int32_t driver_sequence,
-                            std::vector<ExprContext*> partition_expr_ctxs, std::vector<ExprContext*> bucket_expr_ctxs,
-                            std::vector<ExprContext*> output_expr_ctxs, std::vector<std::string> data_column_names,
-                            std::vector<std::string> data_column_types, bool use_native_writer,
-                            bool is_static_partition_sink, std::vector<std::string> partition_column_names,
+                            PaimonTableDescriptor* paimon_table, const TCloudConfiguration& cloud_conf,
+                            int32_t driver_sequence, std::vector<ExprContext*> partition_expr_ctxs,
+                            std::vector<ExprContext*> bucket_expr_ctxs, std::vector<ExprContext*> output_expr_ctxs,
+                            std::vector<std::string> data_column_names, std::vector<std::string> data_column_types,
+                            bool use_native_writer, bool is_static_partition_sink,
+                            std::vector<std::string> partition_column_names,
                             std::vector<std::string> partition_column_values)
             : Operator(factory, id, "paimon_table_sink", plan_node_id, false, driver_sequence),
               _paimon_table(paimon_table),
+              _cloud_conf(cloud_conf),
               _partition_expr(std::move(partition_expr_ctxs)),
               _bucket_expr(std::move(bucket_expr_ctxs)),
               _output_expr(std::move(output_expr_ctxs)),
@@ -86,9 +88,8 @@ private:
 
     std::string _location;
     std::string _file_format;
-    TCompressionType::type _compression_codec;
-    TCloudConfiguration _cloud_conf;
     PaimonTableDescriptor* _paimon_table;
+    TCloudConfiguration _cloud_conf;
 
     std::vector<ExprContext*> _partition_expr;
     std::vector<ExprContext*> _bucket_expr;
@@ -141,6 +142,7 @@ private:
     std::vector<ExprContext*> _partition_expr_ctxs;
     std::vector<ExprContext*> _bucket_expr_ctxs;
     PaimonTableDescriptor* _paimon_table;
+    TCloudConfiguration _cloud_conf;
     std::vector<std::string> _data_column_names;
     std::vector<std::string> _data_column_types;
     bool _use_native_writer = false;

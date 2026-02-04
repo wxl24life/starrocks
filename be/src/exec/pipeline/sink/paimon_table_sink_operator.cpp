@@ -122,9 +122,10 @@ void PaimonTableSinkOperator::add_paimon_commit_info(const std::string& paimon_c
 
 std::unique_ptr<PaimonWriter> PaimonTableSinkOperator::create_paimon_writer() {
     if (_use_native_writer) {
-        return std::make_unique<PaimonNativeWriter>(
-                _paimon_table, _partition_expr, _bucket_expr, _output_expr, _data_column_names, _data_column_types,
-                _convert_timer, _is_static_partition_sink, _partition_column_names, _partition_column_values);
+        return std::make_unique<PaimonNativeWriter>(_paimon_table, _cloud_conf, _partition_expr, _bucket_expr,
+                                                    _output_expr, _data_column_names, _data_column_types,
+                                                    _convert_timer, _is_static_partition_sink, _partition_column_names,
+                                                    _partition_column_values);
     }
     return std::move(create_paimon_jni_writer());
 }
@@ -133,8 +134,7 @@ std::unique_ptr<PaimonWriter> PaimonTableSinkOperator::create_paimon_jni_writer(
     std::map<std::string, std::string> jni_writer_params;
     jni_writer_params["native_table"] = _paimon_table->get_paimon_native_table();
     std::string writer_factory_class = "com/starrocks/paimon/reader/PaimonWriterFactory";
-    return std::make_unique<starrocks::JniWriter>(writer_factory_class, jni_writer_params, _output_expr,
-                                                  _data_column_types);
+    return std::make_unique<JniWriter>(writer_factory_class, jni_writer_params, _output_expr, _data_column_types);
 }
 
 PaimonTableSinkOperatorFactory::PaimonTableSinkOperatorFactory(
@@ -150,20 +150,19 @@ PaimonTableSinkOperatorFactory::PaimonTableSinkOperatorFactory(
           _partition_expr_ctxs(std::move(partition_expr_ctxs)),
           _bucket_expr_ctxs(std::move(bucket_expr_ctxs)),
           _paimon_table(std::move(paimon_table)),
+          _cloud_conf(t_paimon_table_sink.cloud_configuration),
           _data_column_names(std::move(data_column_names)),
           _data_column_types(std::move(data_column_types)),
           _use_native_writer(use_native_writer),
           _is_static_partition_sink(is_static_partition_sink),
           _partition_column_names(std::move(partition_column_names)),
-          _partition_column_values(std::move(partition_column_values)) {
-    DCHECK(t_paimon_table_sink.__isset.target_table_id);
-}
+          _partition_column_values(std::move(partition_column_values)) {}
 
 OperatorPtr PaimonTableSinkOperatorFactory::create(int32_t degree_of_parallelism, int32_t driver_sequence) {
     return std::make_shared<PaimonTableSinkOperator>(
-            this, _id, _plan_node_id, _paimon_table, driver_sequence, _partition_expr_ctxs, _bucket_expr_ctxs,
-            _output_expr_ctxs, _data_column_names, _data_column_types, _use_native_writer, _is_static_partition_sink,
-            _partition_column_names, _partition_column_values);
+            this, _id, _plan_node_id, _paimon_table, _cloud_conf, driver_sequence, _partition_expr_ctxs,
+            _bucket_expr_ctxs, _output_expr_ctxs, _data_column_names, _data_column_types, _use_native_writer,
+            _is_static_partition_sink, _partition_column_names, _partition_column_values);
 }
 
 Status PaimonTableSinkOperatorFactory::prepare(RuntimeState* state) {

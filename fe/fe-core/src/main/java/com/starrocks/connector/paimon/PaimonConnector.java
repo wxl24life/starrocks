@@ -101,10 +101,8 @@ public class PaimonConnector implements Connector {
                     "com.aliyun.datalake.metastore.hive3.ProxyMetaStoreClient");
         } else if (catalogType.equalsIgnoreCase("rest")) {
             // DLF 2.5
-            if ("dlf".equalsIgnoreCase(properties.get("token.provider"))) {
-                this.paimonOptions.set(URI.key(), properties.get("uri"));
-                this.paimonOptions.set("token.provider", "dlf");
-            }
+            this.paimonOptions.set(URI.key(), properties.get("uri"));
+            this.paimonOptions.set("token.provider", properties.get("token.provider"));
         }
         if (Strings.isNullOrEmpty(warehousePath)
                 && !catalogType.equals("hive")
@@ -186,27 +184,23 @@ public class PaimonConnector implements Connector {
         try {
             String catalogKey = "";
             String ramUser = "";
-            // DLF 2.5 or DLF 2.0
-            if (catalogType.equalsIgnoreCase("rest") && this.paimonOptions.get("token.provider").equalsIgnoreCase("dlf")) {
+            // DLF 2.5
+            if (catalogType.equalsIgnoreCase("rest")) {
                 ramUser = DlfUtil.getRamUser();
                 boolean noAK = Strings.isNullOrEmpty(this.paimonOptions.get("dlf.access-key-id"))
                         || Strings.isNullOrEmpty(this.paimonOptions.get("dlf.access-key-secret"));
-                // Only search for meta token path when users do not config ak/sk themselves
-                if ("dlf".equalsIgnoreCase(this.paimonOptions.get("token.provider")) && noAK) {
-                    // For DLF 2.5, we should get the exact meta token for user
-                    this.paimonOptions.set("dlf.token-path", DlfUtil.getMetaToken(ramUser));
-                }
-                // Do not need ram user check when using ak/sk
-                if (noAK) {
+                // check RAM user for local file token loader and ignore ECS loader
+                if ("dlf".equalsIgnoreCase(this.paimonOptions.get("token.provider")) &&
+                        !"ecs".equalsIgnoreCase(this.paimonOptions.get("dlf.token-loader")) && noAK) {
                     if (Strings.isNullOrEmpty(ramUser)) {
                         String qualifiedUser = ConnectContext.get().getQualifiedUser();
                         String user = ConnectContext.get().getCurrentUserIdentity().getUser();
                         throw new StarRocksConnectorException("Failed to find a valid RAM user from %s(%s). " +
                                 "Please check your user properties.", qualifiedUser, user);
-                    } else {
-                        catalogKey = this.catalogName + "-" + ramUser;
-                        this.paimonOptions.set(DLF_AUTH_USER_NAME, ramUser);
                     }
+                    // For DLF 2.5, we should get the exact meta token for user
+                    this.paimonOptions.set("dlf.token-path", DlfUtil.getMetaToken(ramUser));
+                    catalogKey = this.catalogName + "-" + ramUser;
                 } else {
                     catalogKey = this.catalogName + "-" + "base";
                 }

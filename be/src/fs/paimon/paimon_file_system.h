@@ -13,6 +13,7 @@
 // limitations under the License.
 #pragma once
 
+#include "gen_cpp/CloudConfiguration_types.h"
 #include "paimon/fs/file_system.h"
 #include "paimon/fs/file_system_factory.h"
 
@@ -106,9 +107,9 @@ public:
 
 private:
     Status delete_internal(const std::string& path, bool is_dir, bool recursive) const;
-    FSOptions from_map();
 
     std::map<std::string, std::string> _options;
+    TCloudConfiguration _cloud_configuration;
     std::unique_ptr<starrocks::FileSystem> _fs;
 };
 

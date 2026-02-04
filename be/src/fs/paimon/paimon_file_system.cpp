@@ -16,6 +16,7 @@
 
 #include "fmt/format.h"
 #include "fs/fs.h"
+#include "gen_cpp/CloudConfiguration_types.h"
 
 namespace starrocks {
 
@@ -67,7 +68,11 @@ PaimonFileStatus::~PaimonFileStatus() = default;
 
 PaimonFileSystem::PaimonFileSystem(const std::map<std::string, std::string>& options) : _options(options) {
     std::string path = _options[PaimonOptions::ROOT_PATH];
-    FSOptions fs_options = std::move(from_map());
+
+    _cloud_configuration.__set_cloud_type(TCloudType::ALIYUN);
+    _cloud_configuration.__set_cloud_properties(_options);
+
+    FSOptions fs_options(&_cloud_configuration);
     auto st = starrocks::FileSystem::CreateUniqueFromString(path, fs_options);
     if (!st.ok()) {
         // It looks like no scenario can reach this code path, but just in case.
@@ -77,11 +82,6 @@ PaimonFileSystem::PaimonFileSystem(const std::map<std::string, std::string>& opt
 }
 
 PaimonFileSystem::~PaimonFileSystem() = default;
-
-FSOptions PaimonFileSystem::from_map() {
-    FSOptions fs_options;
-    return fs_options;
-}
 
 paimon::Result<std::unique_ptr<paimon::OutputStream>> PaimonFileSystem::Create(const std::string& path,
                                                                                bool overwrite) const {

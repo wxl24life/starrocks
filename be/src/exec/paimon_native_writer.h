@@ -14,6 +14,8 @@
 
 #pragma once
 
+#include <gen_cpp/DataSinks_types.h>
+
 #include <memory>
 #include <vector>
 
@@ -47,11 +49,11 @@ struct TypeDescriptor;
 
 class PaimonNativeWriter : public PaimonWriter {
 public:
-    PaimonNativeWriter(PaimonTableDescriptor* paimon_table, std::vector<ExprContext*> partition_expr,
-                       std::vector<ExprContext*> bucket_expr, std::vector<ExprContext*> output_expr,
-                       std::vector<std::string> data_column_names, std::vector<std::string> data_column_types,
-                       RuntimeProfile::Counter* _convert_timer, bool is_static_partition_sink,
-                       std::vector<std::string> partition_column_names,
+    PaimonNativeWriter(PaimonTableDescriptor* paimon_table, const TCloudConfiguration& cloud_conf,
+                       std::vector<ExprContext*> partition_expr, std::vector<ExprContext*> bucket_expr,
+                       std::vector<ExprContext*> output_expr, std::vector<std::string> data_column_names,
+                       std::vector<std::string> data_column_types, RuntimeProfile::Counter* _convert_timer,
+                       bool is_static_partition_sink, std::vector<std::string> partition_column_names,
                        std::vector<std::string> partition_column_values);
     ~PaimonNativeWriter() override;
 
@@ -76,6 +78,7 @@ private:
     std::string commit_message;
 
     PaimonTableDescriptor* _paimon_table;
+    TCloudConfiguration _cloud_conf;
     std::vector<ExprContext*> _output_expr;
     std::vector<ExprContext*> _partition_expr;
     std::vector<ExprContext*> _bucket_expr;

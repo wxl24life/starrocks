@@ -19,7 +19,10 @@ import com.starrocks.analysis.LiteralExpr;
 import com.starrocks.analysis.TupleDescriptor;
 import com.starrocks.catalog.PaimonTable;
 import com.starrocks.connector.Connector;
+import com.starrocks.connector.share.credential.CloudConfigurationConstants;
 import com.starrocks.credential.CloudConfiguration;
+import com.starrocks.credential.CloudConfigurationFactory;
+import com.starrocks.credential.aliyun.AliyunCloudCredential;
 import com.starrocks.qe.SessionVariable;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.ast.PartitionNames;
@@ -30,6 +33,8 @@ import com.starrocks.thrift.TExplainLevel;
 import com.starrocks.thrift.TPaimonTableSink;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.rest.RESTToken;
+import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BooleanType;
@@ -46,7 +51,9 @@ import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarCharType;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class PaimonTableSink extends DataSink {
@@ -117,6 +124,21 @@ public class PaimonTableSink extends DataSink {
                     partitionNames.getPartitionColValues().stream()
                             .map(it -> ((LiteralExpr) it).getRealObjectValue().toString()).collect(Collectors.toList()));
         }
+        if (paimonNativeTable.fileIO() instanceof RESTTokenFileIO) {
+            RESTTokenFileIO fileIO = (RESTTokenFileIO) paimonNativeTable.fileIO();
+            RESTToken token = fileIO.validToken();
+            Map<String, String> properties = new HashMap<>();
+            properties.put(CloudConfigurationConstants.ALIYUN_OSS_ACCESS_KEY,
+                    token.token().get(AliyunCloudCredential.FS_OSS_ACCESS_KEY));
+            properties.put(CloudConfigurationConstants.ALIYUN_OSS_SECRET_KEY,
+                    token.token().get(AliyunCloudCredential.FS_OSS_SECRET_KEY));
+            properties.put(CloudConfigurationConstants.ALIYUN_OSS_STS_TOKEN,
+                    token.token().get(AliyunCloudCredential.FS_OSS_SECURITY_TOKEN));
+            properties.put(CloudConfigurationConstants.ALIYUN_OSS_ENDPOINT,
+                    token.token().get(AliyunCloudCredential.FS_OSS_ENDPOINT));
+            cloudConfiguration = CloudConfigurationFactory.buildCloudConfigurationForStorage(properties);
+        }
+
         TCloudConfiguration tCloudConfiguration = new TCloudConfiguration();
         cloudConfiguration.toThrift(tCloudConfiguration);
         tPaimonTableSink.setCloud_configuration(tCloudConfiguration);
