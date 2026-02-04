@@ -322,14 +322,14 @@ public class PaimonScanNode extends ScanNode {
                 deletionVectorLength += hdfsScanRange.getPaimon_deletion_file().length - hdfsScanRange.getPaimon_deletion_file().offset;
             }
         }
-        String prefix = "Paimon.metadata.reader." + paimonTable.getCatalogTableName() + "-" + predicateHash + ".";
+        String prefix = "Paimon.scan.reader." + paimonTable.getCatalogTableName() + "-" + predicateHash + ".";
         Tracers.record(EXTERNAL, prefix + "nativeReaderReadNum", String.valueOf(nativeReaderCount));
         Tracers.record(EXTERNAL, prefix + "nativeReaderReadBytes", nativeReaderLength + " B");
         Tracers.record(EXTERNAL, prefix + "paimonNativeReaderReadNum", String.valueOf(paimonNativeReaderCount));
         Tracers.record(EXTERNAL, prefix + "paimonNativeReaderReadBytes", paimonNativeReaderLength + " B");
         Tracers.record(EXTERNAL, prefix + "jniReaderReadNum", String.valueOf(jniReaderCount));
         Tracers.record(EXTERNAL, prefix + "jniReaderReadBytes", jniReaderLength + " B");
-        String dvPrefix = "Paimon.metadata.deletionVector." + paimonTable.getCatalogTableName() + "-" + predicateHash + ".";
+        String dvPrefix = "Paimon.scan.deletionVector." + paimonTable.getCatalogTableName() + "-" + predicateHash + ".";
         Tracers.record(EXTERNAL, dvPrefix + "count", String.valueOf(deletionVectorCount));
         Tracers.record(EXTERNAL, dvPrefix + "readBytes", String.valueOf(deletionVectorLength));
     }

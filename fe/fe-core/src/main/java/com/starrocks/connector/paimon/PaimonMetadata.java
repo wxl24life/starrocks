@@ -86,7 +86,6 @@ import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DateType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.DateTimeUtils;
-import org.apache.paimon.utils.PartitionPathUtils;
 import org.apache.paimon.utils.StringUtils;
 
 import java.io.ByteArrayInputStream;
@@ -94,7 +93,6 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
@@ -262,10 +260,7 @@ public class PaimonMetadata implements ConnectorMetadata {
         try {
             List<org.apache.paimon.partition.Partition> partitions = paimonNativeCatalog.listPartitions(identifier);
             for (org.apache.paimon.partition.Partition partition : partitions) {
-                String partitionPath = PartitionPathUtils.generatePartitionPath(partition.spec(), dataTableRowType);
-                String[] partitionValues = Arrays.stream(partitionPath.split("/"))
-                        .map(part -> part.split("=")[1])
-                        .toArray(String[]::new);
+                List<String> partitionValues = new ArrayList<>(partition.spec().values());
                 Partition srPartition = getPartition(partition.recordCount(),
                         partition.fileSizeInBytes(), partition.fileCount(),
                         partitionColumnNames, partitionColumnTypes, partitionValues,
@@ -282,19 +277,19 @@ public class PaimonMetadata implements ConnectorMetadata {
                                    Long fileCount,
                                    List<String> partitionColumnNames,
                                    List<DataType> partitionColumnTypes,
-                                   String[] partitionValues,
+                                   List<String>  partitionValues,
                                    Timestamp lastUpdateTime) {
-        if (partitionValues.length != partitionColumnNames.size()) {
+        if (partitionValues.size() != partitionColumnNames.size()) {
             String errorMsg = String.format("The length of partitionValues %s is not equal to " +
-                    "the partitionColumnNames %s.", partitionValues.length, partitionColumnNames.size());
+                    "the partitionColumnNames %s.", partitionValues.size(), partitionColumnNames.size());
             throw new IllegalArgumentException(errorMsg);
         }
         PaimonPartitionKey partitionKey = new PaimonPartitionKey();
 
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < partitionValues.length; i++) {
+        for (int i = 0; i < partitionValues.size(); i++) {
             String column = partitionColumnNames.get(i);
-            String value = partitionValues[i].trim();
+            String value = partitionValues.get(i).trim();
             if (partitionColumnTypes.get(i) instanceof DateType) {
                 if (!partitionKey.nullPartitionValueList().contains(value) && StringUtils.isNumeric(value)) {
                     value = DateTimeUtils.formatDate(Integer.parseInt(value));
@@ -449,52 +444,58 @@ public class PaimonMetadata implements ConnectorMetadata {
         if (metricRegistry.getMetricGroup() == null) {
             return;
         }
-        String prefix = "Paimon.plan.";
+        String prefix = "Paimon.plan." + tableName + "-" + predicateHash;
 
         if (paimonNativeCatalog instanceof CachingCatalog) {
             CachingCatalog.CacheSizes cacheSizes = ((CachingCatalog) paimonNativeCatalog).estimatedCacheSizes();
-            Tracers.record(EXTERNAL, prefix + "total.cachedDatabaseNumInCatalog",
+            Tracers.record(EXTERNAL, prefix + "." + "catalogCache" + "." + "cachedDatabaseNumInCatalog",
                     String.valueOf(cacheSizes.databaseCacheSize()));
-            Tracers.record(EXTERNAL, prefix + "total.cachedTableNumInCatalog",
+            Tracers.record(EXTERNAL, prefix + "." + "catalogCache" + "." + "cachedTableNumInCatalog",
                     String.valueOf(cacheSizes.tableCacheSize()));
-            Tracers.record(EXTERNAL, prefix + "total.cachedManifestNumInCatalog",
+            Tracers.record(EXTERNAL, prefix + "." + "catalogCache" + "." + "cachedManifestNumInCatalog",
                     String.valueOf(cacheSizes.manifestCacheSize()));
-            Tracers.record(EXTERNAL, prefix + "total.cachedManifestBytesInCatalog",
+            Tracers.record(EXTERNAL, prefix + "." + "catalogCache" + "." + "cachedManifestBytesInCatalog",
                     cacheSizes.manifestCacheBytes() + " B");
-            Tracers.record(EXTERNAL, prefix + "total.cachedPartitionNumInCatalog",
+            Tracers.record(EXTERNAL, prefix + "." + "catalogCache" + "." + "cachedPartitionNumInCatalog",
                     String.valueOf(cacheSizes.partitionCacheSize()));
         }
 
-        String tableIdentifier = tableName + "-" + predicateHash;
         for (int i = 0; i < predicates.size(); i++) {
-            Tracers.record(EXTERNAL, prefix + tableIdentifier + ".filter." + i, predicates.get(i).toString());
+            Tracers.record(EXTERNAL, prefix + ".filter." + i, predicates.get(i).toString());
         }
 
         Map<String, Metric> metrics = metricRegistry.getMetrics();
-        long manifestFileReadTime = (long) ((Gauge<?>) metrics.get(ScanMetrics.LAST_SCAN_DURATION)).getValue();
-        long scannedManifestFileNum = (long) ((Gauge<?>) metrics.get(ScanMetrics.LAST_SCANNED_MANIFESTS)).getValue();
-        long skippedDataFilesNum = (long) ((Gauge<?>) metrics.get(ScanMetrics.LAST_SCAN_SKIPPED_TABLE_FILES)).getValue();
-        long resultedDataFilesNum = (long) ((Gauge<?>) metrics.get(ScanMetrics.LAST_SCAN_RESULTED_TABLE_FILES)).getValue();
+        long scanDuration = (long) ((Gauge<?>) metrics.get(ScanMetrics.LAST_SCAN_DURATION)).getValue();
+        long scanSnapshotId = (long) ((Gauge<?>) metrics.get(ScanMetrics.LAST_SCANNED_SNAPSHOT_ID)).getValue();
+        long scannedManifests = (long) ((Gauge<?>) metrics.get(ScanMetrics.LAST_SCANNED_MANIFESTS)).getValue();
+        long skippedTableFiles = (long) ((Gauge<?>) metrics.get(ScanMetrics.LAST_SCAN_SKIPPED_TABLE_FILES)).getValue();
+        long resultedTableFiles = (long) ((Gauge<?>) metrics.get(ScanMetrics.LAST_SCAN_RESULTED_TABLE_FILES)).getValue();
         long manifestNumReadFromCache = (long) ((Gauge<?>) metrics.get(ScanMetrics.MANIFEST_HIT_CACHE)).getValue();
         long manifestNumReadFromRemote = (long) ((Gauge<?>) metrics.get(ScanMetrics.MANIFEST_MISSED_CACHE)).getValue();
+        long dvMetaNumReadFromCache = (long) ((Gauge<?>) metrics.get(ScanMetrics.DVMETA_HIT_CACHE)).getValue();
+        long dvMetaNumReadFromRemote = (long) ((Gauge<?>) metrics.get(ScanMetrics.DVMETA_MISSED_CACHE)).getValue();
 
-        Tracers.record(EXTERNAL, prefix + tableIdentifier + "." + "manifestFileReadTime", manifestFileReadTime + "ms");
-        Tracers.record(EXTERNAL, prefix + tableIdentifier + "." + "scannedManifestFileNum",
-                String.valueOf(scannedManifestFileNum));
-        Tracers.record(EXTERNAL, prefix + tableIdentifier + "." + "skippedDataFilesNum", String.valueOf(skippedDataFilesNum));
-        Tracers.record(EXTERNAL, prefix + tableIdentifier + "." + "resultedDataFilesNum", String.valueOf(resultedDataFilesNum));
-        Tracers.record(EXTERNAL, prefix + tableIdentifier + "." + "manifestNumReadFromCache",
+        Tracers.record(EXTERNAL, prefix + "." + "planTime", scanDuration + "ms");
+        Tracers.record(EXTERNAL, prefix + "." + "snapshotId", String.valueOf(scanSnapshotId));
+        Tracers.record(EXTERNAL, prefix + "." + "scannedManifestsNum", String.valueOf(scannedManifests));
+        Tracers.record(EXTERNAL, prefix + "." + "skippedDataFilesNum", String.valueOf(skippedTableFiles));
+        Tracers.record(EXTERNAL, prefix + "." + "resultedDataFilesNum", String.valueOf(resultedTableFiles));
+        Tracers.record(EXTERNAL, prefix + "." + "objectsCache" + "." + "numReadFromCache",
                 String.valueOf(manifestNumReadFromCache));
-        Tracers.record(EXTERNAL, prefix + tableIdentifier + "." + "manifestNumReadFromRemote",
+        Tracers.record(EXTERNAL, prefix + "." + "objectsCache" + "." + "numReadFromRemote",
                 String.valueOf(manifestNumReadFromRemote));
-        Tracers.record(EXTERNAL, prefix + "total.resultSplitsNum", String.valueOf(splits.size()));
+        Tracers.record(EXTERNAL, prefix + "." + "dvMetaCache" + "." + "numReadFromCache",
+                String.valueOf(dvMetaNumReadFromCache));
+        Tracers.record(EXTERNAL, prefix + "." + "dvMetaCache" + "." + "numReadFromRemote",
+                String.valueOf(dvMetaNumReadFromRemote));
+        Tracers.record(EXTERNAL, prefix + "." + "splitsNum", String.valueOf(splits.size()));
 
         AtomicLong resultedTableFilesSize = new AtomicLong(0);
         for (Split split : splits) {
             List<DataFileMeta> dataFileMetas = ((DataSplit) split).dataFiles();
             dataFileMetas.forEach(dataFileMeta -> resultedTableFilesSize.addAndGet(dataFileMeta.fileSize()));
         }
-        Tracers.record(EXTERNAL, prefix + tableIdentifier + "." + "resultedDataFilesSize", resultedTableFilesSize.get() + " B");
+        Tracers.record(EXTERNAL, prefix + "." + "resultedDataFilesSize", resultedTableFilesSize.get() + " B");
     }
 
     @Override

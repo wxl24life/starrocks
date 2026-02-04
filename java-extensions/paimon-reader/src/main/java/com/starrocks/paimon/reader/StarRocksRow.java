@@ -17,6 +17,7 @@ package com.starrocks.paimon.reader;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.data.Blob;
 import org.apache.paimon.data.DataSetters;
 import org.apache.paimon.data.Decimal;
 import org.apache.paimon.data.InternalArray;
@@ -130,6 +131,11 @@ public final class StarRocksRow implements InternalRow, DataSetters, Serializabl
     @Override
     public Variant getVariant(int i) {
         // todo: do not support variant now
+        return null;
+    }
+
+    @Override
+    public Blob getBlob(int i) {
         return null;
     }
 

@@ -37,6 +37,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.catalog.CachingCatalog;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.table.FileStoreTable;
 
 import java.util.List;
 import java.util.Map;
@@ -190,6 +191,10 @@ public class ConnectorTableMetadataProcessor extends FrontendDaemon {
             for (String dbName : paimonCatalog.listDatabases()) {
                 try {
                     for (String tblName : paimonCatalog.listTables(dbName)) {
+                        org.apache.paimon.table.Table table = paimonCatalog.getTable(new Identifier(dbName, tblName));
+                        if (!(table instanceof FileStoreTable)) {
+                            continue;
+                        }
                         List<Future<?>> futures = Lists.newArrayList();
                         futures.add(refreshRemoteFileExecutor.submit(() ->
                                 paimonCatalog.invalidateTable(new Identifier(dbName, tblName))
