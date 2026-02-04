@@ -136,6 +136,12 @@ public class StreamLoadPlanner {
 
     // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
     public TExecPlanFragmentParams plan(TUniqueId loadId) throws StarRocksException {
+        try (var guard = connectContext.bindScope()) {
+            return doPlan(loadId);
+        }
+    }
+
+    private TExecPlanFragmentParams doPlan(TUniqueId loadId) throws StarRocksException {
         boolean isPrimaryKey = destTable.getKeysType() == KeysType.PRIMARY_KEYS;
         resetAnalyzer();
         // construct tuple descriptor, used for scanNode and dataSink
