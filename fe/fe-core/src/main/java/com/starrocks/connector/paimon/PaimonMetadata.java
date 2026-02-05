@@ -20,6 +20,7 @@ import com.starrocks.catalog.Column;
 import com.starrocks.catalog.Database;
 import com.starrocks.catalog.PaimonPartitionKey;
 import com.starrocks.catalog.PaimonTable;
+import com.starrocks.catalog.PaimonView;
 import com.starrocks.catalog.PartitionKey;
 import com.starrocks.catalog.Table;
 import com.starrocks.catalog.Type;
@@ -27,6 +28,7 @@ import com.starrocks.common.Config;
 import com.starrocks.common.DdlException;
 import com.starrocks.common.profile.Timer;
 import com.starrocks.common.profile.Tracers;
+import com.starrocks.common.util.DlfUtil;
 import com.starrocks.common.util.TimeUtils;
 import com.starrocks.connector.ColumnTypeConverter;
 import com.starrocks.connector.ConnectorMetadatRequestContext;
@@ -114,6 +116,7 @@ public class PaimonMetadata implements ConnectorMetadata {
     private static final Logger LOG = LogManager.getLogger(PaimonMetadata.class);
 
     public static final String PAIMON_PARTITION_NULL_VALUE = "null";
+    private static final String VIEW_DIALECTS_KEY = "starrocks";
     private final Catalog paimonNativeCatalog;
     private final HdfsEnvironment hdfsEnvironment;
     private final String catalogName;
@@ -164,7 +167,12 @@ public class PaimonMetadata implements ConnectorMetadata {
     @Override
     public List<String> listTableNames(ConnectContext context, String dbName) {
         try {
-            return paimonNativeCatalog.listTables(dbName);
+            List<String> tableIdentifiers = paimonNativeCatalog.listTables(dbName);
+            List<String> viewIdentifiers = paimonNativeCatalog.listViews(dbName);
+            if (!viewIdentifiers.isEmpty()) {
+                tableIdentifiers.addAll(viewIdentifiers);
+            }
+            return tableIdentifiers;
         } catch (Exception e) {
             LOG.error("Failed to list Paimon tables {}.{}.", catalogName, dbName, e);
             throw new StarRocksConnectorException(e.getMessage());
@@ -212,8 +220,16 @@ public class PaimonMetadata implements ConnectorMetadata {
     public void dropTable(DropTableStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
+        Table paimonTable = getTable(DlfUtil.getQueryContext(), stmt.getDbName(), stmt.getTableName());
+        if (paimonTable == null) {
+            return;
+        }
         try {
-            paimonNativeCatalog.dropTable(new Identifier(dbName, tableName), false);
+            if (paimonTable.isPaimonView()) {
+                paimonNativeCatalog.dropView(new Identifier(dbName, tableName), stmt.isForceDrop());
+                return;
+            }
+            paimonNativeCatalog.dropTable(new Identifier(dbName, tableName), stmt.isForceDrop());
         } catch (Exception e) {
             LOG.error("Failed to drop Paimon table {}.{}.{}.", catalogName, dbName, tableName, e);
             throw new DdlException(e.getMessage());
@@ -350,7 +366,7 @@ public class PaimonMetadata implements ConnectorMetadata {
             paimonNativeTable = this.paimonNativeCatalog.getTable(identifier);
         } catch (Exception e) {
             LOG.error("Failed to get Paimon table {}.{}.{}.", catalogName, dbName, tblName, e);
-            return null;
+            return getView(dbName, tblName);
         }
         List<DataField> fields = paimonNativeTable.rowType().getFields();
         ArrayList<Column> fullSchema = new ArrayList<>(fields.size());
@@ -369,6 +385,44 @@ public class PaimonMetadata implements ConnectorMetadata {
         table.setComment(comment);
         tables.put(identifier, table);
         return table;
+    }
+
+    public Table getView(String dbName, String viewName) {
+        Identifier identifier = new Identifier(dbName, viewName);
+        if (tables.containsKey(identifier)) {
+            return tables.get(identifier);
+        }
+        org.apache.paimon.view.View paimonNativeView;
+        try {
+            paimonNativeView = paimonNativeCatalog.getView(new Identifier(dbName, viewName));
+        } catch (Catalog.ViewNotExistException e) {
+            LOG.error("Cannot find the paimon table or view {}.{}.", dbName, viewName, e);
+            return null;
+        }
+        List<DataField> fields = paimonNativeView.rowType().getFields();
+        List<Column> columns = new ArrayList<>(fields.size());
+        for (DataField field : fields) {
+            String fieldName = field.name();
+            DataType type = field.type();
+            Type fieldType = ColumnTypeConverter.fromPaimonType(type);
+            Column column = new Column(fieldName, fieldType, true, field.description());
+            columns.add(column);
+        }
+        String comment = "";
+        if (paimonNativeView.comment().isPresent()) {
+            comment = paimonNativeView.comment().get();
+        }
+        String query;
+        if (paimonNativeView.dialects().containsKey(VIEW_DIALECTS_KEY)) {
+            query = paimonNativeView.dialects().get(VIEW_DIALECTS_KEY);
+        } else {
+            query = paimonNativeView.query();
+        }
+        PaimonView view = new PaimonView(CONNECTOR_ID_GENERATOR.getNextId().asInt(), catalogName, dbName, viewName,
+                columns, query);
+        view.setComment(comment);
+        tables.put(identifier, view);
+        return view;
     }
 
     @Override

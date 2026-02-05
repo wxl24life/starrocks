@@ -272,7 +272,8 @@ public class PaimonScanNode extends ScanNode {
                         }
                     } else {
                         FormatDataSplit formatDataSplit = (FormatDataSplit) split;
-                        splitFormatFileScanRangeLocations(formatDataSplit.dataPath().toString(), formatDataSplit.offset(), formatDataSplit.length(), partitionId, formatTableFormat.toString());
+                        long length = formatDataSplit.length() != null ? formatDataSplit.length() : formatDataSplit.fileSize();
+                        splitFormatFileScanRangeLocations(formatDataSplit.dataPath().toString(), formatDataSplit.offset(), length, partitionId, formatTableFormat.toString());
                     }
                 } else {
                     if (split instanceof DataSplit) {

@@ -1695,6 +1695,28 @@ public class AstToStringBuilder {
             return;
         }
 
+        if (table.isConnectorView()) {
+            ConnectorView view = (ConnectorView) table;
+            sb.append("CREATE VIEW `").append(table.getCatalogName()).append("`.`").
+                    append(dbName).append("`.`").append(table.getName()).append("` (");
+            List<String> colDef = Lists.newArrayList();
+            for (Column column : table.getBaseSchema()) {
+                StringBuilder colSb = new StringBuilder();
+                colSb.append("`").append(column.getName()).append("`");
+                if (!Strings.isNullOrEmpty(column.getComment())) {
+                    colSb.append(" COMMENT ").append("\"").append(column.getDisplayComment()).append("\"");
+                }
+                colDef.add(colSb.toString());
+            }
+            sb.append(Joiner.on(", ").join(colDef));
+            sb.append(")");
+            addTableComment(sb, view);
+
+            sb.append(" AS ").append(view.getInlineViewDef()).append(";");
+            createTableStmt.add(sb.toString());
+            return;
+        }
+
         // 1.3 other table type
         sb.append("CREATE ");
         if (table.getType() == Table.TableType.MYSQL || table.getType() == Table.TableType.ELASTICSEARCH

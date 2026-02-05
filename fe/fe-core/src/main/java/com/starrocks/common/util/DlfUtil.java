@@ -48,6 +48,11 @@ public class DlfUtil {
     private static final Logger LOG = LogManager.getLogger(DlfUtil.class);
     private static Configuration conf = null;
 
+    public static ConnectContext getQueryContext() {
+        ConnectContext.setContextUserIfNeeded();
+        return ConnectContext.get();
+    }
+
     public static String getRamUser() {
         if (ConnectContext.get() != null) {
             UserIdentity userIdentity = ConnectContext.get().getCurrentUserIdentity();
