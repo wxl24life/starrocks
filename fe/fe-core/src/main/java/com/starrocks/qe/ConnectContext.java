@@ -882,7 +882,8 @@ public class ConnectContext {
             // error happens in BE execution.
             return errorMsg;
         }
-        return state.getErrorMessage();
+        String msg = state.getErrorMessage();
+        return msg == null ? "" : msg;
     }
 
     public void resetErrorMsg() {

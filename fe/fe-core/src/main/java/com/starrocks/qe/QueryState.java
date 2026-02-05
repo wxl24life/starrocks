@@ -135,7 +135,7 @@ public class QueryState {
     public void resetError() {
         this.stateType = MysqlStateType.OK;
         this.errorCode = null;
-        this.errorMessage = null;
+        this.errorMessage = "";
     }
 
     public boolean isError() {
