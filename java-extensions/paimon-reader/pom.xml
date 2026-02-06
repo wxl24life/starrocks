@@ -15,6 +15,7 @@
         <java-extensions.home>${basedir}/../</java-extensions.home>
         <paimon.version>1-ali-20.1</paimon.version>
         <dlf.sdk.version>1-ali-20.1</dlf.sdk.version>
+        <lance.version>0.35.0-ali-1.2</lance.version>
     </properties>
 
     <dependencies>
@@ -91,6 +92,19 @@
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-jindo</artifactId>
             <version>${paimon.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-lance</artifactId>
+            <version>${paimon.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.lancedb</groupId>
+            <artifactId>lance-core</artifactId>
+            <version>${lance.version}</version>
+            <classifier>linux</classifier>
         </dependency>
 
         <dependency>

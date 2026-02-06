@@ -42,6 +42,7 @@ under the License.
         <fe_ut_parallel>${env.FE_UT_PARALLEL}</fe_ut_parallel>
         <jacoco.version>0.8.8</jacoco.version>
         <paimon.version>1-ali-20.1</paimon.version>
+        <lance.version>0.35.0-ali-1.2</lance.version>
         <dlf.sdk.version>1-ali-20.1</dlf.sdk.version>
         <bennett.iceberg.version>2.8.0</bennett.iceberg.version>
         <fluss.version>jdk8-0.8-sr-SNAPSHOT</fluss.version>
@@ -690,6 +691,13 @@ under the License.
         </dependency>
 
         <dependency>
+            <groupId>com.lancedb</groupId>
+            <artifactId>lance-core</artifactId>
+            <version>${lance.version}</version>
+            <classifier>linux</classifier>
+        </dependency>
+
+        <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-bundle</artifactId>
             <version>${paimon.version}</version>
@@ -711,6 +719,12 @@ under the License.
             <groupId>org.apache.iceberg</groupId>
             <artifactId>bennett-iceberg-plugin</artifactId>
             <version>${bennett.iceberg.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-lance</artifactId>
+            <version>${paimon.version}</version>
         </dependency>
 
         <dependency>
