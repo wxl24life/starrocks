@@ -1768,18 +1768,39 @@ public class LocalMetastore implements ConnectorMetadata, MVRepairHandler, Memor
 
     /**
      * Add a new physical partition to an existing logical partition.
-     * This method is used by HTTP API for cross-cluster data replication scenarios.
+     * This method is designed to be called via admin execute script for cross-cluster
+     * data replication scenarios.
      *
-     * @param db            the database
-     * @param olapTable     the table
+     *
+     * @param dbName        the database name
+     * @param tableName     the table name
      * @param partitionName the partition name (null for non-partitioned table)
      * @param bucketNum     the bucket number (0 to use system default)
-     * @param warehouseId   the warehouse id for compute resource allocation
      */
-    public void addPhysicalPartition(Database db, OlapTable olapTable, String partitionName,
-                                     int bucketNum, long warehouseId) throws DdlException {
-        Partition partition;
+    public void addPhysicalPartition(String dbName, String tableName, String partitionName,
+                                     int bucketNum) throws DdlException {
+        Database db = getDb(dbName);
+        if (db == null) {
+            throw new DdlException("Database '" + dbName + "' does not exist");
+        }
 
+        Table table = getTable(dbName, tableName);
+        if (table == null) {
+            throw new DdlException("Table '" + tableName + "' does not exist in database '" + dbName + "'");
+        }
+
+        if (!(table instanceof OlapTable)) {
+            throw new DdlException("Only OLAP table supports adding physical partition");
+        }
+
+        OlapTable olapTable = (OlapTable) table;
+
+        // Check if the table uses random distribution
+        if (olapTable.getDefaultDistributionInfo().getType() != DistributionInfo.DistributionInfoType.RANDOM) {
+            throw new DdlException("Only random distribution table supports adding physical partition");
+        }
+
+        Partition partition;
         if (partitionName == null) {
             // For non-partitioned table, get the single partition
             if (olapTable.getPartitionInfo().isPartitioned()) {
@@ -1797,12 +1818,23 @@ public class LocalMetastore implements ConnectorMetadata, MVRepairHandler, Memor
             }
         }
 
-        // Validate distribution type
+        // Validate distribution type at partition level
         if (partition.getDistributionInfo().getType() != DistributionInfo.DistributionInfoType.RANDOM) {
             throw new DdlException("Only random distribution table supports adding physical partition");
         }
 
+        if (bucketNum < 0) {
+            throw new DdlException("Bucket number must be non-negative");
+        }
+
+        if (bucketNum > Config.max_bucket_number_per_partition) {
+            throw new DdlException("Bucket number exceeds maximum allowed: " + Config.max_bucket_number_per_partition);
+        }
+
         // Get compute resource
+        long warehouseId = ConnectContext.get() != null
+                ? ConnectContext.get().getCurrentWarehouseId()
+                : WarehouseManager.DEFAULT_WAREHOUSE_ID;
         final WarehouseManager warehouseManager = GlobalStateMgr.getCurrentState().getWarehouseMgr();
         final CRAcquireContext acquireContext = CRAcquireContext.of(warehouseId);
         final ComputeResource computeResource = warehouseManager.acquireComputeResource(acquireContext);

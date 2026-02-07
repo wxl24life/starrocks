@@ -449,4 +449,89 @@ public class LocalMetaStoreTest {
         // For unpartitioned table, partition name should be the same as table name
         Assertions.assertEquals(oldPartitionId, table.getPartition(tableName).getId());
     }
+
+    @Test
+    public void testAddPhysicalPartitionForNonPartitionedTable() throws Exception {
+        // Create a non-partitioned table with random distribution
+        starRocksAssert.useDatabase("test").withTable(
+                "CREATE TABLE test.add_pp_random(k1 INT, k2 VARCHAR(50), v1 INT) " +
+                        "ENGINE=olap DUPLICATE KEY(k1) DISTRIBUTED BY RANDOM BUCKETS 8 " +
+                        "PROPERTIES ('replication_num' = '1')");
+
+        LocalMetastore metastore = GlobalStateMgr.getCurrentState().getLocalMetastore();
+        Database db = metastore.getDb("test");
+        OlapTable table = (OlapTable) db.getTable("add_pp_random");
+        Assertions.assertEquals(1, table.getPhysicalPartitions().size());
+
+        // Add physical partition with custom bucket number
+        metastore.addPhysicalPartition("test", "add_pp_random", null, 4);
+        Assertions.assertEquals(2, table.getPhysicalPartitions().size());
+
+        starRocksAssert.dropTable("test.add_pp_random");
+    }
+
+    @Test
+    public void testAddPhysicalPartitionForPartitionedTable() throws Exception {
+        // Create a partitioned table with random distribution
+        starRocksAssert.useDatabase("test").withTable(
+                "CREATE TABLE test.add_pp_part(k1 DATE, k2 INT, v1 VARCHAR(100)) " +
+                        "ENGINE=olap DUPLICATE KEY(k1, k2) " +
+                        "PARTITION BY RANGE (k1) (" +
+                        "  PARTITION p20240101 VALUES LESS THAN ('2024-01-02')," +
+                        "  PARTITION p20240102 VALUES LESS THAN ('2024-01-03')" +
+                        ") DISTRIBUTED BY RANDOM BUCKETS 10 " +
+                        "PROPERTIES ('replication_num' = '1')");
+
+        LocalMetastore metastore = GlobalStateMgr.getCurrentState().getLocalMetastore();
+        Database db = metastore.getDb("test");
+        OlapTable table = (OlapTable) db.getTable("add_pp_part");
+        Partition partition = table.getPartition("p20240101");
+        Assertions.assertEquals(2, table.getPhysicalPartitions().size());
+        Assertions.assertEquals(1, partition.getSubPartitions().size());
+
+        // Add physical partition to a specific partition with default bucket
+        metastore.addPhysicalPartition("test", "add_pp_part", "p20240101", 0);
+        Assertions.assertEquals(3, table.getPhysicalPartitions().size());
+        Assertions.assertEquals(2, partition.getSubPartitions().size());
+
+        starRocksAssert.dropTable("test.add_pp_part");
+    }
+
+    @Test
+    public void testAddPhysicalPartitionErrors() throws Exception {
+        LocalMetastore metastore = GlobalStateMgr.getCurrentState().getLocalMetastore();
+
+        // 1. Database not found
+        Assertions.assertThrows(DdlException.class, () ->
+                metastore.addPhysicalPartition("nonexistent_db", "t", null, 0));
+
+        // 2. Table not found
+        Assertions.assertThrows(DdlException.class, () ->
+                metastore.addPhysicalPartition("test", "nonexistent_table", null, 0));
+
+        // 3. Hash distribution table (t1 uses hash distribution)
+        DdlException hashEx = Assertions.assertThrows(DdlException.class, () ->
+                metastore.addPhysicalPartition("test", "t1", null, 0));
+        Assertions.assertTrue(hashEx.getMessage().contains("random distribution"));
+
+        // 4. Partitioned table without partition name & non-existent partition & negative bucket
+        starRocksAssert.useDatabase("test").withTable(
+                "CREATE TABLE test.add_pp_err(k1 DATE, k2 INT) ENGINE=olap DUPLICATE KEY(k1, k2) " +
+                        "PARTITION BY RANGE (k1) (PARTITION p1 VALUES LESS THAN ('2024-01-02')) " +
+                        "DISTRIBUTED BY RANDOM BUCKETS 8 PROPERTIES ('replication_num' = '1')");
+
+        DdlException partEx = Assertions.assertThrows(DdlException.class, () ->
+                metastore.addPhysicalPartition("test", "add_pp_err", null, 0));
+        Assertions.assertTrue(partEx.getMessage().contains("Partition name must be specified"));
+
+        DdlException notFoundEx = Assertions.assertThrows(DdlException.class, () ->
+                metastore.addPhysicalPartition("test", "add_pp_err", "no_such_partition", 0));
+        Assertions.assertTrue(notFoundEx.getMessage().contains("does not exist"));
+
+        DdlException bucketEx = Assertions.assertThrows(DdlException.class, () ->
+                metastore.addPhysicalPartition("test", "add_pp_err", "p1", -1));
+        Assertions.assertTrue(bucketEx.getMessage().contains("non-negative"));
+
+        starRocksAssert.dropTable("test.add_pp_err");
+    }
 }

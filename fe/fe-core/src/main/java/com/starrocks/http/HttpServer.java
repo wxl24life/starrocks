@@ -62,7 +62,6 @@ import com.starrocks.http.meta.MetaService.PutAction;
 import com.starrocks.http.meta.MetaService.RoleAction;
 import com.starrocks.http.meta.MetaService.ServiceIdAction;
 import com.starrocks.http.meta.MetaService.VersionAction;
-import com.starrocks.http.rest.AddPhysicalPartitionAction;
 import com.starrocks.http.rest.BootstrapFinishAction;
 import com.starrocks.http.rest.CancelStreamLoadAction;
 import com.starrocks.http.rest.CheckDecommissionAction;
@@ -275,7 +274,6 @@ public class HttpServer {
         com.starrocks.http.rest.v2.TableSchemaAction.registerAction(controller);
         TablePartitionAction.registerAction(controller);
         TableQueryPlanAction.registerAction(controller);
-        AddPhysicalPartitionAction.registerAction(controller);
 
         BootstrapFinishAction.registerAction(controller);
 
