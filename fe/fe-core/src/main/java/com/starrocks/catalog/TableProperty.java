@@ -439,7 +439,6 @@ public class TableProperty implements Writable, GsonPostProcessable {
                 buildCloudNativeFastSchemaEvolutionV2();
                 buildLakeCompactionMaxParallel();
                 buildTableQueryTimeout();
-                buildDataCacheEnable();
                 break;
             case OperationType.OP_MODIFY_TABLE_CONSTRAINT_PROPERTY:
                 buildConstraint();
@@ -883,19 +882,6 @@ public class TableProperty implements Writable, GsonPostProcessable {
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_BUNDLING)) {
             fileBundling = Boolean.parseBoolean(
                     properties.getOrDefault(PropertyAnalyzer.PROPERTIES_FILE_BUNDLING, "false"));
-        }
-        return this;
-    }
-
-    public TableProperty buildDataCacheEnable() {
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DATACACHE_ENABLE)) {
-            boolean dataCacheEnable = Boolean.parseBoolean(
-                    properties.getOrDefault(PropertyAnalyzer.PROPERTIES_DATACACHE_ENABLE, "false"));
-            if (this.storageInfo != null) {
-                this.storageInfo.setDataCacheEnable(dataCacheEnable);
-            } else {
-                LOG.warn("Setting datacache.enable to {} while storage info is null", dataCacheEnable);
-            }
         }
         return this;
     }
@@ -1392,6 +1378,5 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildLakeCompactionMaxParallel();
         buildEnableStatisticCollectOnFirstLoad();
         buildTableQueryTimeout();
-        buildDataCacheEnable();
     }
 }
