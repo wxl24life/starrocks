@@ -103,7 +103,6 @@ public:
     paimon::Status ListFileStatus(const std::string& path,
                                   std::vector<std::unique_ptr<paimon::FileStatus>>* file_status_list) const override;
     paimon::Result<bool> Exists(const std::string& path) const override;
-    bool IsObjectStore() const override { return false; }
 
 private:
     Status delete_internal(const std::string& path, bool is_dir, bool recursive) const;
@@ -118,7 +117,7 @@ public:
     static const std::string IDENTIFIER;
     const char* Identifier() const override;
     paimon::Result<std::unique_ptr<paimon::FileSystem>> Create(
-            const std::map<std::string, std::string>& options) const override;
+            const std::string& path, const std::map<std::string, std::string>& options) const override;
 };
 
 class PaimonOptions {

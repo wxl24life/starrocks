@@ -15,6 +15,7 @@
 #include "paimon_evaluator.h"
 
 #include "column/column.h"
+#include "paimon/predicate/literal.h"
 #include "column/datum.h"
 #include "exprs/column_ref.h"
 #include "exprs/literal.h"

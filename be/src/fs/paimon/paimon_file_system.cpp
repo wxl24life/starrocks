@@ -28,7 +28,7 @@ const char* PaimonFileSystemFactory::Identifier() const {
 }
 
 paimon::Result<std::unique_ptr<paimon::FileSystem>> PaimonFileSystemFactory::Create(
-        const std::map<std::string, std::string>& options) const {
+        const std::string& path, const std::map<std::string, std::string>& options) const {
     return std::make_unique<PaimonFileSystem>(options);
 }
 
