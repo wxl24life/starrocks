@@ -128,6 +128,15 @@ public class MVPCTMetaRepairerTest extends MVTestBase {
                     return "xxx:0";
                 }
             };
+
+            // Mock initSnapshotBaseTables to bypass table existence check during refresh
+            new MockUp<PartitionBasedMvRefreshProcessor>() {
+                @Mock
+                public void initSnapshotBaseTables() {
+                    // Do nothing
+                }
+            };
+
             try {
                 refreshMaterializedView("test", "iceberg_mv1");
                 Assertions.fail();
@@ -191,6 +200,15 @@ public class MVPCTMetaRepairerTest extends MVTestBase {
                     return "xxx:0";
                 }
             };
+
+            // Mock initSnapshotBaseTables to bypass table existence check during refresh
+            new MockUp<PartitionBasedMvRefreshProcessor>() {
+                @Mock
+                public void initSnapshotBaseTables() {
+                    // Do nothing
+                }
+            };
+
             try {
                 refreshMaterializedView("test", "hive_mv1");
             } catch (Exception e) {
