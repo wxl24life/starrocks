@@ -99,6 +99,7 @@ public class OdpsTypeUtils {
                 return new ColumnType(column.getName(), ColumnType.TypeValue.DATE);
             case DATETIME:
             case TIMESTAMP:
+            case TIMESTAMP_NTZ:
                 return new ColumnType(column.getName(), ColumnType.TypeValue.DATETIME);
             case MAP:
             case STRUCT:

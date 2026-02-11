@@ -1445,7 +1445,7 @@ public class PlanFragmentBuilder {
                 List<PartitionKey> partitionKeys =
                         selectedPartitionIds.stream().map(id -> scanOperatorPredicates.getIdToPartitionKey().get(id))
                                 .collect(Collectors.toList());
-                odpsScanNode.setupScanRangeLocations(tupleDescriptor, node.getPredicate(), partitionKeys);
+                odpsScanNode.setupScanRangeLocations(tupleDescriptor, node.getPredicate(), partitionKeys, node.getLimit());
                 HDFSScanNodePredicates scanNodePredicates = odpsScanNode.getScanNodePredicates();
                 prepareMinMaxExpr(scanNodePredicates, scanOperatorPredicates, context, referenceTable);
                 prepareCommonExpr(scanNodePredicates, scanOperatorPredicates, context);

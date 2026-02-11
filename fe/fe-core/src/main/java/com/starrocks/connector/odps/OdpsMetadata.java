@@ -29,7 +29,6 @@ import com.aliyun.odps.table.read.TableBatchReadSession;
 import com.aliyun.odps.table.read.TableReadSessionBuilder;
 import com.aliyun.odps.table.read.split.InputSplit;
 import com.aliyun.odps.table.read.split.InputSplitAssigner;
-import com.aliyun.odps.table.read.split.InputSplitWithRowRange;
 import com.aliyun.odps.table.read.split.impl.RowRangeInputSplitAssigner;
 import com.aliyun.odps.utils.StringUtils;
 import com.google.common.cache.CacheBuilder;
@@ -53,6 +52,8 @@ import com.starrocks.connector.GetRemoteFilesParams;
 import com.starrocks.connector.PartitionInfo;
 import com.starrocks.connector.RemoteFileDesc;
 import com.starrocks.connector.RemoteFileInfo;
+import com.starrocks.connector.RemoteFileInfoDefaultSource;
+import com.starrocks.connector.RemoteFileInfoSource;
 import com.starrocks.connector.TableVersionRange;
 import com.starrocks.connector.exception.StarRocksConnectorException;
 import com.starrocks.credential.CloudConfiguration;
@@ -76,11 +77,11 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
 import static com.google.common.cache.CacheLoader.asyncReloading;
@@ -95,18 +96,27 @@ public class OdpsMetadata implements ConnectorMetadata {
     private final EnvironmentSettings settings;
     private final AliyunCloudCredential aliyunCloudCredential;
     private final OdpsProperties properties;
+    private final ExecutorService pullRemoteFileExecutor;
 
     private String catalogOwner;
     private LoadingCache<String, Set<String>> tableNameCache;
     private LoadingCache<OdpsTableName, OdpsTable> tableCache;
     private LoadingCache<OdpsTableName, List<PartitionSpec>> partitionCache;
 
+    private static final long SMALL_LIMIT_THRESHOLD = 10000L;
+
     public OdpsMetadata(Odps odps, String catalogName, AliyunCloudCredential aliyunCloudCredential,
                         OdpsProperties properties) {
+        this(odps, catalogName, aliyunCloudCredential, properties, null);
+    }
+
+    public OdpsMetadata(Odps odps, String catalogName, AliyunCloudCredential aliyunCloudCredential,
+                        OdpsProperties properties, ExecutorService pullRemoteFileExecutor) {
         this.odps = odps;
         this.catalogName = catalogName;
         this.aliyunCloudCredential = aliyunCloudCredential;
         this.properties = properties;
+        this.pullRemoteFileExecutor = pullRemoteFileExecutor;
         EnvironmentSettings.Builder settingsBuilder =
                 EnvironmentSettings.newBuilder().withServiceEndpoint(odps.getEndpoint())
                         .withCredentials(Credentials.newBuilder().withAccount(odps.getAccount()).build())
@@ -332,6 +342,19 @@ public class OdpsMetadata implements ConnectorMetadata {
         return getRemoteFiles(table, params, new TableReadSessionBuilder());
     }
 
+    @Override
+    public RemoteFileInfoSource getRemoteFilesAsync(Table table, GetRemoteFilesParams params) {
+        if (pullRemoteFileExecutor == null) {
+            List<RemoteFileInfo> fileInfos = getRemoteFiles(table, params);
+            return new RemoteFileInfoDefaultSource(fileInfos);
+        }
+
+        OdpsAsyncRemoteInfoSource remoteInfoSource = new OdpsAsyncRemoteInfoSource(
+                pullRemoteFileExecutor, table, params, this);
+        remoteInfoSource.run();
+        return remoteInfoSource;
+    }
+
     public List<RemoteFileInfo> getRemoteFiles(Table table, GetRemoteFilesParams params,
                                                TableReadSessionBuilder scanBuilder) {
         RemoteFileInfo remoteFileInfo = new RemoteFileInfo();
@@ -355,47 +378,31 @@ public class OdpsMetadata implements ConnectorMetadata {
         try {
             LOG.info("get remote file infos, project:{}, table:{}, columns:{}", odpsTable.getCatalogDBName(),
                     odpsTable.getCatalogTableName(), params.getFieldNames());
-            TableReadSessionBuilder tableReadSessionBuilder =
-                    scanBuilder.identifier(TableIdentifier.of(odpsTable.getCatalogDBName(), odpsTable.getCatalogTableName()))
-                            .withSettings(settings)
-                            .requiredDataColumns(orderedColumnNames)
-                            .requiredPartitions(partitionSpecs)
-                            .withSplitOptions(
-                                    Objects.equals(properties.get(OdpsProperties.SPLIT_POLICY),
-                                            OdpsProperties.ROW_OFFSET) ?
-                                            SplitOptions.newBuilder().SplitByRowOffset().build() :
-                                            SplitOptions.newBuilder()
-                                                    .SplitByByteSize(Long.parseLong(
-                                                            properties.get(OdpsProperties.SPLIT_SIZE_LIMIT)))
-                                                    .build());
-            TableBatchReadSession odpsTableScanSession;
-            if (Boolean.parseBoolean(properties.get(OdpsProperties.ENABLE_PREDICATE_PUSHDOWN))) {
-                Predicate odpsPredicate = EntityConvertUtils.convertPredicate(params.getPredicate(),
-                        ImmutableSet.copyOf(odpsTable.getPartitionColumnNames()));
-                LOG.info("try to push down predicate {}", odpsPredicate);
-                tableReadSessionBuilder.withFilterPredicate(odpsPredicate);
-                try {
-                    odpsTableScanSession = tableReadSessionBuilder.buildBatchReadSession();
-                } catch (IOException e) {
-                    LOG.warn("push down predicate failed {}", odpsPredicate);
-                    // fallback: clear predicate and retry
-                    odpsTableScanSession =
-                            tableReadSessionBuilder.withFilterPredicate(Predicate.NO_PREDICATE).buildBatchReadSession();
-                }
-            } else {
-                odpsTableScanSession = tableReadSessionBuilder.buildBatchReadSession();
-            }
+            TableReadSessionBuilder tableReadSessionBuilder = scanBuilder.identifier(
+                            TableIdentifier.of(odpsTable.getCatalogDBName(), odpsTable.getCatalogTableName()))
+                    .withSettings(settings).requiredDataColumns(orderedColumnNames).requiredPartitions(partitionSpecs);
+
             OdpsSplitsInfo odpsSplitsInfo;
-            switch (properties.get(OdpsProperties.SPLIT_POLICY)) {
-                case OdpsProperties.ROW_OFFSET:
-                    odpsSplitsInfo = callRowOffsetSplitsInfo(odpsTableScanSession, params.getLimit());
-                    break;
-                case OdpsProperties.SIZE:
-                    odpsSplitsInfo = callSizeSplitsInfo(odpsTableScanSession);
-                    break;
-                default:
-                    throw new StarRocksConnectorException(
-                            "unsupported split policy: " + properties.get(OdpsProperties.SPLIT_POLICY));
+            long limit = params.getLimit();
+
+            if (limit > -1 && limit <= SMALL_LIMIT_THRESHOLD) {
+                // Strategy 1: For small limit queries, use a single split based on row count.
+                LOG.info("Small limit ({}) detected. Using single row-offset split strategy.", limit);
+                tableReadSessionBuilder.withSplitOptions(SplitOptions.newBuilder().SplitByRowOffset().build());
+                TableBatchReadSession session = buildSessionWithPredicate(tableReadSessionBuilder, params, odpsTable);
+                odpsSplitsInfo = callRowOffsetSplitsInfo(session, limit);
+            } else {
+                // Strategy 2: For all other cases (full scan or large limit), use dynamic size-based splitting.
+                long dynamicSplitSize = calculateDynamicSplitSize(
+                        odpsTable.getDataColumnNames().size(),
+                        orderedColumnNames.size());
+                LOG.info("Using dynamic size-based split strategy. Calculated split size: {} bytes.", dynamicSplitSize);
+
+                tableReadSessionBuilder.withSplitOptions(
+                        SplitOptions.newBuilder().SplitByByteSize(dynamicSplitSize).build());
+
+                TableBatchReadSession session = buildSessionWithPredicate(tableReadSessionBuilder, params, odpsTable);
+                odpsSplitsInfo = callSizeSplitsInfo(session);
             }
             OdpsRemoteFileDesc odpsRemoteFileDesc = OdpsRemoteFileDesc.createOdpsRemoteFileDesc(odpsSplitsInfo);
             List<RemoteFileDesc> remoteFileDescs = ImmutableList.of(odpsRemoteFileDesc);
@@ -408,6 +415,37 @@ public class OdpsMetadata implements ConnectorMetadata {
         }
     }
 
+    private TableBatchReadSession buildSessionWithPredicate(TableReadSessionBuilder builder,
+                                                            GetRemoteFilesParams params,
+                                                            OdpsTable odpsTable) throws IOException {
+        if (Boolean.parseBoolean(properties.get(OdpsProperties.ENABLE_PREDICATE_PUSHDOWN))) {
+            Predicate odpsPredicate = EntityConvertUtils.convertPredicate(params.getPredicate(),
+                    ImmutableSet.copyOf(odpsTable.getPartitionColumnNames()));
+            LOG.info("Try to push down predicate {}", odpsPredicate);
+            builder.withFilterPredicate(odpsPredicate);
+            try {
+                return builder.buildBatchReadSession();
+            } catch (IOException e) {
+                LOG.warn("Push down predicate failed: {}. Falling back to scanning without predicate. Reason: {}",
+                        odpsPredicate, e.getMessage());
+                // fallback: 清除谓词并重试
+                return builder.withFilterPredicate(Predicate.NO_PREDICATE).buildBatchReadSession();
+            }
+        } else {
+            return builder.buildBatchReadSession();
+        }
+    }
+
+    private long calculateDynamicSplitSize(int totalColumns, int selectedColumns) {
+        long baseSplitSize = Long.parseLong(properties.get(OdpsProperties.SPLIT_SIZE_LIMIT));
+        if (selectedColumns <= 0 || totalColumns <= 0) {
+            return baseSplitSize;
+        }
+        double columnRatio = (double) totalColumns / selectedColumns;
+        long dynamicSize = (long) (baseSplitSize * columnRatio);
+        return Math.min(dynamicSize, baseSplitSize * 15);
+    }
+
     private OdpsSplitsInfo callSizeSplitsInfo(TableBatchReadSession odpsTableScanSession) throws IOException {
         Map<String, String> splitProperties = getCommonSplitProperties();
         OdpsSplitsInfo odpsSplitsInfo;
@@ -417,31 +455,19 @@ public class OdpsMetadata implements ConnectorMetadata {
         return odpsSplitsInfo;
     }
 
-    private OdpsSplitsInfo callRowOffsetSplitsInfo(TableBatchReadSession odpsTableScanSession, long limit)
+    private OdpsSplitsInfo callRowOffsetSplitsInfo(TableBatchReadSession session, long limit)
             throws IOException {
         Map<String, String> splitProperties = getCommonSplitProperties();
-        OdpsSplitsInfo odpsSplitsInfo;
-        List<InputSplit> splits = new ArrayList<>();
-        RowRangeInputSplitAssigner inputSplitAssigner =
-                (RowRangeInputSplitAssigner) odpsTableScanSession.getInputSplitAssigner();
-        long rowsPerSplit = Long.parseLong(properties.get(OdpsProperties.SPLIT_ROW_COUNT));
-        long totalRowCount = inputSplitAssigner.getTotalRowCount();
-        if (limit != -1) {
-            totalRowCount = Math.min(inputSplitAssigner.getTotalRowCount(), limit);
+        RowRangeInputSplitAssigner assigner = (RowRangeInputSplitAssigner) session.getInputSplitAssigner();
+        long totalRowCount = assigner.getTotalRowCount();
+        long rowsToRead = Math.min(limit, totalRowCount);
+        if (rowsToRead <= 0) {
+            return new OdpsSplitsInfo(Collections.emptyList(), session, OdpsSplitsInfo.SplitPolicy.ROW_OFFSET,
+                    splitProperties);
         }
-        long numRecord = 0;
-        for (long i = rowsPerSplit; i < totalRowCount; i += rowsPerSplit) {
-            InputSplitWithRowRange splitByRowOffset =
-                    (InputSplitWithRowRange) inputSplitAssigner.getSplitByRowOffset(numRecord, rowsPerSplit);
-            splits.add(splitByRowOffset);
-            numRecord = i;
-        }
-        InputSplitWithRowRange splitByRowOffset =
-                (InputSplitWithRowRange) inputSplitAssigner.getSplitByRowOffset(numRecord, totalRowCount - numRecord);
-        splits.add(splitByRowOffset);
-        odpsSplitsInfo = new OdpsSplitsInfo(splits, odpsTableScanSession,
-                OdpsSplitsInfo.SplitPolicy.ROW_OFFSET, splitProperties);
-        return odpsSplitsInfo;
+        InputSplit split = assigner.getSplitByRowOffset(0, rowsToRead);
+        return new OdpsSplitsInfo(Collections.singletonList(split), session, OdpsSplitsInfo.SplitPolicy.ROW_OFFSET,
+                splitProperties);
     }
 
     private Map<String, String> getCommonSplitProperties() {

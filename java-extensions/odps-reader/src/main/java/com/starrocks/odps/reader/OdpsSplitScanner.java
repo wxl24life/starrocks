@@ -61,7 +61,7 @@ public class OdpsSplitScanner extends ConnectorScanner {
     private final String tableName;
     private final String endpoint;
     private final InputSplit inputSplit;
-    private final String[] requiredFields;
+    private String[] requiredFields;
     private final Column[] requireColumns;
     private final ColumnType[] requiredTypes;
     private final int fetchSize;
@@ -108,6 +108,11 @@ public class OdpsSplitScanner extends ConnectorScanner {
 
         Map<String, Column> nameColumnMap = scan.readSchema().getColumns().stream()
                 .collect(Collectors.toMap(Column::getName, o -> o));
+        // sometimes requiredFields is empty, here we choose the first column
+        if (requiredFields.length == 0) {
+            requiredFields = new String[1];
+            requiredFields[0] = scan.readSchema().getColumn(0).get().getName();
+        }
         requireColumns = new Column[requiredFields.length];
         requiredTypes = new ColumnType[requiredFields.length];
         nameIndexMap = new HashMap<>();
@@ -150,15 +155,14 @@ public class OdpsSplitScanner extends ConnectorScanner {
     @Override
     public void close() throws IOException {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
-            Optional<Metric> bytesCount = this.reader.currentMetricsValues().get(MetricNames.BYTES_COUNT);
-            Optional<Metric> recordCount = this.reader.currentMetricsValues().get(MetricNames.RECORD_COUNT);
-            String bytesStr = bytesCount.map(metric -> formatBytes(((BytesCount) metric).getValue())).orElse("N/A");
-            String totalRowCount =
-                    recordCount.map(metric -> String.valueOf(((RecordCount) metric).getCount())).orElse("N/A");
-            LOG.info("ODPS Split Summary - SplitId: {}, BytesRead: {}, TotalRowCount: {}, ScanTime: {} ms",
-                    this.splitId, bytesStr, totalRowCount, System.currentTimeMillis() - this.startTime);
-
             if (reader != null) {
+                Optional<Metric> bytesCount = this.reader.currentMetricsValues().get(MetricNames.BYTES_COUNT);
+                Optional<Metric> recordCount = this.reader.currentMetricsValues().get(MetricNames.RECORD_COUNT);
+                String bytesStr = bytesCount.map(metric -> formatBytes(((BytesCount) metric).getValue())).orElse("N/A");
+                String totalRowCount =
+                        recordCount.map(metric -> String.valueOf(((RecordCount) metric).getCount())).orElse("N/A");
+                LOG.info("ODPS Split Summary - SplitId: {}, BytesRead: {}, TotalRowCount: {}, ScanTime: {} ms",
+                        this.splitId, bytesStr, totalRowCount, System.currentTimeMillis() - this.startTime);
                 reader.close();
             }
         } catch (Exception e) {

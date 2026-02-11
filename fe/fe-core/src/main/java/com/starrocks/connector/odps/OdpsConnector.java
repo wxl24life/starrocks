@@ -33,6 +33,7 @@ public class OdpsConnector implements Connector {
     private final Odps odps;
     private final OdpsProperties properties;
     private final AliyunCloudCredential aliyunCloudCredential;
+    private final OdpsConnectorInternalMgr internalMgr;
 
     private ConnectorMetadata metadata;
 
@@ -42,6 +43,7 @@ public class OdpsConnector implements Connector {
         this.odps = initOdps();
         aliyunCloudCredential = new AliyunCloudCredential(properties.get(OdpsProperties.ACCESS_ID),
                 properties.get(OdpsProperties.ACCESS_KEY), properties.get(OdpsProperties.ENDPOINT));
+        this.internalMgr = new OdpsConnectorInternalMgr(catalogName, context.getProperties());
         validate();
     }
 
@@ -79,12 +81,20 @@ public class OdpsConnector implements Connector {
     public ConnectorMetadata getMetadata() {
         if (metadata == null) {
             try {
-                metadata = new OdpsMetadata(odps, catalogName, aliyunCloudCredential, properties);
+                metadata = new OdpsMetadata(odps, catalogName, aliyunCloudCredential, properties,
+                        internalMgr.getPullRemoteFileExecutor());
             } catch (StarRocksConnectorException e) {
                 LOG.error("Failed to create jdbc metadata on [catalog : {}]", catalogName, e);
                 throw e;
             }
         }
         return metadata;
+    }
+
+    @Override
+    public void shutdown() {
+        if (internalMgr != null) {
+            internalMgr.shutdown();
+        }
     }
 }

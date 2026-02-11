@@ -14,9 +14,6 @@
 
 package com.starrocks.planner;
 
-import com.aliyun.odps.table.read.split.InputSplit;
-import com.aliyun.odps.table.read.split.impl.IndexedInputSplit;
-import com.aliyun.odps.table.read.split.impl.RowRangeInputSplit;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.starrocks.analysis.TupleDescriptor;
@@ -24,10 +21,8 @@ import com.starrocks.catalog.OdpsTable;
 import com.starrocks.catalog.PartitionKey;
 import com.starrocks.connector.CatalogConnector;
 import com.starrocks.connector.GetRemoteFilesParams;
-import com.starrocks.connector.RemoteFileInfo;
-import com.starrocks.connector.exception.StarRocksConnectorException;
-import com.starrocks.connector.odps.OdpsRemoteFileDesc;
-import com.starrocks.connector.odps.OdpsSplitsInfo;
+import com.starrocks.connector.RemoteFileInfoSource;
+import com.starrocks.connector.odps.OdpsConnectorScanRangeSource;
 import com.starrocks.credential.CloudConfiguration;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.optimizer.operator.scalar.ScalarOperator;
@@ -36,18 +31,14 @@ import com.starrocks.thrift.TCloudConfiguration;
 import com.starrocks.thrift.TCloudType;
 import com.starrocks.thrift.TExplainLevel;
 import com.starrocks.thrift.THdfsScanNode;
-import com.starrocks.thrift.THdfsScanRange;
 import com.starrocks.thrift.TPlanNode;
 import com.starrocks.thrift.TPlanNodeType;
-import com.starrocks.thrift.TScanRange;
 import com.starrocks.thrift.TScanRangeLocations;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -59,7 +50,7 @@ public class OdpsScanNode extends ScanNode {
     private CloudConfiguration cloudConfiguration = null;
     private final HDFSScanNodePredicates scanNodePredicates = new HDFSScanNodePredicates();
 
-    private final List<TScanRangeLocations> scanRangeLocationsList = new ArrayList<>();
+    private OdpsConnectorScanRangeSource scanRangeSource;
 
     public OdpsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName);
@@ -85,65 +76,28 @@ public class OdpsScanNode extends ScanNode {
     }
 
     public void setupScanRangeLocations(TupleDescriptor tupleDescriptor, ScalarOperator predicate,
-                                        List<PartitionKey> partitionKeys) {
+                                        List<PartitionKey> partitionKeys, long limit) {
         List<String> fieldNames =
                 tupleDescriptor.getSlots().stream().map(s -> s.getColumn().getName()).collect(Collectors.toList());
         GetRemoteFilesParams params = GetRemoteFilesParams.newBuilder().setPartitionKeys(partitionKeys).setPredicate(predicate)
-                .setFieldNames(fieldNames).build();
-        List<RemoteFileInfo> fileInfos = GlobalStateMgr.getCurrentState().getMetadataMgr().getRemoteFiles(table, params);
-        OdpsRemoteFileDesc remoteFileDesc = (OdpsRemoteFileDesc) fileInfos.get(0).getFiles().get(0);
-        OdpsSplitsInfo splitsInfo = remoteFileDesc.getOdpsSplitsInfo();
-        if (splitsInfo.isEmpty()) {
-            LOG.warn("There is no odps splits on {}.{} and predicate: [{}]",
-                    table.getCatalogDBName(), table.getCatalogTableName(), predicate);
-            return;
-        }
-        Map<String, String> commonSplitInfo = new HashMap<>();
-        String serializeSession = splitsInfo.getSerializeSession();
-        commonSplitInfo.put("read_session", serializeSession);
-        commonSplitInfo.putAll(splitsInfo.getProperties());
-        commonSplitInfo.put("split_policy", splitsInfo.getSplitPolicy().name().toLowerCase());
-        for (InputSplit inputSplit : splitsInfo.getSplits()) {
-            TScanRangeLocations scanRangeLocations = new TScanRangeLocations();
-            THdfsScanRange hdfsScanRange = new THdfsScanRange();
-            Map<String, String> splitInfo = new HashMap<>(commonSplitInfo);
-            splitInfo.put("session_id", inputSplit.getSessionId());
-            switch (splitsInfo.getSplitPolicy()) {
-                case SIZE:
-                    IndexedInputSplit split = (IndexedInputSplit) inputSplit;
-                    splitInfo.put("split_index", String.valueOf(split.getSplitIndex()));
-                    hdfsScanRange.setOffset(split.getSplitIndex());
-                    break;
-                case ROW_OFFSET:
-                    RowRangeInputSplit split1 = (RowRangeInputSplit) inputSplit;
-                    splitInfo.put("start_index", String.valueOf(split1.getRowRange().getStartIndex()));
-                    splitInfo.put("num_record", String.valueOf(split1.getRowRange().getNumRecord()));
-                    hdfsScanRange.setOffset(split1.getRowRange().getStartIndex());
-                    break;
-                default:
-                    throw new StarRocksConnectorException(
-                            "unsupported split policy: " + splitsInfo.getSplitPolicy().name());
-            }
-            hdfsScanRange.setOdps_split_infos(splitInfo);
-            hdfsScanRange.setUse_odps_jni_reader(true);
-            hdfsScanRange.setFile_length(1);
-            // backend selector use length to load balancing
-            hdfsScanRange.setLength(1);
-            TScanRange scanRange = new TScanRange();
-            scanRange.setHdfs_scan_range(hdfsScanRange);
-            scanRangeLocations.setScan_range(scanRange);
-            com.starrocks.thrift.TScanRangeLocation
-                    scanRangeLocation =
-                    new com.starrocks.thrift.TScanRangeLocation(new com.starrocks.thrift.TNetworkAddress("-1", -1));
-            scanRangeLocations.addToLocations(scanRangeLocation);
-            scanRangeLocationsList.add(scanRangeLocations);
-        }
+                .setFieldNames(fieldNames).setLimit(limit).build();
+
+        RemoteFileInfoSource remoteFileInfoSource =
+                GlobalStateMgr.getCurrentState().getMetadataMgr().getRemoteFilesAsync(table, params);
+
+        scanRangeSource = new OdpsConnectorScanRangeSource(table, remoteFileInfoSource, tupleDescriptor);
     }
 
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        //TODO (zhangdingxin.zdx) support max scan range length ?
-        return scanRangeLocationsList;
+        if (scanRangeSource == null) {
+            return new ArrayList<>();
+        }
+        return scanRangeSource.getAllOutputs();
+    }
+
+    public OdpsConnectorScanRangeSource getScanRangeSource() {
+        return scanRangeSource;
     }
 
     @Override

@@ -27,6 +27,7 @@ import com.aliyun.odps.Tables;
 import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.security.SecurityManager;
+import com.aliyun.odps.table.configuration.SplitOptions;
 import com.aliyun.odps.table.read.TableBatchReadSession;
 import com.aliyun.odps.table.read.TableReadSessionBuilder;
 import com.aliyun.odps.table.read.impl.batch.TableBatchReadSessionImpl;
@@ -35,11 +36,14 @@ import com.aliyun.odps.table.read.split.InputSplitAssigner;
 import com.aliyun.odps.table.read.split.impl.IndexedInputSplit;
 import com.aliyun.odps.table.read.split.impl.IndexedInputSplitAssigner;
 import com.aliyun.odps.table.read.split.impl.RowRangeInputSplit;
+import com.aliyun.odps.table.read.split.impl.RowRangeInputSplitAssigner;
 import com.aliyun.odps.type.TypeInfoFactory;
 import com.google.common.collect.ImmutableList;
+import com.starrocks.catalog.OdpsTable;
 import com.starrocks.connector.CatalogConnector;
 import com.starrocks.connector.ConnectorContext;
 import com.starrocks.connector.ConnectorMgr;
+import com.starrocks.connector.GetRemoteFilesParams;
 import com.starrocks.connector.RemoteFileInfo;
 import com.starrocks.connector.informationschema.InformationSchemaConnector;
 import com.starrocks.connector.metadata.TableMetaConnector;
@@ -54,6 +58,8 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -89,6 +95,7 @@ public class MockedBase {
     static TableReadSessionBuilder mockTableReadSessionBuilder = Mockito.mock(TableReadSessionBuilder.class);
     static TableBatchReadSession tableBatchReadSession = Mockito.mock(TableBatchReadSessionImpl.class);
     static InputSplitAssigner inputSplitAssigner = Mockito.mock(IndexedInputSplitAssigner.class);
+    static RowRangeInputSplitAssigner rowRangeInputSplitAssigner = Mockito.mock(RowRangeInputSplitAssigner.class);
 
     static MockedStatic<GlobalStateMgr> mockedStatic = Mockito.mockStatic(GlobalStateMgr.class);
     static GlobalStateMgr globalStateMgr = Mockito.mock(GlobalStateMgr.class);
@@ -104,6 +111,8 @@ public class MockedBase {
         properties.put("odps.endpoint", "http://127.0.0.1");
         properties.put("odps.project", "project");
         properties.put("odps.tunnel.quota", "pay-as-you-go");
+        properties.put("odps.split.size.limit", "33554432");
+        properties.put("odps.tunnel.endpoint", "");
         odpsProperties = new OdpsProperties(properties);
 
         when(odps.getEndpoint()).thenReturn("http://127.0.0.1");
@@ -154,10 +163,17 @@ public class MockedBase {
         when(mockTableReadSessionBuilder.withSettings(any())).thenReturn(mockTableReadSessionBuilder);
         when(mockTableReadSessionBuilder.requiredPartitions(any())).thenReturn(mockTableReadSessionBuilder);
         when(mockTableReadSessionBuilder.requiredDataColumns(any())).thenReturn(mockTableReadSessionBuilder);
-        when(mockTableReadSessionBuilder.withSplitOptions(any())).thenReturn(mockTableReadSessionBuilder);
+        when(mockTableReadSessionBuilder.withSplitOptions(any())).thenAnswer(invocation -> {
+            com.aliyun.odps.table.configuration.SplitOptions options = invocation.getArgument(0);
+            if (options.getSplitMode() == SplitOptions.SplitMode.ROW_OFFSET) {
+                when(tableBatchReadSession.getInputSplitAssigner()).thenReturn(rowRangeInputSplitAssigner);
+            } else {
+                when(tableBatchReadSession.getInputSplitAssigner()).thenReturn(inputSplitAssigner);
+            }
+            return mockTableReadSessionBuilder;
+        });
 
         when(mockTableReadSessionBuilder.buildBatchReadSession()).thenReturn(tableBatchReadSession);
-        when(tableBatchReadSession.getInputSplitAssigner()).thenReturn(inputSplitAssigner);
 
         InputSplit split0 = new IndexedInputSplit("session", 0);
         InputSplit split1 = new IndexedInputSplit("session", 1);
@@ -168,8 +184,11 @@ public class MockedBase {
         when(inputSplitAssigner.getSplitsCount()).thenReturn(2);
 
         InputSplit split2 = new RowRangeInputSplit("session", 0, 10000L);
-        when(inputSplitAssigner.getTotalRowCount()).thenReturn(10000L);
-        when(inputSplitAssigner.getSplitByRowOffset(0, 10000L)).thenReturn(split2);
+        when(rowRangeInputSplitAssigner.getTotalRowCount()).thenReturn(10000L);
+        when(rowRangeInputSplitAssigner.getSplitByRowOffset(0, 10000L)).thenReturn(split2);
+        when(rowRangeInputSplitAssigner.getAllSplits()).thenReturn(new InputSplit[] {split2});
+        when(rowRangeInputSplitAssigner.getSplit(0)).thenReturn(split2);
+        when(rowRangeInputSplitAssigner.getSplitsCount()).thenReturn(1);
 
         Mockito.when(context.getProperties()).thenReturn(properties);
         Mockito.when(context.getCatalogName()).thenReturn("catalog");
@@ -191,7 +210,38 @@ public class MockedBase {
         fileInfo.setFiles(ImmutableList.of(OdpsRemoteFileDesc.createOdpsRemoteFileDesc(odpsSplitsInfo)));
         when(metadataMgr.getRemoteFiles(any(), any())).thenReturn(
                 ImmutableList.of(fileInfo));
-        when(odpsMetadata.getRemoteFiles(any(), any(), any())).thenReturn(
-                ImmutableList.of(fileInfo));
+        when(odpsMetadata.getRemoteFiles(any(), any(), any())).thenAnswer(invocation -> {
+            GetRemoteFilesParams params = invocation.getArgument(1);
+            long limit = params.getLimit();
+            OdpsSplitsInfo splitsInfo;
+            if (limit > -1 && limit <= 10000) {
+                splitsInfo = new OdpsSplitsInfo(Collections.singletonList(split2), tableBatchReadSession,
+                        OdpsSplitsInfo.SplitPolicy.ROW_OFFSET, new HashMap<>());
+            } else {
+                splitsInfo = new OdpsSplitsInfo(Arrays.asList(split0, split1), tableBatchReadSession,
+                        OdpsSplitsInfo.SplitPolicy.SIZE, new HashMap<>());
+            }
+            RemoteFileInfo result = new RemoteFileInfo();
+            result.setFiles(ImmutableList.of(OdpsRemoteFileDesc.createOdpsRemoteFileDesc(splitsInfo)));
+            return ImmutableList.of(result);
+        });
+        when(odpsMetadata.getRemoteFiles(any(), any())).thenAnswer(invocation -> {
+            GetRemoteFilesParams params = invocation.getArgument(1);
+            long limit = params.getLimit();
+            OdpsSplitsInfo splitsInfo;
+            if (limit > -1 && limit <= 10000) {
+                splitsInfo = new OdpsSplitsInfo(Collections.singletonList(split2), tableBatchReadSession,
+                        OdpsSplitsInfo.SplitPolicy.ROW_OFFSET, new HashMap<>());
+            } else {
+                splitsInfo = new OdpsSplitsInfo(Arrays.asList(split0, split1), tableBatchReadSession,
+                        OdpsSplitsInfo.SplitPolicy.SIZE, new HashMap<>());
+            }
+            RemoteFileInfo result = new RemoteFileInfo();
+            result.setFiles(ImmutableList.of(OdpsRemoteFileDesc.createOdpsRemoteFileDesc(splitsInfo)));
+            return ImmutableList.of(result);
+        });
+
+        OdpsTable odpsTable = new OdpsTable("catalog", table);
+        when(odpsMetadata.getTable(any(), anyString(), anyString())).thenReturn(odpsTable);
     }
 }

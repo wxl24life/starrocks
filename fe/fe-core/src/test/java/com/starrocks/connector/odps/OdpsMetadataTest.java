@@ -172,5 +172,40 @@ public class OdpsMetadataTest extends MockedBase {
         TTableDescriptor thrift = odpsTable.toThrift(null);
         Assertions.assertNotNull(thrift);
     }
+
+
+    @Test
+    public void testGetRemoteFilesWithSmallLimit() throws AnalysisException, IOException {
+        Table odpsTable = odpsMetadata.getTable(new ConnectContext(), "project", "tableName");
+        PartitionKey partitionKey = PartitionKey.createPartitionKey(
+                ImmutableList.of(new PartitionValue("a"), new PartitionValue("b")),
+                odpsTable.getPartitionColumns());
+
+        GetRemoteFilesParams params = GetRemoteFilesParams.newBuilder()
+                .setFieldNames(odpsTable.getPartitionColumnNames())
+                .setPartitionKeys(ImmutableList.of(partitionKey))
+                .setLimit(100L)
+                .build();
+
+        List<RemoteFileInfo> remoteFileInfos = odpsMetadata.getRemoteFiles(odpsTable, params, mockTableReadSessionBuilder);
+        Assertions.assertEquals(1, remoteFileInfos.size());
+    }
+
+    @Test
+    public void testGetRemoteFilesWithLargeLimit() throws AnalysisException, IOException {
+        Table odpsTable = odpsMetadata.getTable(new ConnectContext(), "project", "tableName");
+        PartitionKey partitionKey = PartitionKey.createPartitionKey(
+                ImmutableList.of(new PartitionValue("a"), new PartitionValue("b")),
+                odpsTable.getPartitionColumns());
+
+        GetRemoteFilesParams params = GetRemoteFilesParams.newBuilder()
+                .setFieldNames(odpsTable.getPartitionColumnNames())
+                .setPartitionKeys(ImmutableList.of(partitionKey))
+                .setLimit(20000L)
+                .build();
+
+        List<RemoteFileInfo> remoteFileInfos = odpsMetadata.getRemoteFiles(odpsTable, params, mockTableReadSessionBuilder);
+        Assertions.assertEquals(1, remoteFileInfos.size());
+    }
 }
 
