@@ -214,9 +214,9 @@ public class PaimonScanNodeTest {
         DeletionFile deletionFileWithoutCardinality = new DeletionFile("dummy", 1, 2, null);
         scanNode.splitRawFileScanRangeLocations(rawFile, deletionFileWithoutCardinality, 0L, null);
 
-        Assert.assertEquals(1, scanNode.getScanRangeLocations(10).size());
+        Assertions.assertEquals(1, scanNode.getScanRangeLocations(10).size());
         TScanRangeLocations tScanRangeLocations = scanNode.getScanRangeLocations(10).get(0);
-        Assert.assertFalse(tScanRangeLocations.getScan_range().getHdfs_scan_range().isSetRecord_count());
+        Assertions.assertFalse(tScanRangeLocations.getScan_range().getHdfs_scan_range().isSetRecord_count());
     }
 
     @Test
@@ -242,10 +242,10 @@ public class PaimonScanNodeTest {
         DeletionFile deletionFileWithCardinality = new DeletionFile("dummy", 1, 2, 100L);
         scanNode.splitRawFileScanRangeLocations(rawFile, deletionFileWithCardinality, 0L, 500L);
 
-        Assert.assertEquals(1, scanNode.getScanRangeLocations(10).size());
+        Assertions.assertEquals(1, scanNode.getScanRangeLocations(10).size());
         TScanRangeLocations tScanRangeLocations = scanNode.getScanRangeLocations(10).get(0);
         // When recordCount is provided, record_count should be set
-        Assert.assertTrue(tScanRangeLocations.getScan_range().getHdfs_scan_range().isSetRecord_count());
-        Assert.assertEquals(500L, tScanRangeLocations.getScan_range().getHdfs_scan_range().getRecord_count());
+        Assertions.assertTrue(tScanRangeLocations.getScan_range().getHdfs_scan_range().isSetRecord_count());
+        Assertions.assertEquals(500L, tScanRangeLocations.getScan_range().getHdfs_scan_range().getRecord_count());
     }
 }
