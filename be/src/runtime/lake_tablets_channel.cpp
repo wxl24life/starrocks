@@ -851,12 +851,7 @@ void LakeTabletsChannel::abort() {
 }
 
 void LakeTabletsChannel::cancel() {
-    std::shared_lock<bthreads::BThreadSharedMutex> l(_rw_mtx);
-    for (auto& it : _delta_writers) {
-        if (auto* writer = it.second->delta_writer(); writer != nullptr) {
-            writer->cancel(Status::Cancelled("tablet channel cancelled"));
-        }
-    }
+    //TODO: Current LakeDeltaWriter don't support fast cancel
 }
 
 StatusOr<std::unique_ptr<LakeTabletsChannel::WriteContext>> LakeTabletsChannel::_create_write_context(

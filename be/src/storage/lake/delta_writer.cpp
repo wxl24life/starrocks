@@ -143,8 +143,6 @@ public:
 
     void close();
 
-    void cancel(const Status& st);
-
     [[nodiscard]] int64_t partition_id() const { return _partition_id; }
 
     [[nodiscard]] int64_t tablet_id() const { return _tablet_id; }
@@ -295,11 +293,6 @@ private:
     // 2. After finish completes, txnlog is generated with all data files. Any subsequent write
     //    tasks will have their data discarded, resulting in data loss.
     bool _already_finished = false;
-
-    // The cancel status set by cancel(). Used to support fast cancel when transaction is aborted.
-    // Once set to a non-OK status, subsequent write/flush operations will fail quickly with this status.
-    Status _cancel_status;
-    mutable std::mutex _cancel_lock;
 };
 
 bool DeltaWriterImpl::is_immutable() const {
@@ -444,14 +437,6 @@ inline Status DeltaWriterImpl::reset_memtable() {
 }
 
 inline Status DeltaWriterImpl::flush_async() {
-    // Check if the writer has been cancelled
-    {
-        std::lock_guard<std::mutex> l(_cancel_lock);
-        if (!_cancel_status.ok()) {
-            return _cancel_status;
-        }
-    }
-
     Status st;
     if (_mem_table != nullptr) {
         DeferOp defer([this] {
@@ -562,14 +547,6 @@ Status DeltaWriterImpl::check_partial_update_with_sort_key(const Chunk& chunk) {
 
 Status DeltaWriterImpl::write(const Chunk& chunk, const uint32_t* indexes, uint32_t indexes_size) {
     SCOPED_THREAD_LOCAL_MEM_SETTER(_mem_tracker, false);
-
-    // Check if the writer has been cancelled
-    {
-        std::lock_guard<std::mutex> l(_cancel_lock);
-        if (!_cancel_status.ok()) {
-            return _cancel_status;
-        }
-    }
 
     if (_mem_table == nullptr) {
         // When loading memory usage is larger than hard limit, we will reject new loading task.
@@ -946,28 +923,6 @@ void DeltaWriterImpl::close() {
     _merge_condition.clear();
 }
 
-void DeltaWriterImpl::cancel(const Status& st) {
-    if (st.ok()) {
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> l(_cancel_lock);
-        if (!_cancel_status.ok()) {
-            return;
-        }
-        _cancel_status = st;
-    }
-
-    // Cancel the flush token to stop pending flush tasks quickly
-    if (_flush_token != nullptr) {
-        _flush_token->cancel(st);
-    }
-
-    LOG(INFO) << "Lake DeltaWriter cancelled. tablet_id=" << _tablet_id << ", txn_id=" << _txn_id
-              << ", status=" << st.message();
-}
-
 const std::vector<SegmentFileInfo>& DeltaWriterImpl::segments() const {
     if (_tablet_writer != nullptr) {
         return _tablet_writer->segments();
@@ -1030,10 +985,6 @@ Status DeltaWriter::finish() {
 void DeltaWriter::close() {
     DCHECK_EQ(0, bthread_self()) << "Should not invoke DeltaWriter::close() in a bthread";
     _impl->close();
-}
-
-void DeltaWriter::cancel(const Status& st) {
-    _impl->cancel(st);
 }
 
 int64_t DeltaWriter::partition_id() const {
