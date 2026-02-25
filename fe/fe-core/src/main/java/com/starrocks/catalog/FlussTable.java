@@ -128,7 +128,7 @@ public class FlussTable extends Table {
     }
 
     public long getRTCount() {
-        return PushdownUtils.countLogTable(this.tableInfo.getTablePath(), this.configuration);
+        return PushdownUtils.countTable(this.tableInfo.getTablePath(), this.configuration);
     }
 
     @Override
