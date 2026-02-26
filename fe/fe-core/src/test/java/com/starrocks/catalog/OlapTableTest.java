@@ -56,11 +56,13 @@ import org.threeten.extra.PeriodDuration;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class OlapTableTest {
@@ -392,6 +394,163 @@ public class OlapTableTest {
 
         // cache is valid
         Assertions.assertTrue(olapTable.isEnableFillDataCache(partition1));
+    }
+
+    /**
+     * Test that getValidRangePartitionMap correctly handles DATETIME hourly partitions.
+     *
+     * Previously there was a bug where DATE_FORMATTER_UNIX (date-only format "%Y-%m-%d") was used
+     * instead of DATE_TIME_FORMATTER_UNIX, causing all hourly partitions after 00:00 on the current
+     * day to be incorrectly counted as "future" partitions.
+     *
+     * After the fix (using DATE_TIME_FORMATTER_UNIX), at 21:10 with lastPartitionNum=2:
+     * - futurePartitionNum = 2 (only p2026022522, p2026022523 are truly future)
+     * - returned partitions = 4: p2026022520, p2026022521, p2026022522, p2026022523
+     */
+    @Test
+    public void testGetValidRangePartitionMapWithDatetimeHourlyPartitions() throws AnalysisException {
+        // Create a DATETIME partition column
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATETIME), true, null, "", "");
+        List<Column> partitionColumns = new LinkedList<>();
+        partitionColumns.add(k1);
+
+        RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(partitionColumns);
+
+        // Create hourly partitions for 2 days: 2026-02-24 00:00 ~ 2026-02-25 23:00 = 48 partitions
+        // Each partition covers 1 hour: [hour:00, (hour+1):00)
+        long partitionId = 1;
+        LocalDateTime baseTime = LocalDateTime.of(2026, 2, 24, 0, 0, 0);
+        DateTimeFormatter dtFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+        OlapTable olapTable = new OlapTable(1, "test_hourly", partitionColumns, KeysType.DUP_KEYS,
+                (PartitionInfo) rangePartitionInfo, null);
+        olapTable.setTableProperty(new TableProperty(new HashMap<>()));
+
+        for (int i = 0; i < 48; i++) {
+            LocalDateTime lower = baseTime.plusHours(i);
+            LocalDateTime upper = baseTime.plusHours(i + 1);
+            String lowerStr = lower.format(dtFmt);
+            String upperStr = upper.format(dtFmt);
+
+            PartitionKey lowerKey = new PartitionKey();
+            lowerKey.pushColumn(LiteralExpr.create(lowerStr, Type.DATETIME), PrimitiveType.DATETIME);
+            PartitionKey upperKey = new PartitionKey();
+            upperKey.pushColumn(LiteralExpr.create(upperStr, Type.DATETIME), PrimitiveType.DATETIME);
+
+            Range<PartitionKey> range = Range.closedOpen(lowerKey, upperKey);
+            rangePartitionInfo.setRange(partitionId, false, range);
+
+            // Also add partition to OlapTable's internal maps
+            String pName = "p" + lower.format(DateTimeFormatter.ofPattern("yyyyMMddHH"));
+            Partition partition = new Partition(partitionId, pName, null, null);
+            olapTable.addPartition(partition);
+
+            partitionId++;
+        }
+
+        // Verify we have 48 partitions
+        Assert.assertEquals(48, olapTable.getPartitions().size());
+
+        // Mock LocalDateTime.now() to return 2026-02-25 21:10:00
+        LocalDateTime mockedNow = LocalDateTime.of(2026, 2, 25, 21, 10, 0);
+        new MockUp<LocalDateTime>() {
+            @Mock
+            public LocalDateTime now() {
+                return mockedNow;
+            }
+        };
+
+        // Call getValidRangePartitionMap with lastPartitionNum=2 (auto_refresh_partitions_limit=2)
+        Map<String, Range<PartitionKey>> result = olapTable.getValidRangePartitionMap(2);
+        
+        // After fix: at 21:10, only p2026022522 and p2026022523 are truly future partitions (futurePartitionNum=2)
+        // So returned partitions = lastPartitionNum(2) + futurePartitionNum(2) = 4
+        // They should be: p2026022520, p2026022521, p2026022522, p2026022523
+        Assert.assertEquals("With lastPartitionNum=2 at 21:10, should return exactly 4 partitions " +
+                "(2 non-future + 2 future)", 4, result.size());
+        Assert.assertTrue(result.containsKey("p2026022520"));
+        Assert.assertTrue(result.containsKey("p2026022521"));
+        Assert.assertTrue(result.containsKey("p2026022522"));
+        Assert.assertTrue(result.containsKey("p2026022523"));
+    }
+
+    /**
+     * Test that getValidRangePartitionMap works correctly for DATE daily partitions
+     * after switching from DATE_FORMATTER_UNIX to DATE_TIME_FORMATTER_UNIX.
+     *
+     * For DATE daily partitions, the behavior should be identical because daily partition
+     * boundaries are aligned at midnight (00:00:00). Even though we now format time with
+     * DATE_TIME_FORMATTER_UNIX (e.g. "2026-02-25 21:10:00"), DateLiteral's compareLiteral()
+     * uses getLongValue() which includes hour/minute/second, so comparisons remain correct:
+     *   - p20260225 lower "2026-02-25" (longValue=20260225000000) < current (20260225211000) → NOT future
+     *   - p20260226 lower "2026-02-26" (longValue=20260226000000) > current (20260225211000) → IS future
+     */
+    @Test
+    public void testGetValidRangePartitionMapWithDateDailyPartitions() throws AnalysisException {
+        // Create a DATE partition column (not DATETIME)
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATE), true, null, "", "");
+        List<Column> partitionColumns = new LinkedList<>();
+        partitionColumns.add(k1);
+
+        RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(partitionColumns);
+
+        // Create daily partitions for 10 days: 2026-02-20 ~ 2026-03-01 = 10 partitions
+        long partitionId = 1;
+        LocalDate baseDate = LocalDate.of(2026, 2, 20);
+        DateTimeFormatter dateFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+
+        OlapTable olapTable = new OlapTable(1, "test_daily", partitionColumns, KeysType.DUP_KEYS,
+                (PartitionInfo) rangePartitionInfo, null);
+        olapTable.setTableProperty(new TableProperty(new HashMap<>()));
+
+        for (int i = 0; i < 10; i++) {
+            LocalDate lower = baseDate.plusDays(i);
+            LocalDate upper = baseDate.plusDays(i + 1);
+            String lowerStr = lower.format(dateFmt);
+            String upperStr = upper.format(dateFmt);
+
+            PartitionKey lowerKey = new PartitionKey();
+            lowerKey.pushColumn(LiteralExpr.create(lowerStr, Type.DATE), PrimitiveType.DATE);
+            PartitionKey upperKey = new PartitionKey();
+            upperKey.pushColumn(LiteralExpr.create(upperStr, Type.DATE), PrimitiveType.DATE);
+
+            Range<PartitionKey> range = Range.closedOpen(lowerKey, upperKey);
+            rangePartitionInfo.setRange(partitionId, false, range);
+
+            String pName = "p" + lower.format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+            Partition partition = new Partition(partitionId, pName, null, null);
+            olapTable.addPartition(partition);
+
+            partitionId++;
+        }
+
+        Assert.assertEquals(10, olapTable.getPartitions().size());
+
+        // Mock LocalDateTime.now() to return 2026-02-25 21:10:00
+        LocalDateTime mockedNow = LocalDateTime.of(2026, 2, 25, 21, 10, 0);
+        new MockUp<LocalDateTime>() {
+            @Mock
+            public LocalDateTime now() {
+                return mockedNow;
+            }
+        };
+
+        // With lastPartitionNum=2, at 2026-02-25 21:10:
+        // - Future partitions: p20260226, p20260227, p20260228, p20260301 (4 future)
+        // - Non-future partitions kept = 2 (p20260224, p20260225)
+        // - Total = 2 + 4 = 6 partitions
+        Map<String, Range<PartitionKey>> result = olapTable.getValidRangePartitionMap(2);
+
+        Assert.assertEquals("With lastPartitionNum=2 at 2026-02-25 21:10 for DATE daily partitions, " +
+                "should return 6 partitions (2 non-future + 4 future)", 6, result.size());
+        // The 2 most recent non-future partitions
+        Assert.assertTrue(result.containsKey("p20260224"));
+        Assert.assertTrue(result.containsKey("p20260225"));
+        // All 4 future partitions
+        Assert.assertTrue(result.containsKey("p20260226"));
+        Assert.assertTrue(result.containsKey("p20260227"));
+        Assert.assertTrue(result.containsKey("p20260228"));
+        Assert.assertTrue(result.containsKey("p20260301"));
     }
 
     @Test
