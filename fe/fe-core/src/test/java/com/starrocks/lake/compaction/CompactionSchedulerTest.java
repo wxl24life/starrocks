@@ -658,9 +658,9 @@ public class CompactionSchedulerTest {
         // Mock transaction manager to avoid actual transaction abort
         new MockUp<GlobalTransactionMgr>() {
             @Mock
-            public void abortTransaction(long dbId, long txnId, String reason, 
-                    List<TabletCommitInfo> finishedTablets, List<TabletCommitInfo> unfinishedTablets, 
-                    Object txnCommitAttachment) {
+            public void abortTransaction(long dbId, long txnId, String reason,
+                                         List<TabletCommitInfo> finishedTablets, List<TabletCommitInfo> unfinishedTablets,
+                                         Object txnCommitAttachment) {
                 // Do nothing, just mock the abort
             }
         };
