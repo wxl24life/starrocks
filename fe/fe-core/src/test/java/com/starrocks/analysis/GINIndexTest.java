@@ -26,10 +26,13 @@ import com.starrocks.common.InvertedIndexParams.InvertedIndexImpType;
 import com.starrocks.common.InvertedIndexParams.SearchParamsKey;
 import com.starrocks.server.RunMode;
 import com.starrocks.sql.analyzer.SemanticException;
+import com.starrocks.sql.ast.CreateMaterializedViewStatement;
 import com.starrocks.sql.ast.IndexDef.IndexType;
+import com.starrocks.sql.ast.StatementBase;
 import com.starrocks.sql.plan.PlanTestBase;
 import com.starrocks.thrift.TIndexType;
 import com.starrocks.thrift.TOlapTableIndex;
+import com.starrocks.utframe.UtFrameUtils;
 import mockit.Mock;
 import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
@@ -40,6 +43,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 import static com.starrocks.common.InvertedIndexParams.CommonIndexParamKey.IMP_LIB;
 
@@ -157,6 +161,73 @@ public class GINIndexTest extends PlanTestBase {
             put(SearchParamsKey.DEFAULT_SEARCH_ANALYZER.name().toLowerCase(Locale.ROOT), "english");
             put(SearchParamsKey.RERANK.name().toLowerCase(Locale.ROOT), "false");
         }}, olapIndex.getSearch_properties());
+    }
+
+    @Test
+    public void testMaterializedViewGINIndexProperties() throws Exception {
+        // Create a MV with GIN index on the DUP_KEYS table
+        String mvSql = "create materialized view test_mv_gin_index " +
+                "(f1, f2, " +
+                "INDEX gin_idx1 (`f2`) USING GIN" +
+                ") " +
+                "DISTRIBUTED BY HASH(`f1`) BUCKETS 3 \n" +
+                "REFRESH MANUAL\n" +
+                "PROPERTIES " +
+                "(" +
+                "\"replication_num\" = \"1\"" +
+                ") " +
+                "as select f1, f2 from test_index_tbl;";
+
+        StatementBase stmt = UtFrameUtils.parseStmtWithNewParser(mvSql, connectContext);
+        Assertions.assertInstanceOf(CreateMaterializedViewStatement.class, stmt);
+        CreateMaterializedViewStatement createMVStmt = (CreateMaterializedViewStatement) stmt;
+
+        // Verify that the MV indexes have properties (not empty)
+        List<Index> mvIndexes = createMVStmt.getMvIndexes();
+        Assertions.assertEquals(1, mvIndexes.size());
+
+        Index ginIndex = mvIndexes.get(0);
+        Assertions.assertEquals("gin_idx1", ginIndex.getIndexName());
+        Assertions.assertEquals(IndexType.GIN, ginIndex.getIndexType());
+
+        // Key assertion: properties should NOT be empty
+        Map<String, String> properties = ginIndex.getProperties();
+        Assertions.assertNotNull(properties, "Index properties should not be null");
+        Assertions.assertFalse(properties.isEmpty(), "Index properties should not be empty");
+
+        // Verify imp_lib default property is present
+        Assertions.assertTrue(
+                properties.containsKey(IMP_LIB.name().toLowerCase(Locale.ROOT)),
+                "Index properties should contain imp_lib");
+        Assertions.assertEquals(
+                InvertedIndexImpType.CLUCENE.toString().toLowerCase(),
+                properties.get(IMP_LIB.name().toLowerCase(Locale.ROOT)),
+                "imp_lib should default to clucene");
+
+        // Verify parser default property is present
+        Assertions.assertTrue(
+                properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY),
+                "Index properties should contain parser");
+
+        // Verify toThrift() produces correct common_properties with imp_lib
+        TOlapTableIndex thriftIndex = ginIndex.toThrift();
+        Assertions.assertEquals(TIndexType.GIN, thriftIndex.getIndex_type());
+        Assertions.assertNotNull(thriftIndex.getCommon_properties(),
+                "Thrift common_properties should not be null");
+        Assertions.assertTrue(
+                thriftIndex.getCommon_properties().containsKey(IMP_LIB.name().toLowerCase(Locale.ROOT)),
+                "Thrift common_properties should contain imp_lib");
+        Assertions.assertEquals(
+                InvertedIndexImpType.CLUCENE.toString().toLowerCase(),
+                thriftIndex.getCommon_properties().get(IMP_LIB.name().toLowerCase(Locale.ROOT)),
+                "Thrift common_properties imp_lib should be clucene");
+
+        // Verify index_properties contains parser
+        Assertions.assertNotNull(thriftIndex.getIndex_properties(),
+                "Thrift index_properties should not be null");
+        Assertions.assertTrue(
+                thriftIndex.getIndex_properties().containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY),
+                "Thrift index_properties should contain parser");
     }
 
     @Test
