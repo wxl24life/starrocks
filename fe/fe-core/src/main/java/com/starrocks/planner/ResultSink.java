@@ -39,6 +39,7 @@ import com.google.common.collect.Lists;
 import com.starrocks.analysis.OutFileClause;
 import com.starrocks.http.HttpConnectContext;
 import com.starrocks.qe.ConnectContext;
+import com.starrocks.thrift.TPaimonMetadataType;
 import com.starrocks.thrift.TDataSink;
 import com.starrocks.thrift.TDataSinkType;
 import com.starrocks.thrift.TExplainLevel;
@@ -57,6 +58,7 @@ import java.util.List;
 public class ResultSink extends DataSink {
     private final PlanNodeId exchNodeId;
     private TResultSinkType sinkType;
+    private TPaimonMetadataType paimonMetadataType;
     private String brokerName;
     private TResultFileSinkOptions fileSinkOptions;
     private boolean isBinaryRow;
@@ -93,6 +95,9 @@ public class ResultSink extends DataSink {
             tResultSink.setFormat(((HttpConnectContext) ConnectContext.get()).getResultSinkFormatType());
         }
         tResultSink.setIs_binary_row(isBinaryRow);
+        if (paimonMetadataType != null) {
+            tResultSink.setPaimon_metadata_type(paimonMetadataType);
+        }
         if (outputColumnNames != null) {
             tResultSink.setOutput_column_names(outputColumnNames);
         }
@@ -154,5 +159,9 @@ public class ResultSink extends DataSink {
 
     public void setBinaryRow(boolean isBinaryRow) {
         this.isBinaryRow = isBinaryRow;
+    }
+
+    public void setPaimonMetadataType(TPaimonMetadataType paimonMetadataType) {
+        this.paimonMetadataType = paimonMetadataType;
     }
 }

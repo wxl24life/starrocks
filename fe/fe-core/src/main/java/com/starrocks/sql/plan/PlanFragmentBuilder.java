@@ -1345,11 +1345,13 @@ public class PlanFragmentBuilder {
                     paimonScanNode.getConjuncts()
                             .add(ScalarOperatorToExpr.buildExecExpression(predicate, formatterContext));
                 }
+                HDFSScanNodePredicates scanNodePredicates = paimonScanNode.getScanNodePredicates();
+                scanNodePredicates.setSelectedPartitionIds(node.getScanOperatorPredicates().getSelectedPartitionIds());
+                scanNodePredicates.setIdToPartitionKey(node.getScanOperatorPredicates().getIdToPartitionKey());
                 paimonScanNode.setupScanRangeLocations(tupleDescriptor,
                         context.getDescTbl(),
                         node.getPredicate(),
                         node.getLimit());
-                HDFSScanNodePredicates scanNodePredicates = paimonScanNode.getScanNodePredicates();
                 prepareCommonExpr(scanNodePredicates, node.getScanOperatorPredicates(), context);
                 prepareMinMaxExpr(scanNodePredicates, node.getScanOperatorPredicates(), context, referenceTable);
             } catch (Exception e) {

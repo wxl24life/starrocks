@@ -69,6 +69,7 @@ import com.starrocks.catalog.FunctionSet;
 import com.starrocks.catalog.GlobalFunctionMgr;
 import com.starrocks.catalog.MaterializedView;
 import com.starrocks.catalog.MetaReplayState;
+import com.starrocks.catalog.PaimonTable;
 import com.starrocks.catalog.PrimitiveType;
 import com.starrocks.catalog.RefreshDictionaryCacheTaskDaemon;
 import com.starrocks.catalog.ResourceGroupMgr;
@@ -145,6 +146,8 @@ import com.starrocks.lake.compaction.CompactionControlScheduler;
 import com.starrocks.lake.compaction.CompactionMgr;
 import com.starrocks.lake.snapshot.ClusterSnapshotMgr;
 import com.starrocks.lake.vacuum.AutovacuumDaemon;
+import com.starrocks.lakeoptimizer.LakeOptimizerMetaManager;
+import com.starrocks.lakeoptimizer.cache.LakeOptimizerCacheManager;
 import com.starrocks.leader.CheckpointController;
 import com.starrocks.leader.ReportHandler;
 import com.starrocks.leader.TabletCollector;
@@ -428,6 +431,12 @@ public class GlobalStateMgr {
 
     private final StatisticAutoCollector statisticAutoCollector;
 
+    private final LakeOptimizerMetaManager lakeOptimizerMetaManager;
+
+    private final LakeOptimizerCacheManager lakeOptimizerCacheManager;
+
+    private final com.starrocks.lakeoptimizer.LakeOptimizerRefreshManager lakeOptimizerRefreshManager;
+
     private final SafeModeChecker safeModeChecker;
 
     private final AnalyzeMgr analyzeMgr;
@@ -682,6 +691,9 @@ public class GlobalStateMgr {
         this.updateDbUsedDataQuotaDaemon = new DatabaseQuotaRefresher();
         this.statisticsMetaManager = new StatisticsMetaManager();
         this.statisticAutoCollector = new StatisticAutoCollector();
+        this.lakeOptimizerMetaManager = new LakeOptimizerMetaManager();
+        this.lakeOptimizerCacheManager = new LakeOptimizerCacheManager();
+        this.lakeOptimizerRefreshManager = new com.starrocks.lakeoptimizer.LakeOptimizerRefreshManager();
         this.safeModeChecker = new SafeModeChecker();
         this.statisticStorage = new CachedStatisticStorage();
         this.sqlPlanStorage = SQLPlanStorage.create(true);
@@ -974,6 +986,14 @@ public class GlobalStateMgr {
 
     public StatisticAutoCollector getStatisticAutoCollector() {
         return statisticAutoCollector;
+    }
+
+    public LakeOptimizerCacheManager getLakeOptimizerCacheManager() {
+        return lakeOptimizerCacheManager;
+    }
+
+    public com.starrocks.lakeoptimizer.LakeOptimizerRefreshManager getLakeOptimizerRefreshManager() {
+        return lakeOptimizerRefreshManager;
     }
 
     public TabletStatMgr getTabletStatMgr() {
@@ -1442,6 +1462,7 @@ public class GlobalStateMgr {
         updateDbUsedDataQuotaDaemon.start();
         statisticsMetaManager.start();
         statisticAutoCollector.start();
+        lakeOptimizerMetaManager.start();
         taskManager.start();
         taskCleaner.start();
         mvMVJobExecutor.start();
@@ -2496,8 +2517,57 @@ public class GlobalStateMgr {
     public void refreshExternalTable(ConnectContext context, RefreshTableStmt stmt) throws DdlException {
         TableName tableName = stmt.getTableName();
         List<String> partitionNames = stmt.getPartitions();
+
+        if (isLakeOptimizerEnabled(context, tableName)) {
+            refreshLakeOptimizerTable(context, tableName, partitionNames);
+            return;
+        }
+
         refreshExternalTable(context, tableName, partitionNames);
         refreshOthersFeTable(tableName, partitionNames, true);
+    }
+
+    /**
+     * Refresh a LakeOptimizer-enabled table.
+     * On Leader: execute refresh locally
+     * On Follower: forward via RPC to Leader.
+     */
+    public void refreshLakeOptimizerTable(ConnectContext context, TableName tableName, List<String> partitionNames)
+            throws DdlException {
+        if (isLeader()) {
+            refreshExternalTable(context, tableName, partitionNames);
+        } else {
+            forwardRefreshToLeader(tableName, partitionNames);
+        }
+    }
+
+    private boolean isLakeOptimizerEnabled(ConnectContext context, TableName tableName) {
+        try {
+            Table table = metadataMgr.getTable(context, tableName.getCatalog(), tableName.getDb(), tableName.getTbl());
+            return table instanceof PaimonTable &&
+                    ((PaimonTable) table).getLakeOptimizerMode() != PaimonTable.LakeOptimizerMode.DISABLED;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void forwardRefreshToLeader(TableName tableName, List<String> partitionNames) throws DdlException {
+        TNetworkAddress leaderAddress = getNodeMgr().getLeaderRpcEndpoint();
+        try {
+            Future<TStatus> future = refreshOtherFesTable(leaderAddress, tableName, partitionNames);
+            TStatus status = future.get();
+            if (status.getStatus_code() != TStatusCode.OK) {
+                String errMsg = "";
+                if (status.getError_msgs() != null && !status.getError_msgs().isEmpty()) {
+                    errMsg = String.join(",", status.getError_msgs());
+                }
+                ErrorReport.reportDdlException(ErrorCode.ERROR_REFRESH_EXTERNAL_TABLE_FAILED, errMsg);
+            }
+        } catch (DdlException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new DdlException("Failed to forward refresh to Leader FE: " + e.getMessage());
+        }
     }
 
     public void refreshOthersFeTable(TableName tableName, List<String> partitions, boolean isSync) throws DdlException {

@@ -167,8 +167,18 @@ public class PaimonScanNode extends ScanNode {
         this.processedTable();
         List<String> fieldNames =
                 tupleDescriptor.getSlots().stream().map(s -> s.getColumn().getName()).collect(Collectors.toList());
+        List<PartitionKey> partitionKeys;
+        if (paimonTable.getLakeOptimizerMode() == PaimonTable.LakeOptimizerMode.READY) {
+            partitionKeys = new ArrayList<>();
+            for (long partitionId : scanNodePredicates.getSelectedPartitionIds()) {
+                PartitionKey partitionKey = scanNodePredicates.getIdToPartitionKey().get(partitionId);
+                partitionKeys.add(partitionKey);
+            }
+        } else {
+            partitionKeys = null;
+        }
         GetRemoteFilesParams params =
-                GetRemoteFilesParams.newBuilder().setPredicate(predicate).setFieldNames(fieldNames).setLimit(limit)
+                GetRemoteFilesParams.newBuilder().setPartitionKeys(partitionKeys).setPredicate(predicate).setFieldNames(fieldNames).setLimit(limit)
                         .build();
         List<RemoteFileInfo> fileInfos;
         try (Timer ignored = Tracers.watchScope(EXTERNAL,

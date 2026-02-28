@@ -61,6 +61,10 @@ ResultSink::ResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& 
         _sink_type = sink.type;
     }
 
+    if (sink.__isset.paimon_metadata_type) {
+        _paimon_metadata_type = sink.paimon_metadata_type;
+    }
+
     if (_sink_type == TResultSinkType::HTTP_PROTOCAL) {
         _format_type = sink.format;
     }

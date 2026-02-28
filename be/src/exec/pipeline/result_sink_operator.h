@@ -30,13 +30,15 @@ namespace pipeline {
 class ResultSinkOperator final : public Operator {
 public:
     ResultSinkOperator(OperatorFactory* factory, int32_t id, int32_t plan_node_id, int32_t driver_sequence,
-                       TResultSinkType::type sink_type, bool is_binary_format, TResultSinkFormatType::type format_type,
+                       TResultSinkType::type sink_type, TPaimonMetadataType::type paimon_metadata_type,
+                       bool is_binary_format, TResultSinkFormatType::type format_type,
                        std::vector<ExprContext*> output_expr_ctxs, const std::shared_ptr<BufferControlBlock>& sender,
                        std::atomic<int32_t>& num_sinks, std::atomic<int64_t>& num_written_rows,
                        const std::vector<std::string>& output_column_names, FragmentContext* const fragment_ctx,
                        const RowDescriptor& row_desc)
             : Operator(factory, id, "result_sink", plan_node_id, false, driver_sequence),
               _sink_type(sink_type),
+              _paimon_metadata_type(paimon_metadata_type),
               _is_binary_format(is_binary_format),
               _format_type(format_type),
               _output_expr_ctxs(std::move(output_expr_ctxs)),
@@ -74,6 +76,7 @@ public:
 
 private:
     TResultSinkType::type _sink_type;
+    TPaimonMetadataType::type _paimon_metadata_type;
     bool _is_binary_format;
     TResultSinkFormatType::type _format_type;
     std::vector<ExprContext*> _output_expr_ctxs;
@@ -96,13 +99,15 @@ private:
 
 class ResultSinkOperatorFactory final : public OperatorFactory {
 public:
-    ResultSinkOperatorFactory(int32_t id, size_t dop, TResultSinkType::type sink_type, bool is_binary_format,
+    ResultSinkOperatorFactory(int32_t id, size_t dop, TResultSinkType::type sink_type,
+                              TPaimonMetadataType::type paimon_metadata_type, bool is_binary_format,
                               TResultSinkFormatType::type format_type, std::vector<TExpr> t_output_expr,
                               FragmentContext* const fragment_ctx, const RowDescriptor& row_desc,
                               std::vector<std::string> output_column_names)
             : OperatorFactory(id, "result_sink", Operator::s_pseudo_plan_node_id_for_final_sink),
               _dop(dop),
               _sink_type(sink_type),
+              _paimon_metadata_type(paimon_metadata_type),
               _is_binary_format(is_binary_format),
               _format_type(format_type),
               _t_output_expr(std::move(t_output_expr)),
@@ -120,7 +125,7 @@ public:
         // of increasing _num_sinkers to ResultSinkOperator::close is guaranteed by pipeline driver queue,
         // so it doesn't need memory barrier here.
         _increment_num_sinkers_no_barrier();
-        return std::make_shared<ResultSinkOperator>(this, _id, _plan_node_id, driver_sequence, _sink_type,
+        return std::make_shared<ResultSinkOperator>(this, _id, _plan_node_id, driver_sequence, _sink_type, _paimon_metadata_type,
                                                     _is_binary_format, _format_type, _output_expr_ctxs, _sender,
                                                     _num_sinkers, _num_written_rows, _output_column_names,
                                                     _fragment_ctx, _row_desc);
@@ -136,6 +141,7 @@ private:
     const size_t _dop;
 
     TResultSinkType::type _sink_type;
+    TPaimonMetadataType::type _paimon_metadata_type;
     bool _is_binary_format;
     TResultSinkFormatType::type _format_type;
     std::vector<TExpr> _t_output_expr;

@@ -26,7 +26,8 @@ class RuntimeProfile;
 class MetadataResultWriter final : public BufferControlResultWriter {
 public:
     MetadataResultWriter(BufferControlBlock* sinker, const std::vector<ExprContext*>& output_expr_ctxs,
-                         RuntimeProfile* parent_profile, TResultSinkType::type _sink_type);
+                         RuntimeProfile* parent_profile, TResultSinkType::type _sink_type,
+                         TPaimonMetadataType::type paimon_metadata_type);
 
     ~MetadataResultWriter() override;
 
@@ -41,9 +42,16 @@ private:
 
     Status _fill_iceberg_metadata(const Columns& columns, const Chunk* chunk, TFetchDataResult* result) const;
 
+    Status _fill_paimon_file_metadata(const Columns& columns, const Chunk* chunk, TFetchDataResult* result) const;
+
+    Status _fill_paimon_partition_metadata(const Columns& columns, const Chunk* chunk, TFetchDataResult* result) const;
+
+    Status _fill_paimon_schema_metadata(const Columns& columns, const Chunk* chunk, TFetchDataResult* result) const;
+
 private:
     const std::vector<ExprContext*>& _output_expr_ctxs;
     TResultSinkType::type _sink_type;
+    TPaimonMetadataType::type _paimon_metadata_type;
 };
 
 } // namespace starrocks

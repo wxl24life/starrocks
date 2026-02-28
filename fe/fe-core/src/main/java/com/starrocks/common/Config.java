@@ -2868,6 +2868,62 @@ public class Config extends ConfigBase {
     public static boolean enable_paimon_refresh_manifest_files = false;
 
     /**
+     * enable lake optimizer, default false
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_lake_optimizer = false;
+
+    /**
+     * Lake Optimizer table cache max size (number of tables)
+     */
+    @ConfField(mutable = true)
+    public static long lake_optimizer_table_cache_max_size = 200;
+
+    /**
+     * Lake Optimizer table cache expire time in seconds
+     */
+    @ConfField(mutable = true)
+    public static long lake_optimizer_table_cache_expire_sec = 600;
+
+    /**
+     * Lake Optimizer partition cache max size (number of table-snapshot combinations)
+     */
+    @ConfField(mutable = true)
+    public static long lake_optimizer_partition_cache_max_size = 1000;
+
+    /**
+     * Lake Optimizer partition cache expire time in seconds
+     */
+    @ConfField(mutable = true)
+    public static long lake_optimizer_partition_cache_expire_sec = 1800;
+
+    /**
+     * Lake Optimizer manifest cache max size
+     */
+    @ConfField(mutable = true)
+    public static long lake_optimizer_manifest_cache_max_size = 100000;
+
+    /**
+     * Lake Optimizer manifest cache expire time in seconds
+     */
+    @ConfField(mutable = true)
+    public static long lake_optimizer_manifest_cache_expire_sec = 1800;
+
+    /**
+     * Number of snapshots to retain in Lake Optimizer entity tables.
+     * Set to 0 or negative to disable cleanup.
+     */
+    @ConfField(mutable = true)
+    public static int lake_optimizer_snapshot_retention_count = 2;
+
+    /**
+     * Number of partitions to process per batch during Lake Optimizer refresh.
+     * Set to 0 or negative to disable batching (process all partitions at once).
+     */
+    @ConfField(mutable = true)
+    public static int lake_optimizer_refresh_partition_batch_size = 50;
+
+    /**
      * fe will call es api to get es index shard info every es_state_sync_interval_secs
      */
     @ConfField

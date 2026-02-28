@@ -1612,7 +1612,7 @@ public class StmtExecutor {
             if (!isSendFields && !isOutfileQuery && !isExplainAnalyze && !isPlanAdvisorAnalyze && !isArrowFlight) {
                 responseFields(rawScopedTimer, colNames, outputExprs);
             }
-            
+
             context.getAuditEventBuilder().setWriteClientTimeMs(rawScopedTimer.getTotalTime());
         }
 

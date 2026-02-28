@@ -497,11 +497,72 @@ public class OptExternalPartitionPruner {
                 columnToPartitionValuesMap.put(partitionColumnRefOperator, new ConcurrentSkipListMap<>());
             }
         } else if (table instanceof PaimonTable) {
-            List<Column> partitionColumns = table.getPartitionColumns();
+            PaimonTable paimonTable = (PaimonTable) table;
+            List<Column> partitionColumns = paimonTable.getPartitionColumns();
+            // when lake optimizer is disabled, don't perform partition prune as before.
+            if (paimonTable.getLakeOptimizerMode() == PaimonTable.LakeOptimizerMode.DISABLED) {
+                for (Column column : partitionColumns) {
+                    ColumnRefOperator partitionColumnRefOperator = operator.getColumnReference(column);
+                    columnToPartitionValuesMap.put(partitionColumnRefOperator, new ConcurrentSkipListMap<>());
+                    columnToNullPartitions.put(partitionColumnRefOperator, Sets.newConcurrentHashSet());
+                }
+                return;
+            }
+            List<ColumnRefOperator> partitionColumnRefOperators = new ArrayList<>();
             for (Column column : partitionColumns) {
                 ColumnRefOperator partitionColumnRefOperator = operator.getColumnReference(column);
                 columnToPartitionValuesMap.put(partitionColumnRefOperator, new ConcurrentSkipListMap<>());
                 columnToNullPartitions.put(partitionColumnRefOperator, Sets.newConcurrentHashSet());
+                partitionColumnRefOperators.add(partitionColumnRefOperator);
+            }
+
+            List<Pair<PartitionKey, Long>> partitionKeys = Lists.newArrayList();
+            if (!paimonTable.isUnPartitioned()) {
+                String catalogName = paimonTable.getCatalogName();
+                List<String> partitionNames = GlobalStateMgr.getCurrentState().getMetadataMgr()
+                        .listPartitionNames(catalogName, paimonTable.getDbName(), paimonTable.getTableName(), -1);
+                LOG.debug("paimon partition pruner list partition names: {}", partitionNames);
+                List<PartitionKey> keys = new ArrayList<>();
+                List<Long> ids = new ArrayList<>();
+                for (String partName : partitionNames) {
+                    List<String> values = toPartitionValues(partName);
+                    PartitionKey partitionKey = createPartitionKey(values, partitionColumns, table.getType());
+                    partitionKey.setName(partName);
+                    keys.add(partitionKey);
+                    ids.add(context.getNextUniquePartitionId());
+                }
+                for (int i = 0; i < keys.size(); i++) {
+                    partitionKeys.add(new Pair<>(keys.get(i), ids.get(i)));
+                }
+            } else {
+                PartitionKey partitionKey = new PartitionKey();
+                // non-partition key table's partition name is empty string
+                partitionKey.setName("");
+                partitionKeys.add(new Pair<>(partitionKey, 0L));
+            }
+
+            partitionKeys.stream().parallel().forEach(entry -> {
+                PartitionKey key = entry.first;
+                long partitionId = entry.second;
+                List<LiteralExpr> literals = key.getKeys();
+                for (int i = 0; i < literals.size(); i++) {
+                    ColumnRefOperator columnRefOperator = partitionColumnRefOperators.get(i);
+                    LiteralExpr literal = literals.get(i);
+                    if (Expr.IS_NULL_LITERAL.apply(literal)) {
+                        columnToNullPartitions.get(columnRefOperator).add(partitionId);
+                        continue;
+                    }
+
+                    Set<Long> partitions = columnToPartitionValuesMap.get(columnRefOperator)
+                            .computeIfAbsent(literal, k -> Sets.newConcurrentHashSet());
+                    partitions.add(partitionId);
+                }
+            });
+
+            for (Pair<PartitionKey, Long> entry : partitionKeys) {
+                PartitionKey key = entry.first;
+                long partitionId = entry.second;
+                operator.getScanOperatorPredicates().getIdToPartitionKey().put(partitionId, key);
             }
         }
         LOG.debug("Table: {}, partition values map: {}, null partition map: {}", table.getName(),
@@ -548,6 +609,7 @@ public class OptExternalPartitionPruner {
             scanOperatorPredicates.setSelectedPartitionIds(selectedPartitionIds);
             scanOperatorPredicates.getNoEvalPartitionConjuncts().addAll(partitionPruner.getNoEvalConjuncts());
         } else if (table instanceof PaimonTable) {
+            // Partition pruning for Paimon table using ListPartitionPruner
             ListPartitionPruner partitionPruner =
                     new ListPartitionPruner(columnToPartitionValuesMap, columnToNullPartitions,
                             scanOperatorPredicates.getPartitionConjuncts(), null);

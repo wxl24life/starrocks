@@ -73,6 +73,8 @@ public:
 
     TResultSinkType::type get_sink_type() const { return _sink_type; }
 
+    TPaimonMetadataType::type get_paimon_metadata_type() const { return _paimon_metadata_type; }
+
     TResultSinkFormatType::type get_format_type() const { return _format_type; }
 
     const std::vector<TExpr>& get_output_exprs() const { return _t_output_expr; }
@@ -89,6 +91,7 @@ private:
     Status prepare_exprs(RuntimeState* state);
     const RowDescriptor& _row_desc;
     TResultSinkType::type _sink_type;
+    TPaimonMetadataType::type _paimon_metadata_type;
     bool _is_binary_format;
     // It is non-empty only for ARROW_FLIGHT_PROTOCAL.
     std::vector<std::string> _output_column_names;

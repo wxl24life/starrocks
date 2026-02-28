@@ -146,7 +146,70 @@ struct TIcebergMetadata {
     14: optional binary key_metadata;
 }
 
+struct TPaimonFileMetadata {
+    1: optional string partition_name
+    2: optional i32 bucket
+    3: optional i32 file_kind           // TODO: delete this
+    4: optional string file_name
+    5: optional i64 file_size
+    6: optional i64 row_count
+    7: optional i64 delete_row_count
+    8: optional i64 schema_id
+    9: optional i32 level
+    10: optional binary min_key
+    11: optional binary max_key
+    12: optional binary key_stats_min         // Serialized BinaryRow
+    13: optional binary key_stats_max         // Serialized BinaryRow
+    14: optional binary key_stats_null_count  // Serialized BinaryArray
+    15: optional binary value_stats_min       // Serialized BinaryRow
+    16: optional binary value_stats_max       // Serialized BinaryRow
+    17: optional binary value_stats_null_count // Serialized BinaryArray
+    18: optional i64 creation_time
+    19: optional i64 min_sequence_number
+    20: optional i64 max_sequence_number
+    // Deletion file fields for DeletionVector support
+    21: optional string deletion_path
+    22: optional i64 deletion_offset
+    23: optional i64 deletion_length
+    24: optional i64 deletion_cardinality
+    25: optional list<string> extra_files
+    26: optional binary embedded_file_index
+    27: optional i8 file_source               // 0=APPEND, 1=COMPACT
+    28: optional list<string> value_stats_cols
+    29: optional string external_path
+    30: optional i64 first_row_id
+    31: optional list<string> write_cols
+    32: optional i32 total_buckets
+}
+
+struct TPaimonPartitionMetadata {
+    1: optional i64 table_id
+    3: optional i64 snapshot_id
+    4: optional string partition_name
+    5: optional binary partition_values
+    6: optional i64 row_count
+    7: optional i64 data_size
+    8: optional i64 file_count
+    9: optional binary min_key           // Serialized BinaryRow
+    10: optional binary max_key          // Serialized BinaryRow
+    11: optional i64 last_file_creation_time
+}
+
+struct TPaimonSchemaMetadata {
+    1: optional i64 table_id
+    2: optional string catalog_name
+    3: optional string database_name
+    4: optional string table_name
+    5: optional string table_uuid
+    6: optional i64 begin_snapshot
+    7: optional i64 end_snapshot
+    8: optional i32 bucket_num
+}
+
 // Metadata data for metadata table
 struct TMetadataEntry {
     1: optional TIcebergMetadata iceberg_metadata;
+    2: optional TPaimonFileMetadata paimon_file_metadata;
+    3: optional TPaimonPartitionMetadata paimon_partition_metadata;
+    4: optional TPaimonSchemaMetadata paimon_schema_metadata;
 }

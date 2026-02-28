@@ -56,15 +56,20 @@ import static org.apache.paimon.options.CatalogOptions.WAREHOUSE;
 public class PaimonConnector implements Connector {
     public static final String PAIMON_CATALOG_TYPE = "paimon.catalog.type";
     public static final String PAIMON_CATALOG_WAREHOUSE = "paimon.catalog.warehouse";
+    public static final String ENABLE_LAKE_OPTIMIZER = "enable_lake_optimizer";
     private static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
     private static final String DLF_CATALOG_ID = "dlf.catalog.id";
     private static final String DLF_USER_AGENT_KEY = "header.User-Agent";
     private static final String OSS_USER_AGENT_KEY = "fs.oss.user.agent.extended";
     private final HdfsEnvironment hdfsEnvironment;
+    // Catalog in PaimonSDK
     private final Map<String, Catalog> nativePaimonCatalogs = new ConcurrentHashMap<>();
+    // Catalog in StarRocks
+    private PaimonCatalog paimonCatalog;
     private final String catalogName;
     private final String catalogType;
     private final Options paimonOptions;
+    private final boolean enableLakeOptimizer;
     private final ConnectorProperties connectorProperties;
     private String ramUser = "";
 
@@ -77,6 +82,8 @@ public class PaimonConnector implements Connector {
         this.catalogType = properties.get(PAIMON_CATALOG_TYPE);
         String metastoreUris = properties.get(HIVE_METASTORE_URIS);
         String warehousePath = properties.get(PAIMON_CATALOG_WAREHOUSE);
+        this.enableLakeOptimizer = Boolean.parseBoolean(
+                properties.getOrDefault(ENABLE_LAKE_OPTIMIZER, "false"));
 
         this.paimonOptions = new Options();
         if (Strings.isNullOrEmpty(catalogType)) {
@@ -123,12 +130,18 @@ public class PaimonConnector implements Connector {
         this.paimonOptions.set("cache.expiration-interval", "7200s");
         this.paimonOptions.set("cache.expire-after-access", "7200s");
         this.paimonOptions.set("cache.expire-after-write", "3600s");
-        // max num of cached partitions of a Paimon catalog
-        this.paimonOptions.set("cache.partition.max-num", "1000");
-        // max size of cached manifest files, 10m means cache all since files usually no more than 8m
-        this.paimonOptions.set("cache.manifest.small-file-threshold", "10m");
-        // max size of memory manifest cache uses
-        this.paimonOptions.set("cache.manifest.small-file-memory", "1g");
+        if (!this.enableLakeOptimizer) {
+            // max num of cached partitions of a Paimon catalog
+            this.paimonOptions.set("cache.partition.max-num", "1000");
+            // max size of cached manifest files, 10m means cache all since files usually no more than 8m
+            this.paimonOptions.set("cache.manifest.small-file-threshold", "10m");
+            // max size of memory manifest cache uses
+            this.paimonOptions.set("cache.manifest.small-file-memory", "1g");
+        } else {
+            // native partition and manifest cache are disabled
+            this.paimonOptions.set("cache.partition.max-num", "0");
+            this.paimonOptions.set("cache.manifest.small-file-memory", "0");
+        }
 
         String keyPrefix = "paimon.option.";
         Set<String> optionKeys = properties.keySet().stream().filter(k -> k.startsWith(keyPrefix)).collect(Collectors.toSet());
@@ -224,7 +237,7 @@ public class PaimonConnector implements Connector {
             Catalog paimonNativeCatalog = CatalogFactory.createCatalog(CatalogContext.create(
                     getPaimonOptions(), configuration, null, new HadoopFileIOLoader()));
             this.nativePaimonCatalogs.put(catalogKey, paimonNativeCatalog);
-            if (paimonNativeCatalog instanceof CachingCatalog) {
+            if (!enableLakeOptimizer && paimonNativeCatalog instanceof CachingCatalog) {
                 GlobalStateMgr.getCurrentState().getConnectorTableMetadataProcessor()
                         .registerPaimonCatalog(catalogKey, this.nativePaimonCatalogs.get(catalogKey));
             }
@@ -242,7 +255,16 @@ public class PaimonConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata() {
-        return new PaimonMetadata(catalogName, hdfsEnvironment, getPaimonNativeCatalog(), connectorProperties);
+        if (this.paimonCatalog != null) {
+            return new PaimonMetadata(catalogName, hdfsEnvironment, this.paimonCatalog, connectorProperties);
+        }
+        Catalog paimonNativeCatalog = getPaimonNativeCatalog();
+        if (this.enableLakeOptimizer) {
+            this.paimonCatalog = new CachingPaimonCatalog(catalogName, paimonNativeCatalog);
+        } else {
+            this.paimonCatalog = new DefaultPaimonCatalog(catalogName, paimonNativeCatalog);
+        }
+        return new PaimonMetadata(catalogName, hdfsEnvironment, this.paimonCatalog, connectorProperties);
     }
 
     @Override

@@ -19,6 +19,7 @@ import com.starrocks.connector.ColumnTypeConverter;
 import com.starrocks.connector.ConnectorProperties;
 import com.starrocks.connector.ConnectorType;
 import com.starrocks.connector.HdfsEnvironment;
+import com.starrocks.connector.paimon.DefaultPaimonCatalog;
 import com.starrocks.connector.paimon.PaimonMetadata;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.thrift.TTableDescriptor;
@@ -138,8 +139,8 @@ public class PaimonTableTest {
         java.nio.file.Path tmpDir = Files.createTempDirectory("tmp_");
         Catalog catalog = CatalogFactory.createCatalog(CatalogContext.create(new Path(tmpDir.toString())));
         ConnectContext connectContext = UtFrameUtils.createDefaultCtx();
-        PaimonMetadata metadata = new PaimonMetadata("paimon_catalog", new HdfsEnvironment(), catalog,
-                new ConnectorProperties(ConnectorType.PAIMON));
+        PaimonMetadata metadata = new PaimonMetadata("paimon_catalog", new HdfsEnvironment(),
+                new DefaultPaimonCatalog("paimon_catalog", catalog), new ConnectorProperties(ConnectorType.PAIMON));
 
         catalog.createDatabase("test_db", true);
 

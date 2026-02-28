@@ -69,6 +69,7 @@ import com.starrocks.journal.JournalInconsistentException;
 import com.starrocks.journal.JournalTask;
 import com.starrocks.journal.SerializeException;
 import com.starrocks.journal.bdbje.Timestamp;
+import com.starrocks.lakeoptimizer.cache.TableCacheKey;
 import com.starrocks.load.DeleteMgr;
 import com.starrocks.load.ExportFailMsg;
 import com.starrocks.load.ExportJob;
@@ -1215,6 +1216,15 @@ public class EditLog {
                     warehouseMgr.replayAlterWarehouse(wh);
                     break;
                 }
+                case OperationType.OP_INVALIDATE_LAKE_OPTIMIZER_TABLE_CACHE: {
+                    TableCacheKey key = (TableCacheKey) journal.data();
+                    if (!GlobalStateMgr.isCheckpointThread()) {
+                        globalStateMgr.getLakeOptimizerCacheManager().invalidateTable(
+                                key.catalogName, key.dbName, key.tableName);
+                        LOG.debug("[LakeOptimizer] Replayed table cache invalidation: {}", key);
+                    }
+                    break;
+                }
                 case OperationType.OP_CLUSTER_SNAPSHOT_LOG: {
                     ClusterSnapshotLog log = (ClusterSnapshotLog) journal.data();
                     globalStateMgr.getClusterSnapshotMgr().replayLog(log);
@@ -2188,5 +2198,9 @@ public class EditLog {
 
     public void logDropSPMBaseline(BaselinePlan info) {
         logEdit(OperationType.OP_DROP_SPM_BASELINE_LOG, info);
+    }
+
+    public void logInvalidateLakeOptimizerTableCache(TableCacheKey key) {
+        logEdit(OperationType.OP_INVALIDATE_LAKE_OPTIMIZER_TABLE_CACHE, key);
     }
 }

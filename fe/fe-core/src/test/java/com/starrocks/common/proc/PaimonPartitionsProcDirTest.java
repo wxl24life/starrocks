@@ -28,6 +28,7 @@ import com.starrocks.common.DdlException;
 import com.starrocks.common.util.OrderByPair;
 import com.starrocks.connector.HdfsEnvironment;
 import com.starrocks.connector.PartitionInfo;
+import com.starrocks.connector.paimon.DefaultPaimonCatalog;
 import com.starrocks.connector.paimon.PaimonMetadata;
 import com.starrocks.connector.paimon.Partition;
 import com.starrocks.qe.ConnectContext;
@@ -55,7 +56,8 @@ public class PaimonPartitionsProcDirTest {
 
     @BeforeEach
     public void setUp() throws DdlException, AnalysisException {
-        this.metadata = new PaimonMetadata("paimon_catalog", new HdfsEnvironment(), paimonNativeCatalog, null);
+        this.metadata = new PaimonMetadata("paimon_catalog", new HdfsEnvironment(),
+                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), null);
     }
 
     @Test

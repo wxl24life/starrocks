@@ -636,6 +636,9 @@ public class OperationType {
     @IgnorableOnReplayFailed
     public static final short OP_SET_VIEW_SECURITY_LOG = 13542;
 
+    @IgnorableOnReplayFailed
+    public static final short OP_INVALIDATE_LAKE_OPTIMIZER_TABLE_CACHE = 13600;
+
     /**
      * NOTICE: OperationType cannot use a value exceeding 20000, please follow the above sequence number
      */

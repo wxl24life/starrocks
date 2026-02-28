@@ -36,6 +36,7 @@ import com.starrocks.connector.hive.MockedHiveMetadata;
 import com.starrocks.connector.iceberg.MockIcebergMetadata;
 import com.starrocks.connector.jdbc.MockedJDBCMetadata;
 import com.starrocks.connector.kudu.KuduMetadata;
+import com.starrocks.connector.paimon.DefaultPaimonCatalog;
 import com.starrocks.connector.paimon.PaimonMetadata;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.CatalogMgr;
@@ -258,9 +259,9 @@ public class ConnectorPlanTestBase extends PlanTestBase {
         properties.put("paimon.catalog.warehouse", warehouse);
         GlobalStateMgr.getCurrentState().getCatalogMgr().createCatalog("paimon", MOCK_PAIMON_CATALOG_NAME, "", properties);
         //register paimon catalog
-        PaimonMetadata paimonMetadata =
-                new PaimonMetadata(MOCK_PAIMON_CATALOG_NAME, new HdfsEnvironment(), paimonNativeCatalog,
-                        new ConnectorProperties(ConnectorType.PAIMON, properties));
+        PaimonMetadata paimonMetadata = new PaimonMetadata(MOCK_PAIMON_CATALOG_NAME, new HdfsEnvironment(),
+                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog),
+                new ConnectorProperties(ConnectorType.PAIMON, properties));
         metadataMgr.registerMockedMetadata(MOCK_PAIMON_CATALOG_NAME, paimonMetadata);
     }
 

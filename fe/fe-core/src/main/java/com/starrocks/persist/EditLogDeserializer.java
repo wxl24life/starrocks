@@ -33,6 +33,7 @@ import com.starrocks.common.io.Writable;
 import com.starrocks.common.util.SmallFileMgr;
 import com.starrocks.ha.LeaderInfo;
 import com.starrocks.journal.bdbje.Timestamp;
+import com.starrocks.lakeoptimizer.cache.TableCacheKey;
 import com.starrocks.load.ExportJob;
 import com.starrocks.load.MultiDeleteInfo;
 import com.starrocks.load.loadv2.LoadJob;
@@ -267,6 +268,7 @@ public class EditLogDeserializer {
             .put(OperationType.OP_DROP_GROUP_PROVIDER, GroupProviderLog.class)
             .put(OperationType.OP_CREATE_SPM_BASELINE_LOG, BaselinePlan.class)
             .put(OperationType.OP_DROP_SPM_BASELINE_LOG, BaselinePlan.class)
+            .put(OperationType.OP_INVALIDATE_LAKE_OPTIMIZER_TABLE_CACHE, TableCacheKey.class)
             .build();
 
     public static Writable deserialize(Short opCode, DataInput in) throws IOException {

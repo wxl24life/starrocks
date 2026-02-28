@@ -54,7 +54,9 @@ Status ResultSinkOperator::prepare(RuntimeState* state) {
         _writer = std::make_shared<HttpResultWriter>(_sender.get(), _output_expr_ctxs, profile, _format_type);
         break;
     case TResultSinkType::METADATA_ICEBERG:
-        _writer = std::make_shared<MetadataResultWriter>(_sender.get(), _output_expr_ctxs, profile, _sink_type);
+    case TResultSinkType::METADATA_PAIMON:
+        _writer = std::make_shared<MetadataResultWriter>(_sender.get(), _output_expr_ctxs, profile, _sink_type,
+                                                         _paimon_metadata_type);
         break;
     case TResultSinkType::CUSTOMIZED:
         // CustomizedResultWriter is a general-purposed result writer that used by FE to executing internal

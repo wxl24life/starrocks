@@ -66,6 +66,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     private static final Logger LOG = LogManager.getLogger(PartitionKey.class);
     private List<LiteralExpr> keys;
     private List<PrimitiveType> types;
+    private String name;
     // Records the string corresponding to partition value when the partition value is null
     // for hive, it's __HIVE_DEFAULT_PARTITION__
     // for hudi， it's __HIVE_DEFAULT_PARTITION__ or default
@@ -92,6 +93,14 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
 
     public String getNullPartitionValue() {
         return nullPartitionValue;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
     }
 
     // Factory methods

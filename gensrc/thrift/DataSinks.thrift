@@ -69,13 +69,20 @@ enum TResultSinkType {
     VARIABLE,
     HTTP_PROTOCAL,
     METADATA_ICEBERG,
-    CUSTOMIZED,
+    METADATA_PAIMON,
     ARROW_FLIGHT_PROTOCAL
+    CUSTOMIZED
 }
 
 enum TResultSinkFormatType {
     JSON,
     OTHERS
+}
+
+enum TPaimonMetadataType {
+    FILE_METADATA,
+    PARTITION_METADATA,
+    SCHEMA_METADATA
 }
 
 struct TResultFileSinkOptions {
@@ -160,6 +167,7 @@ struct TResultSink {
     4: optional bool is_binary_row;
     // It is non-empty only for ARROW_FLIGHT_PROTOCAL.
     5: optional list<string> output_column_names;
+    6: optional TPaimonMetadataType paimon_metadata_type;
 }
 
 struct TMysqlTableSink {

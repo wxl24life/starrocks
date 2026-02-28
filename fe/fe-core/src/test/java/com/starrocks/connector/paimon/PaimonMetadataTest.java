@@ -128,8 +128,8 @@ public class PaimonMetadataTest {
 
     @BeforeEach
     public void setUp() {
-        this.metadata = new PaimonMetadata("paimon_catalog", new HdfsEnvironment(), paimonNativeCatalog,
-                new ConnectorProperties(ConnectorType.PAIMON));
+        this.metadata = new PaimonMetadata("paimon_catalog", new HdfsEnvironment(),
+                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), new ConnectorProperties(ConnectorType.PAIMON));
 
         BinaryRow row1 = new BinaryRow(2);
         BinaryRowWriter writer = new BinaryRowWriter(row1, 10);
@@ -410,7 +410,8 @@ public class PaimonMetadataTest {
         ConnectorProperties properties = new ConnectorProperties(ConnectorType.PAIMON);
 
         // no predicate, limit 1
-        PaimonMetadata metadata = new PaimonMetadata("paimon", environment, catalog, properties);
+        PaimonMetadata metadata = new PaimonMetadata("paimon", environment,
+                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), properties);
         GetRemoteFilesParams params = GetRemoteFilesParams.newBuilder().setFieldNames(fieldNames).setLimit(1).build();
         List<RemoteFileInfo> result = metadata.getRemoteFiles(metadata.getTable(connectContext, "test_db", "test_table"), params);
         assertEquals(1, result.size());
@@ -419,7 +420,8 @@ public class PaimonMetadataTest {
                 .getPaimonSplitsInfo().getPaimonSplits().size());
 
         // no predicate, no limit
-        metadata = new PaimonMetadata("paimon", environment, catalog, properties);
+        metadata = new PaimonMetadata("paimon", environment,
+                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), properties);
         params = GetRemoteFilesParams.newBuilder().setFieldNames(fieldNames).setLimit(-1).build();
         result = metadata.getRemoteFiles(metadata.getTable(connectContext, "test_db", "test_table"), params);
         assertEquals(1, result.size());
@@ -432,7 +434,8 @@ public class PaimonMetadataTest {
                 ConstantOperator.createVarchar(dateFormatter.format(now)));
 
         // partition predicate, limit 1
-        metadata = new PaimonMetadata("paimon", environment, catalog, properties);
+        metadata = new PaimonMetadata("paimon", environment,
+                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), properties);
         params = GetRemoteFilesParams.newBuilder().setFieldNames(fieldNames).setPredicate(createDateEqualPredicate)
                 .setLimit(1).build();
         result = metadata.getRemoteFiles(metadata.getTable(connectContext, "test_db", "test_table"), params);
@@ -442,7 +445,8 @@ public class PaimonMetadataTest {
                 .getPaimonSplitsInfo().getPaimonSplits().size());
 
         // partition predicate, no limit
-        metadata = new PaimonMetadata("paimon", environment, catalog, properties);
+        metadata = new PaimonMetadata("paimon", environment,
+                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), properties);
         params = GetRemoteFilesParams.newBuilder().setFieldNames(fieldNames).setPredicate(createDateEqualPredicate)
                 .setLimit(-1).build();
         result = metadata.getRemoteFiles(metadata.getTable(connectContext, "test_db", "test_table"), params);
@@ -456,7 +460,8 @@ public class PaimonMetadataTest {
                 ConstantOperator.createVarchar("user_1"));
 
         // none partition predicate, limit 1
-        metadata = new PaimonMetadata("paimon", environment, catalog, properties);
+        metadata = new PaimonMetadata("paimon", environment,
+                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), properties);
         params = GetRemoteFilesParams.newBuilder().setFieldNames(fieldNames).setPredicate(userEqualPredicate)
                 .setLimit(1).build();
         result = metadata.getRemoteFiles(metadata.getTable(connectContext, "test_db", "test_table"), params);
@@ -469,7 +474,8 @@ public class PaimonMetadataTest {
                 ConstantOperator.createVarchar(dateFormatter.format(now)));
 
         // partition and none partition predicate, limit 1
-        metadata = new PaimonMetadata("paimon", environment, catalog, properties);
+        metadata = new PaimonMetadata("paimon", environment,
+                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), properties);
         params = GetRemoteFilesParams.newBuilder().setFieldNames(fieldNames)
                 .setPredicate(Utils.compoundAnd(createDateGreaterPredicate, userEqualPredicate))
                 .setLimit(1).build();
@@ -491,7 +497,8 @@ public class PaimonMetadataTest {
                 ConstantOperator.createVarchar(dateFormatter.format(now)));
 
         // partition with function predicate, limit 1
-        metadata = new PaimonMetadata("paimon", environment, catalog, properties);
+        metadata = new PaimonMetadata("paimon", environment,
+                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), properties);
         params = GetRemoteFilesParams.newBuilder().setFieldNames(fieldNames).setPredicate(createDateCoalescePredicate)
                 .setLimit(1).build();
         result = metadata.getRemoteFiles(metadata.getTable(connectContext, "test_db", "test_table"), params);

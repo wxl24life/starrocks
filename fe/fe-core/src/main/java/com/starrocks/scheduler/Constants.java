@@ -47,7 +47,7 @@ public class Constants {
         PIPE,
         DATACACHE_SELECT;
 
-        // Whether the task source is mergeable, only MV is mergeable by default.
+        // Whether the task source is mergeable, MV and LAKE_OPTIMIZER are mergeable by default.
         public boolean isMergeable() {
             return this == MV;
         }

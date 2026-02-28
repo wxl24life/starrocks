@@ -56,6 +56,24 @@ public class PaimonTable extends Table {
     private static final Set<String> NATIVE_SUPPORT_FILE_FORMAT = ImmutableSet.of("parquet", "orc", "aliorc");
     private static final Set<String> SUPPORT_INSERT_FORMAT = ImmutableSet.of("parquet", "orc", "avro", "aliorc");
 
+    public enum LakeOptimizerMode {
+        /**
+         * LakeOptimizer is disabled for this table.
+         */
+        DISABLED,
+
+        /**
+         * LakeOptimizer is enabled but table metadata has not been synced yet.
+         * The table can be used for refresh operations, but cannot be queried.
+         */
+        UNINITIALIZED,
+
+        /**
+         * LakeOptimizer is enabled and table metadata has been synced.
+         */
+        READY
+    }
+
     private String catalogName;
     private String databaseName;
     private String tableName;
@@ -65,6 +83,10 @@ public class PaimonTable extends Table {
     private List<String> paimonFieldNames;
     private Map<String, String> properties;
     private final AtomicLong partitionIdGen = new AtomicLong(0L);
+    private Long beginSnapshot;
+    private Long endSnapshot;
+    private int bucketNum;
+    private LakeOptimizerMode lakeOptimizerMode = LakeOptimizerMode.DISABLED;
 
     public PaimonTable() {
         super(TableType.PAIMON);
@@ -76,6 +98,22 @@ public class PaimonTable extends Table {
         this.catalogName = catalogName;
         this.databaseName = dbName;
         this.tableName = tblName;
+        this.paimonNativeTable = paimonNativeTable;
+        this.partColumnNames = paimonNativeTable.partitionKeys();
+        this.paimonFieldNames = paimonNativeTable.rowType().getFieldNames();
+        this.beginSnapshot = 0L;
+        this.endSnapshot = 0L;
+    }
+
+    public PaimonTable(Long id, String catalogName, String dbName, String tblName, List<Column> schema,
+                       Long beginSnapshot, Long endSnapshot,
+                       org.apache.paimon.table.Table paimonNativeTable) {
+        super(id, tblName, TableType.PAIMON, schema);
+        this.catalogName = catalogName;
+        this.databaseName = dbName;
+        this.tableName = tblName;
+        this.beginSnapshot = beginSnapshot;
+        this.endSnapshot = endSnapshot;
         this.paimonNativeTable = paimonNativeTable;
         this.partColumnNames = paimonNativeTable.partitionKeys();
         this.paimonFieldNames = paimonNativeTable.rowType().getFieldNames();
@@ -103,6 +141,14 @@ public class PaimonTable extends Table {
     // For refresh table only
     public void setPaimonNativeTable(org.apache.paimon.table.Table paimonNativeTable) {
         this.paimonNativeTable = paimonNativeTable;
+    }
+
+    public LakeOptimizerMode getLakeOptimizerMode() {
+        return lakeOptimizerMode;
+    }
+
+    public void setLakeOptimizerMode(LakeOptimizerMode lakeOptimizerMode) {
+        this.lakeOptimizerMode = lakeOptimizerMode;
     }
 
     public boolean isSystemTable() {
@@ -190,13 +236,37 @@ public class PaimonTable extends Table {
         }
     }
 
-    public int getBucketNum() {
+    public int getBucketNumFromOptions() {
         String bucketNum = paimonNativeTable.options().get("bucket");
         if (Strings.isNullOrEmpty(bucketNum)) {
             return CoreOptions.BUCKET.defaultValue();
         } else {
             return Integer.parseInt(bucketNum);
         }
+    }
+
+    public Long getBeginSnapshot() {
+        return beginSnapshot;
+    }
+
+    public void setBeginSnapshot(Long beginSnapshot) {
+        this.beginSnapshot = beginSnapshot;
+    }
+
+    public Long getEndSnapshot() {
+        return endSnapshot;
+    }
+
+    public void setEndSnapshot(Long endSnapshot) {
+        this.endSnapshot = endSnapshot;
+    }
+
+    public int getBucketNum() {
+        return bucketNum;
+    }
+
+    public void setBucketNum(int bucketNum) {
+        this.bucketNum = bucketNum;
     }
 
     public boolean supportInsert() {
@@ -261,7 +331,7 @@ public class PaimonTable extends Table {
 
         tPaimonTable.setPrimary_keys(paimonNativeTable.primaryKeys());
         tPaimonTable.setPartition_keys(paimonNativeTable.partitionKeys());
-        tPaimonTable.setBucket_num(getBucketNum());
+        tPaimonTable.setBucket_num(getBucketNumFromOptions());
         tPaimonTable.setBucket_keys(getBucketKey());
         
         TTableDescriptor tTableDescriptor = new TTableDescriptor(id, TTableType.PAIMON_TABLE,

@@ -16,17 +16,20 @@
 package com.starrocks.connector.paimon;
 
 import com.starrocks.connector.PartitionInfo;
+import org.apache.paimon.data.BinaryRow;
 
 import java.util.concurrent.TimeUnit;
 
 public class Partition implements PartitionInfo {
 
+    private BinaryRow partitionValue;
     private final String partitionName;
     private final long lastUpdateTime;
 
     private final Long recordCount;
     private final Long fileSizeInBytes;
     private final Long fileCount;
+
 
     public Partition(String name, long lastUpdateTime, Long recordCount,
                      Long fileSizeInBytes, Long fileCount) {
@@ -35,11 +38,19 @@ public class Partition implements PartitionInfo {
         this.recordCount = recordCount;
         this.fileSizeInBytes = fileSizeInBytes;
         this.fileCount = fileCount;
-
+        this.partitionValue = null;
     }
 
     public String getPartitionName() {
         return partitionName;
+    }
+
+    public BinaryRow getPartitionValue() {
+        return partitionValue;
+    }
+
+    public void setPartitionValue(BinaryRow partitionValue) {
+        this.partitionValue = partitionValue;
     }
 
     @Override
