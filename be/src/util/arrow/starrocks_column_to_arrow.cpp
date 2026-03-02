@@ -411,8 +411,8 @@ struct ColumnToArrowConverter<LT, AT, is_nullable, ConvBinaryToBinaryGuard<LT, A
         ArrowBuilderType* builder = down_cast<ArrowBuilderType*>(array_builder);
 
         if constexpr (is_nullable) {
-            const auto* nullable_column = down_cast<NullableColumn*>(column.get());
-            const auto* data_column = down_cast<StarRocksColumnType*>(nullable_column->data_column().get());
+            const auto* nullable_column = down_cast<const NullableColumn*>(column.get());
+            const auto* data_column = down_cast<const StarRocksColumnType*>(nullable_column->data_column().get());
             ARROW_RETURN_NOT_OK(builder->Reserve(end_idx - start_idx));
             for (auto i = start_idx; i < end_idx; ++i) {
                 if (nullable_column->is_null(i)) {
@@ -423,7 +423,7 @@ struct ColumnToArrowConverter<LT, AT, is_nullable, ConvBinaryToBinaryGuard<LT, A
                 }
             }
         } else {
-            const auto* data_column = down_cast<StarRocksColumnType*>(column.get());
+            const auto* data_column = down_cast<const StarRocksColumnType*>(column.get());
             ARROW_RETURN_NOT_OK(builder->Reserve(end_idx - start_idx));
             for (auto i = start_idx; i < end_idx; ++i) {
                 const auto& slice = data_column->get_slice(i);
@@ -719,8 +719,8 @@ struct ColumnToArrowConverter<LT, AT, is_nullable, ConvDate32Guard<LT, AT>> {
         static constexpr int32_t UNIX_EPOCH_JULIAN = 2440588;
 
         if constexpr (is_nullable) {
-            const auto* nullable_column = down_cast<NullableColumn*>(column.get());
-            const auto* data_column = down_cast<StarRocksColumnType*>(nullable_column->data_column().get());
+            const auto* nullable_column = down_cast<const NullableColumn*>(column.get());
+            const auto* data_column = down_cast<const StarRocksColumnType*>(nullable_column->data_column().get());
             const auto& data = data_column->get_data();
             for (auto i = start_idx; i < end_idx; ++i) {
                 if (nullable_column->is_null(i)) {
@@ -734,7 +734,7 @@ struct ColumnToArrowConverter<LT, AT, is_nullable, ConvDate32Guard<LT, AT>> {
                 }
             }
         } else {
-            const auto* data_column = down_cast<StarRocksColumnType*>(column.get());
+            const auto* data_column = down_cast<const StarRocksColumnType*>(column.get());
             const auto& data = data_column->get_data();
             for (auto i = start_idx; i < end_idx; ++i) {
                 // Convert Julian day to days since Unix epoch
@@ -798,11 +798,11 @@ struct ColumnToArrowConverter<LT, AT, is_nullable, ConvTimestampGuard<LT, AT>> {
         };
 
         if constexpr (is_nullable) {
-            const auto* nullable_column = down_cast<NullableColumn*>(column.get());
-            const auto* data_column = down_cast<StarRocksColumnType*>(nullable_column->data_column().get());
+            const auto* nullable_column = down_cast<const NullableColumn*>(column.get());
+            const auto* data_column = down_cast<const StarRocksColumnType*>(nullable_column->data_column().get());
             return process_data(data_column->get_data(), nullable_column);
         } else {
-            const auto* data_column = down_cast<StarRocksColumnType*>(column.get());
+            const auto* data_column = down_cast<const StarRocksColumnType*>(column.get());
             return process_data(data_column->get_data());
         }
     }

@@ -442,14 +442,14 @@ public class OlapTableTest {
 
             // Also add partition to OlapTable's internal maps
             String pName = "p" + lower.format(DateTimeFormatter.ofPattern("yyyyMMddHH"));
-            Partition partition = new Partition(partitionId, pName, null, null);
+            Partition partition = new Partition(partitionId, pName, null);
             olapTable.addPartition(partition);
 
             partitionId++;
         }
 
         // Verify we have 48 partitions
-        Assert.assertEquals(48, olapTable.getPartitions().size());
+        Assertions.assertEquals(48, olapTable.getPartitions().size());
 
         // Mock LocalDateTime.now() to return 2026-02-25 21:10:00
         LocalDateTime mockedNow = LocalDateTime.of(2026, 2, 25, 21, 10, 0);
@@ -466,12 +466,12 @@ public class OlapTableTest {
         // After fix: at 21:10, only p2026022522 and p2026022523 are truly future partitions (futurePartitionNum=2)
         // So returned partitions = lastPartitionNum(2) + futurePartitionNum(2) = 4
         // They should be: p2026022520, p2026022521, p2026022522, p2026022523
-        Assert.assertEquals("With lastPartitionNum=2 at 21:10, should return exactly 4 partitions " +
-                "(2 non-future + 2 future)", 4, result.size());
-        Assert.assertTrue(result.containsKey("p2026022520"));
-        Assert.assertTrue(result.containsKey("p2026022521"));
-        Assert.assertTrue(result.containsKey("p2026022522"));
-        Assert.assertTrue(result.containsKey("p2026022523"));
+        Assertions.assertEquals(4, result.size(),
+                "With lastPartitionNum=2 at 21:10, should return exactly 4 partitions (2 non-future + 2 future)");
+        Assertions.assertTrue(result.containsKey("p2026022520"));
+        Assertions.assertTrue(result.containsKey("p2026022521"));
+        Assertions.assertTrue(result.containsKey("p2026022522"));
+        Assertions.assertTrue(result.containsKey("p2026022523"));
     }
 
     /**
@@ -518,13 +518,13 @@ public class OlapTableTest {
             rangePartitionInfo.setRange(partitionId, false, range);
 
             String pName = "p" + lower.format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-            Partition partition = new Partition(partitionId, pName, null, null);
+            Partition partition = new Partition(partitionId, pName, null);
             olapTable.addPartition(partition);
 
             partitionId++;
         }
 
-        Assert.assertEquals(10, olapTable.getPartitions().size());
+        Assertions.assertEquals(10, olapTable.getPartitions().size());
 
         // Mock LocalDateTime.now() to return 2026-02-25 21:10:00
         LocalDateTime mockedNow = LocalDateTime.of(2026, 2, 25, 21, 10, 0);
@@ -541,16 +541,17 @@ public class OlapTableTest {
         // - Total = 2 + 4 = 6 partitions
         Map<String, Range<PartitionKey>> result = olapTable.getValidRangePartitionMap(2);
 
-        Assert.assertEquals("With lastPartitionNum=2 at 2026-02-25 21:10 for DATE daily partitions, " +
-                "should return 6 partitions (2 non-future + 4 future)", 6, result.size());
+        Assertions.assertEquals(6, result.size(),
+                "With lastPartitionNum=2 at 2026-02-25 21:10 for DATE daily partitions, " +
+                "should return 6 partitions (2 non-future + 4 future)");
         // The 2 most recent non-future partitions
-        Assert.assertTrue(result.containsKey("p20260224"));
-        Assert.assertTrue(result.containsKey("p20260225"));
+        Assertions.assertTrue(result.containsKey("p20260224"));
+        Assertions.assertTrue(result.containsKey("p20260225"));
         // All 4 future partitions
-        Assert.assertTrue(result.containsKey("p20260226"));
-        Assert.assertTrue(result.containsKey("p20260227"));
-        Assert.assertTrue(result.containsKey("p20260228"));
-        Assert.assertTrue(result.containsKey("p20260301"));
+        Assertions.assertTrue(result.containsKey("p20260226"));
+        Assertions.assertTrue(result.containsKey("p20260227"));
+        Assertions.assertTrue(result.containsKey("p20260228"));
+        Assertions.assertTrue(result.containsKey("p20260301"));
     }
 
     @Test
