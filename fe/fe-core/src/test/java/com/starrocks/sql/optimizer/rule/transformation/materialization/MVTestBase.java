@@ -214,13 +214,15 @@ public abstract class MVTestBase extends StarRocksTestBase {
             createAndRefreshMv(sql);
             action.run();
         } catch (Exception e) {
-            Assertions.fail();
+            Assertions.fail(e);
         } finally {
-            String dbName = mvTableName.getDb() == null ? DB_NAME : mvTableName.getDb();
-            try {
-                dropMv(dbName, mvTableName.getTbl());
-            } catch (Exception e) {
-                e.printStackTrace();
+            if (mvTableName != null) {
+                String dbName = mvTableName.getDb() == null ? DB_NAME : mvTableName.getDb();
+                try {
+                    dropMv(dbName, mvTableName.getTbl());
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }
         }
     }

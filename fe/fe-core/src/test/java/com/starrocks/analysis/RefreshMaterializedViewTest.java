@@ -198,7 +198,8 @@ public class RefreshMaterializedViewTest extends MVTestBase {
     @Test
     public void testCreateMVProperties3() throws Exception {
         starRocksAssert
-                .withTable("CREATE TABLE t1 \n" +
+                .useDatabase("test")
+                .withTable("CREATE TABLE test.t1 \n" +
                         "(\n" +
                         "    k1 date,\n" +
                         "    k2 int,\n" +
@@ -207,7 +208,7 @@ public class RefreshMaterializedViewTest extends MVTestBase {
                         "PARTITION BY date_trunc('day', k1)\n" +
                         "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
                         "PROPERTIES('replication_num' = '1');")
-                .withTable("CREATE TABLE t2 \n" +
+                .withTable("CREATE TABLE test.t2 \n" +
                         "(\n" +
                         "    k1 date,\n" +
                         "    k2 int,\n" +
@@ -238,9 +239,8 @@ public class RefreshMaterializedViewTest extends MVTestBase {
             Assertions.assertTrue(mv.shouldRefreshTable("test2", "t2"));
 
             // cleanup
-            starRocksAssert.dropTable("t1");
-            starRocksAssert.dropTable("t2");
-            starRocksAssert.dropMaterializedView("mv1");
+            starRocksAssert.dropTable("test.t1");
+            starRocksAssert.dropTable("test.t2");
         });
     }
 

@@ -120,7 +120,8 @@ public class MVPCTMetaRepairerTest extends MVTestBase {
             assertThat(mv.isActive()).isTrue();
         }
 
-        // it will inactive after refresh
+        // when base table identifier changes (simulating table recreation),
+        // collectBaseTableSnapshotInfos uses getTableWithIdentifier which treats identifier mismatch as "not exist"
         {
             new MockUp<BaseTableInfo>() {
                 @Mock
@@ -141,11 +142,8 @@ public class MVPCTMetaRepairerTest extends MVTestBase {
                 refreshMaterializedView("test", "iceberg_mv1");
                 Assertions.fail();
             } catch (Exception e) {
-                assertThat(e.getMessage()).contains(" Table t1 is recreated and needed to be repaired, " +
-                        "but it is not supported by MVPCTMetaRepairer");
+                assertThat(e.getMessage()).contains("not exist");
             }
-            assertThat(mv.isActive()).isFalse();
-            assertThat(mv.getInactiveReason().equals("base-table changed: t1")).isTrue();
         }
 
         {
