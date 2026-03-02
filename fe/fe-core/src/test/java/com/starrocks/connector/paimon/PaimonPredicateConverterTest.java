@@ -302,7 +302,7 @@ public class PaimonPredicateConverterTest {
         Predicate result = CONVERTER.convert(op);
         Assertions.assertTrue(result instanceof LeafPredicate);
         LeafPredicate leafPredicate = (LeafPredicate) result;
-        Assertions.assertEquals(14.11, leafPredicate.literals().get(0));
+        Assertions.assertEquals(14.11f, leafPredicate.literals().get(0));
     }
 
     @Test
@@ -327,7 +327,7 @@ public class PaimonPredicateConverterTest {
         result = CONVERTER.convert(new BinaryPredicateOperator(BinaryType.EQ, cast2, floatValue));
         Assertions.assertTrue(result instanceof LeafPredicate);
         LeafPredicate leafPredicate2 = (LeafPredicate) result;
-        Assertions.assertEquals(11.11, leafPredicate2.literals().get(0));
+        Assertions.assertEquals(11.11f, leafPredicate2.literals().get(0));
         // date to string
         ConstantOperator date = ConstantOperator.createDate(
                 LocalDate.parse("2025-01-01").atTime(0, 0, 0, 0));
