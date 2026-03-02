@@ -274,6 +274,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                         throw new DdlException("Failed to divide job into loading task when user is null");
                     }
                 }
+                context.setThreadLocalInfo();
 
                 TPartialUpdateMode mode = TPartialUpdateMode.UNKNOWN_MODE;
                 if (partialUpdateMode.equals("column")) {
