@@ -244,6 +244,9 @@ public class PaimonMetadataTest {
             {
                 paimonNativeCatalog.getTable(identifier);
                 result = new Catalog.TableNotExistException(identifier);
+
+                paimonNativeCatalog.getView(identifier);
+                result = new Catalog.ViewNotExistException(identifier);
             }
         };
         org.junit.jupiter.api.Assertions.assertFalse(metadata.tableExists(connectContext, "nonexistentDb", "nonexistentTbl"));
