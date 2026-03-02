@@ -1038,7 +1038,7 @@ public class HiveMetadataTest {
         new Expectations(hmsOps) {
             {
                 hmsOps.getPartitionKeys("db1", "tbl1");
-                result = Lists.newArrayList("p1=1", "hive_var:do_date=20230101", "p1=2");
+                result = Lists.newArrayList("p1=1", "hivevar:do_date=20230101", "p1=2");
             }
         };
 
@@ -1054,7 +1054,7 @@ public class HiveMetadataTest {
         partitionNames = hiveMetadata.listPartitionNames("db1", "tbl1", -1);
         Assertions.assertEquals(3, partitionNames.size());
         Assertions.assertEquals("p1=1", partitionNames.get(0));
-        Assertions.assertEquals("hive_var:do_date=20230101", partitionNames.get(1));
+        Assertions.assertEquals("hivevar:do_date=20230101", partitionNames.get(1));
         Assertions.assertEquals("p1=2", partitionNames.get(2));
 
         // Restore config
