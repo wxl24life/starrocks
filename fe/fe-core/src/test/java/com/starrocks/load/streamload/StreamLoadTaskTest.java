@@ -459,7 +459,8 @@ public class StreamLoadTaskTest {
         // Fixed: result is List<String>, not List<List<String>>
         java.util.List<String> row = task.getShowInfo();
         Assertions.assertNotNull(row);
-        int lastIdx = row.size() - 1;
+        // Fixed by wxl: we added warehouse property at last index
+        int lastIdx = row.size() - 2;
         Assertions.assertTrue(row.get(lastIdx).startsWith("select tracking_log"));
     }
 

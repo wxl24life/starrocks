@@ -551,6 +551,260 @@ TEST(LakeReplicationTxnManagerTest, test_convert_s3_path_to_starlet_uri_edge_cas
     EXPECT_EQ("staros://10086", lake::convert_s3_path_to_starlet_uri("s3://", shard_id));
 }
 
+class TryBuildSourceTabletMetaWithFallbackTest : public testing::Test {
+public:
+    TryBuildSourceTabletMetaWithFallbackTest() = default;
+    ~TryBuildSourceTabletMetaWithFallbackTest() override = default;
+
+protected:
+    void SetUp() override {
+        (void)fs::remove_all(_test_dir);
+        CHECK_OK(fs::create_directories(_test_dir));
+        _location_provider = std::make_shared<lake::FixedLocationProvider>(_test_dir);
+        _mem_tracker = std::make_unique<MemTracker>(1024 * 1024);
+        _update_manager = std::make_unique<lake::UpdateManager>(_location_provider, _mem_tracker.get());
+        _tablet_mgr = std::make_unique<lake::TabletManager>(_location_provider, _update_manager.get(), 16384);
+        _replication_txn_manager = std::make_unique<lake::LakeReplicationTxnManager>(_tablet_mgr.get());
+
+        _tablet_metadata = std::make_shared<TabletMetadata>();
+        _tablet_metadata->set_id(_src_tablet_id);
+        _tablet_metadata->set_version(_version);
+        _tablet_metadata->set_next_rowset_id(1);
+        auto schema = _tablet_metadata->mutable_schema();
+        schema->set_keys_type(DUP_KEYS);
+        schema->set_id(next_id());
+        schema->set_num_short_key_columns(1);
+        auto c0 = schema->add_column();
+        c0->set_unique_id(next_id());
+        c0->set_name("c0");
+        c0->set_type("INT");
+        c0->set_is_key(true);
+        c0->set_is_nullable(false);
+
+        auto fs_or = FileSystem::CreateSharedFromString(_test_dir);
+        CHECK(fs_or.ok());
+        _shared_fs = fs_or.value();
+    }
+
+    void TearDown() override {
+        ExecEnv::GetInstance()->delete_file_thread_pool()->wait();
+        ASSERT_OK(fs::remove_all(_test_dir));
+    }
+
+    Status create_metadata_at_path(const std::string& meta_dir) {
+        RETURN_IF_ERROR(fs::create_directories(meta_dir));
+        auto filename = lake::tablet_metadata_filename(_src_tablet_id, _version);
+        auto filepath = lake::join_path(meta_dir, filename);
+        return _tablet_mgr->put_tablet_metadata(_tablet_metadata, filepath);
+    }
+
+    std::string build_current_format_meta_dir() {
+        return lake::join_path(_test_dir, fmt::format("db{}/{}/{}/meta", _src_db_id, _src_table_id, _src_partition_id));
+    }
+    std::string build_current_format_data_dir() {
+        return lake::join_path(_test_dir, fmt::format("db{}/{}/{}/data", _src_db_id, _src_table_id, _src_partition_id));
+    }
+
+    std::string build_legacy1_format_meta_dir() {
+        return lake::join_path(_test_dir, fmt::format("{}/{}/meta", _src_table_id, _src_partition_id));
+    }
+    std::string build_legacy1_format_data_dir() {
+        return lake::join_path(_test_dir, fmt::format("{}/{}/data", _src_table_id, _src_partition_id));
+    }
+
+    std::string build_legacy2_format_meta_dir() {
+        return lake::join_path(_test_dir, fmt::format("{}/meta", _src_table_id));
+    }
+    std::string build_legacy2_format_data_dir() {
+        return lake::join_path(_test_dir, fmt::format("{}/data", _src_table_id));
+    }
+
+protected:
+    constexpr static const char* const kTestDirectory = "test_fallback_meta";
+
+    std::unique_ptr<TabletManager> _tablet_mgr;
+    std::shared_ptr<lake::LocationProvider> _location_provider;
+    std::unique_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<lake::UpdateManager> _update_manager;
+    std::unique_ptr<lake::LakeReplicationTxnManager> _replication_txn_manager;
+    std::shared_ptr<TabletMetadata> _tablet_metadata;
+    std::shared_ptr<FileSystem> _shared_fs;
+
+    std::string _test_dir = kTestDirectory;
+    int64_t _src_tablet_id = 63457;
+    int64_t _src_db_id = 56764;
+    int64_t _src_table_id = 56970;
+    int64_t _src_partition_id = 63453;
+    int64_t _version = 2;
+    TTransactionId _txn_id = 12345;
+};
+
+TEST_F(TryBuildSourceTabletMetaWithFallbackTest, test_current_format_success) {
+    std::string meta_dir = build_current_format_meta_dir();
+    std::string data_dir = build_current_format_data_dir();
+    ASSERT_OK(create_metadata_at_path(meta_dir));
+
+    std::string test_meta_dir = meta_dir;
+    std::string test_data_dir = data_dir;
+    auto result = _replication_txn_manager->try_build_source_tablet_meta_with_fallback(
+            _src_tablet_id, _version, _src_db_id, _txn_id, test_meta_dir, test_data_dir, _shared_fs);
+
+    ASSERT_TRUE(result.ok()) << result.status();
+    EXPECT_EQ(meta_dir, test_meta_dir);
+    EXPECT_EQ(data_dir, test_data_dir);
+    EXPECT_EQ(_src_tablet_id, result.value()->id());
+    EXPECT_EQ(_version, result.value()->version());
+}
+
+TEST_F(TryBuildSourceTabletMetaWithFallbackTest, test_fallback_to_legacy1_format_success) {
+    std::string legacy1_meta_dir = build_legacy1_format_meta_dir();
+    std::string legacy1_data_dir = build_legacy1_format_data_dir();
+    ASSERT_OK(create_metadata_at_path(legacy1_meta_dir));
+
+    std::string test_meta_dir = build_current_format_meta_dir();
+    std::string test_data_dir = build_current_format_data_dir();
+
+    auto result = _replication_txn_manager->try_build_source_tablet_meta_with_fallback(
+            _src_tablet_id, _version, _src_db_id, _txn_id, test_meta_dir, test_data_dir, _shared_fs);
+
+    ASSERT_TRUE(result.ok()) << result.status();
+    EXPECT_EQ(legacy1_meta_dir, test_meta_dir);
+    EXPECT_EQ(legacy1_data_dir, test_data_dir);
+    EXPECT_EQ(_src_tablet_id, result.value()->id());
+}
+
+TEST_F(TryBuildSourceTabletMetaWithFallbackTest, test_fallback_to_legacy2_format_success) {
+    std::string legacy2_meta_dir = build_legacy2_format_meta_dir();
+    std::string legacy2_data_dir = build_legacy2_format_data_dir();
+    ASSERT_OK(create_metadata_at_path(legacy2_meta_dir));
+
+    std::string test_meta_dir = build_current_format_meta_dir();
+    std::string test_data_dir = build_current_format_data_dir();
+
+    auto result = _replication_txn_manager->try_build_source_tablet_meta_with_fallback(
+            _src_tablet_id, _version, _src_db_id, _txn_id, test_meta_dir, test_data_dir, _shared_fs);
+
+    ASSERT_TRUE(result.ok()) << result.status();
+    EXPECT_EQ(legacy2_meta_dir, test_meta_dir);
+    EXPECT_EQ(legacy2_data_dir, test_data_dir);
+    EXPECT_EQ(_src_tablet_id, result.value()->id());
+}
+
+TEST_F(TryBuildSourceTabletMetaWithFallbackTest, test_all_attempts_fail_not_found) {
+    std::string test_meta_dir = build_current_format_meta_dir();
+    std::string test_data_dir = build_current_format_data_dir();
+
+    auto result = _replication_txn_manager->try_build_source_tablet_meta_with_fallback(
+            _src_tablet_id, _version, _src_db_id, _txn_id, test_meta_dir, test_data_dir, _shared_fs);
+
+    ASSERT_FALSE(result.ok());
+    EXPECT_TRUE(result.status().is_not_found()) << result.status();
+}
+
+TEST_F(TryBuildSourceTabletMetaWithFallbackTest, test_path_transformation_correctness) {
+    std::string legacy2_meta_dir = build_legacy2_format_meta_dir();
+    ASSERT_OK(create_metadata_at_path(legacy2_meta_dir));
+
+    std::string test_meta_dir = build_current_format_meta_dir();
+    std::string test_data_dir = build_current_format_data_dir();
+
+    EXPECT_NE(std::string::npos, test_meta_dir.find(fmt::format("db{}", _src_db_id)));
+    EXPECT_NE(std::string::npos, test_meta_dir.find(std::to_string(_src_partition_id)));
+
+    auto result = _replication_txn_manager->try_build_source_tablet_meta_with_fallback(
+            _src_tablet_id, _version, _src_db_id, _txn_id, test_meta_dir, test_data_dir, _shared_fs);
+
+    ASSERT_TRUE(result.ok()) << result.status();
+
+    EXPECT_EQ(std::string::npos, test_meta_dir.find(fmt::format("db{}", _src_db_id)));
+    EXPECT_EQ(std::string::npos, test_meta_dir.find(std::to_string(_src_partition_id)));
+    EXPECT_EQ(std::string::npos, test_data_dir.find(fmt::format("db{}", _src_db_id)));
+    EXPECT_EQ(std::string::npos, test_data_dir.find(std::to_string(_src_partition_id)));
+}
+
+TEST_F(TryBuildSourceTabletMetaWithFallbackTest, test_priority_current_over_legacy) {
+    ASSERT_OK(create_metadata_at_path(build_current_format_meta_dir()));
+    ASSERT_OK(create_metadata_at_path(build_legacy1_format_meta_dir()));
+    ASSERT_OK(create_metadata_at_path(build_legacy2_format_meta_dir()));
+
+    std::string test_meta_dir = build_current_format_meta_dir();
+    std::string test_data_dir = build_current_format_data_dir();
+    std::string original_meta_dir = test_meta_dir;
+
+    auto result = _replication_txn_manager->try_build_source_tablet_meta_with_fallback(
+            _src_tablet_id, _version, _src_db_id, _txn_id, test_meta_dir, test_data_dir, _shared_fs);
+
+    ASSERT_TRUE(result.ok()) << result.status();
+    EXPECT_EQ(original_meta_dir, test_meta_dir);
+}
+
+TEST_F(TryBuildSourceTabletMetaWithFallbackTest, test_priority_legacy1_over_legacy2) {
+    ASSERT_OK(create_metadata_at_path(build_legacy1_format_meta_dir()));
+    ASSERT_OK(create_metadata_at_path(build_legacy2_format_meta_dir()));
+
+    std::string test_meta_dir = build_current_format_meta_dir();
+    std::string test_data_dir = build_current_format_data_dir();
+
+    auto result = _replication_txn_manager->try_build_source_tablet_meta_with_fallback(
+            _src_tablet_id, _version, _src_db_id, _txn_id, test_meta_dir, test_data_dir, _shared_fs);
+
+    ASSERT_TRUE(result.ok()) << result.status();
+    EXPECT_EQ(build_legacy1_format_meta_dir(), test_meta_dir);
+    EXPECT_EQ(build_legacy1_format_data_dir(), test_data_dir);
+}
+
+TEST_F(TryBuildSourceTabletMetaWithFallbackTest, test_different_version) {
+    int64_t different_version = 100;
+
+    _tablet_metadata->set_version(different_version);
+    std::string legacy1_meta_dir = build_legacy1_format_meta_dir();
+    ASSERT_OK(fs::create_directories(legacy1_meta_dir));
+    auto filename = lake::tablet_metadata_filename(_src_tablet_id, different_version);
+    auto filepath = lake::join_path(legacy1_meta_dir, filename);
+    ASSERT_OK(_tablet_mgr->put_tablet_metadata(_tablet_metadata, filepath));
+
+    std::string test_meta_dir = build_current_format_meta_dir();
+    std::string test_data_dir = build_current_format_data_dir();
+
+    auto result = _replication_txn_manager->try_build_source_tablet_meta_with_fallback(
+            _src_tablet_id, different_version, _src_db_id, _txn_id, test_meta_dir, test_data_dir, _shared_fs);
+
+    ASSERT_TRUE(result.ok()) << result.status();
+    EXPECT_EQ(different_version, result.value()->version());
+}
+
+TEST_F(TryBuildSourceTabletMetaWithFallbackTest, test_data_dir_consistency) {
+    ASSERT_OK(create_metadata_at_path(build_legacy2_format_meta_dir()));
+
+    std::string test_meta_dir = build_current_format_meta_dir();
+    std::string test_data_dir = build_current_format_data_dir();
+
+    auto result = _replication_txn_manager->try_build_source_tablet_meta_with_fallback(
+            _src_tablet_id, _version, _src_db_id, _txn_id, test_meta_dir, test_data_dir, _shared_fs);
+
+    ASSERT_TRUE(result.ok()) << result.status();
+
+    std::string expected_base = lake::join_path(_test_dir, std::to_string(_src_table_id));
+    EXPECT_EQ(expected_base + "/meta", test_meta_dir);
+    EXPECT_EQ(expected_base + "/data", test_data_dir);
+}
+
+TEST_F(TryBuildSourceTabletMetaWithFallbackTest, test_db_id_not_in_path) {
+    std::string custom_meta_dir = lake::join_path(_test_dir, "custom/path/meta");
+    std::string custom_data_dir = lake::join_path(_test_dir, "custom/path/data");
+
+    std::string legacy2_meta_dir = lake::join_path(_test_dir, "custom/meta");
+    ASSERT_OK(create_metadata_at_path(legacy2_meta_dir));
+
+    std::string test_meta_dir = custom_meta_dir;
+    std::string test_data_dir = custom_data_dir;
+
+    auto result = _replication_txn_manager->try_build_source_tablet_meta_with_fallback(
+            _src_tablet_id, _version, _src_db_id, _txn_id, test_meta_dir, test_data_dir, _shared_fs);
+
+    ASSERT_TRUE(result.ok()) << result.status();
+}
+
 INSTANTIATE_TEST_SUITE_P(SharedDataReplicationTxnManagerTest, SharedDataReplicationTxnManagerTest,
                          testing::Values(KeysType::DUP_KEYS, KeysType::AGG_KEYS, KeysType::PRIMARY_KEYS));
 

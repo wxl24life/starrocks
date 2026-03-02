@@ -725,6 +725,16 @@ under the License.
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-lance</artifactId>
             <version>${paimon.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>arrow-memory-unsafe</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>arrow-c-data</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
