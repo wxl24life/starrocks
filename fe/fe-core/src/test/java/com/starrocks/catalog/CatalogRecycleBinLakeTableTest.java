@@ -57,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class CatalogRecycleBinLakeTableTest {
     private static final Logger LOG = LogManager.getLogger(CatalogRecycleBinLakeTableTest.class);
@@ -900,6 +901,129 @@ public class CatalogRecycleBinLakeTableTest {
     }
 
     /**
+     * Test that force dropping a Lake Table with shared partition directories
+     * properly cleans up the shared directories. Without the forceRemoveDirectory flag,
+     * shared directories would be skipped by removePartitionDirectory().
+     */
+    @Test
+    public void testForceDropLakeTableCleansSharedDirectories(@Mocked LakeService lakeService) throws Exception {
+        LOG.warn("Start test: {}, lakeService={}", currentCaseName, lakeService);
+        final String dbName = "force_drop_shared_directory_test";
+        CatalogRecycleBin recycleBin = GlobalStateMgr.getCurrentState().getRecycleBin();
+        ConnectContext connectContext = UtFrameUtils.createDefaultCtx();
+
+        // Create database
+        String createDbStmtStr = String.format("create database %s;", dbName);
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseStmtWithNewParser(createDbStmtStr, connectContext);
+        GlobalStateMgr.getCurrentState().getLocalMetastore().createDb(createDbStmt.getFullDbName());
+        Database db = GlobalStateMgr.getCurrentState().getLocalMetastore().getDb(dbName);
+
+        // Create a table with 3 partitions
+        Table table = createTable(connectContext, String.format(
+                "CREATE TABLE %s.t1" +
+                        "(" +
+                        "  k1 DATE," +
+                        "  v1 varchar(10)" +
+                        ")" +
+                        "DUPLICATE KEY(k1)\n" +
+                        "PARTITION BY RANGE(k1) (" +
+                        "  PARTITION p1 VALUES LESS THAN('2024-01-01')," +
+                        "  PARTITION p2 VALUES LESS THAN('2024-02-01')," +
+                        "  PARTITION p3 VALUES LESS THAN('2024-03-01')" +
+                        ")" +
+                        "DISTRIBUTED BY HASH(k1) BUCKETS 1\n" +
+                        "PROPERTIES('replication_num' = '1');", dbName));
+
+        Assertions.assertTrue(table.isCloudNativeTable());
+        Partition p1 = table.getPartition("p1");
+        Partition p2 = table.getPartition("p2");
+        Partition p3 = table.getPartition("p3");
+        Assertions.assertNotNull(p1);
+        Assertions.assertNotNull(p2);
+        Assertions.assertNotNull(p3);
+        checkTableTablet(table, true);
+
+        // Force drop the table
+        dropTable(connectContext, String.format("DROP TABLE %s.t1 FORCE", dbName));
+        Assertions.assertNotNull(recycleBin.getTable(db.getId(), table.getId()));
+        Assertions.assertFalse(recycleBin.isTableRecoverable(db.getId(), table.getId()));
+
+        // Mock isSharedDirectory to always return true (simulating all partitions share a directory).
+        // With forceRemoveDirectory=true (set during table deletion), isSharedDirectory should NOT
+        // even be called because the && short-circuits in removePartitionDirectory.
+        AtomicBoolean isSharedDirectoryCalled = new AtomicBoolean(false);
+        new MockUp<LakeTableHelper>() {
+            @Mock
+            public boolean isSharedDirectory(String path, long partitionId) {
+                isSharedDirectoryCalled.set(true);
+                return true; // all dirs are "shared"
+            }
+        };
+        new MockUp<BrpcProxy>() {
+            @Mock
+            public LakeService getLakeService(TNetworkAddress address) throws RpcException {
+                return lakeService;
+            }
+        };
+        new MockUp<ConnectContext>() {
+            @Mock
+            public ComputeResource getCurrentComputeResource() {
+                return WarehouseManager.DEFAULT_RESOURCE;
+            }
+        };
+
+        // All 3 partitions should have their directories removed even though they are "shared",
+        // because forceRemoveDirectory=true bypasses the shared directory check.
+        new Expectations() {
+            {
+                lakeService.dropTable((DropTableRequest) any);
+                minTimes = 3;
+                maxTimes = 3;
+                result = buildDropTableResponse(0, "");
+            }
+        };
+
+        long delay = Math.max(Config.catalog_trash_expire_second * 1000, CatalogRecycleBin.getMinEraseLatency()) + 1;
+        long futureTime = System.currentTimeMillis() + delay;
+
+        // First eraseTable call: adds partitions with forceRemoveDirectory=true
+        recycleBin.eraseTable(futureTime);
+
+        // Verify partitions are tracked and have forceRemoveDirectory set
+        Assertions.assertTrue(recycleBin.isLakeTablePartitionsDeletionInProgress(table.getId()));
+        Assertions.assertEquals(3, recycleBin.getLakeTablePendingPartitionCount(table.getId()));
+        Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(p1.getId()));
+        Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(p2.getId()));
+        Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(p3.getId()));
+        // Verify forceRemoveDirectory is set on each partition
+        Assertions.assertTrue(recycleBin.isPartitionForceRemoveDirectory(p1.getId()));
+        Assertions.assertTrue(recycleBin.isPartitionForceRemoveDirectory(p2.getId()));
+        Assertions.assertTrue(recycleBin.isPartitionForceRemoveDirectory(p3.getId()));
+
+        // erasePartition processes the partitions
+        recycleBin.erasePartition(futureTime);
+        // Wait for async deletion to complete
+        Thread.sleep(500);
+        // Second erasePartition call to process completed async tasks
+        recycleBin.erasePartition(futureTime);
+
+        // Verify all partitions are deleted
+        Assertions.assertEquals(0, recycleBin.getLakeTablePendingPartitionCount(table.getId()));
+
+        // Verify isSharedDirectory was NOT called (short-circuited by forceRemoveDirectory=true)
+        Assertions.assertFalse(isSharedDirectoryCalled.get(),
+                "isSharedDirectory should not be called when forceRemoveDirectory is true");
+
+        // Final eraseTable call: cleans up table
+        recycleBin.eraseTable(futureTime);
+
+        // Table should be fully erased
+        Assertions.assertNull(recycleBin.getTable(db.getId(), table.getId()));
+        Assertions.assertFalse(recycleBin.isLakeTablePartitionsDeletionInProgress(table.getId()));
+        checkTableTablet(table, false);
+    }
+
+    /**
      * Test corner case: user drops partition (non-force), then changes table's datacache.enable,
      * then recovers the partition. The recovered partition should have the table's current
      * datacache.enable value, not the stale value from before the drop.
@@ -1006,7 +1130,6 @@ public class CatalogRecycleBinLakeTableTest {
         // Create a range partitioned cloud native table
         Table table = createTable(connectContext, String.format(
                 "CREATE TABLE %s.t_replay_datacache" +
-                "CREATE TABLE %s.t1" +
                         "(" +
                         "  k1 DATE," +
                         "  v1 varchar(10)" +

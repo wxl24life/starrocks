@@ -68,7 +68,6 @@ import org.apache.commons.collections4.ListUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.TestOnly;
 
 import java.io.IOException;
 import java.util.Collection;
@@ -576,7 +575,7 @@ public class CatalogRecycleBin extends FrontendDaemon implements Writable, Memor
         LOG.info("Finished log erase tables: {}", StringUtils.join(tableIds, ","));
     }
 
-    List<RecycleTableInfo> removeTableFromRecycleBin(List<Long> tableIds) {
+    synchronized List<RecycleTableInfo> removeTableFromRecycleBin(List<Long> tableIds) {
         List<RecycleTableInfo> removedTableInfos = Lists.newArrayListWithCapacity(tableIds.size());
         for (Long tableId : tableIds) {
             Map<Long, RecycleTableInfo> column = idToTableInfo.column(tableId);
@@ -637,6 +636,8 @@ public class CatalogRecycleBin extends FrontendDaemon implements Writable, Memor
             RecyclePartitionInfo recyclePartitionInfo = table.buildRecyclePartitionInfo(dbId, partition);
             // Mark as not recoverable since the table is being erased
             recyclePartitionInfo.setRecoverable(false);
+            // Force remove shared directories since the entire table is being deleted
+            recyclePartitionInfo.setForceRemoveDirectory(true);
 
             // Add to idToPartition so erasePartition() can process it
             idToPartition.put(partitionId, recyclePartitionInfo);
@@ -701,7 +702,7 @@ public class CatalogRecycleBin extends FrontendDaemon implements Writable, Memor
     }
 
     @VisibleForTesting
-    void eraseTable(long currentTimeMs) {
+    synchronized void eraseTable(long currentTimeMs) {
         List<RecycleTableInfo> tableToErase = pickTablesToErase(currentTimeMs);
         if (tableToErase.isEmpty()) {
             return;
@@ -709,20 +710,20 @@ public class CatalogRecycleBin extends FrontendDaemon implements Writable, Memor
 
         List<Long> finishedTables = Lists.newArrayList();
         for (RecycleTableInfo info : tableToErase) {
-            // For non-retryable tables (shared-nothing mode), skip async deletion to prevent memory leak
-            // These tables are already removed from idToTableInfo in pickTablesToErase
+            // For non-retry-able tables (such as tables in shared-nothing mode), skip async deletion to prevent memory leak
             if (!info.table.isDeleteRetryable()) {
-                // Directly call deleteFromRecycleBin synchronously
+                // These tables are already removed from idToTableInfo in pickTablesToErase,
+                // So directly call deleteFromRecycleBin synchronously
                 info.table.deleteFromRecycleBin(info.dbId, false);
                 continue;
             }
 
-            // Only retryable tables (lake tables) use async deletion with tracking
-            // For Lake Table, convert to partition-level deletion
-            Preconditions.checkState(!info.isRecoverable());
+            // Use async deletion with tracking for lake(cloud-native) tables
+            Preconditions.checkState(!info.isRecoverable() && info.table.isCloudNativeTableOrMaterializedView());
             long tableId = info.table.getId();
 
-            // Check if partitions have already been added to idToPartition
+            // For lake table, we will convert it to partition-level deletion
+            // First, we should check if all of table's partitions have already been added to idToPartition
             if (!lakeTableToPartitions.containsKey(tableId)) {
                 // First time processing this table, add its partitions to idToPartition
                 if (!addLakeTablePartitionsToRecycleBin(info)) {
@@ -1339,6 +1340,12 @@ public class CatalogRecycleBin extends FrontendDaemon implements Writable, Memor
         return partitionsFromTableDeletion.contains(partitionId);
     }
 
+    @VisibleForTesting
+    synchronized boolean isPartitionForceRemoveDirectory(long partitionId) {
+        RecyclePartitionInfo info = idToPartition.get(partitionId);
+        return info != null && info.isForceRemoveDirectory();
+    }
+
     /**
      * Check if any partition of a Lake Table is currently being deleted asynchronously.
      * This is useful for tests to wait for the current round of deletion attempts to complete.
@@ -1346,7 +1353,6 @@ public class CatalogRecycleBin extends FrontendDaemon implements Writable, Memor
      * @param tableId the table id to check
      * @return true if any partition has an active async delete task, false otherwise
      */
-    @TestOnly
     @VisibleForTesting
     synchronized boolean isAnyLakeTablePartitionDeleting(long tableId) {
         Set<Long> partitionIds = lakeTableToPartitions.get(tableId);
