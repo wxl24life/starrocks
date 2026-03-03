@@ -57,12 +57,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class CatalogRecycleBinLakeTableTest {
     private static final Logger LOG = LogManager.getLogger(CatalogRecycleBinLakeTableTest.class);
 
-    private String currentCaseName = "";
+    protected String currentCaseName = "";
 
     @BeforeAll
     public static void beforeClass() {
@@ -74,36 +73,38 @@ public class CatalogRecycleBinLakeTableTest {
     @BeforeEach
     void setUp(TestInfo testInfo) {
         currentCaseName = testInfo.getDisplayName();
+        // Clear recycle bin before each test to ensure test isolation
+        GlobalStateMgr.getCurrentState().getRecycleBin().clear();
     }
 
-    private static Table createTable(ConnectContext connectContext, String sql) throws Exception {
+    protected static Table createTable(ConnectContext connectContext, String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseStmtWithNewParser(sql, connectContext);
         GlobalStateMgr.getCurrentState().getLocalMetastore().createTable(createTableStmt);
         Database db = GlobalStateMgr.getCurrentState().getLocalMetastore().getDb(createTableStmt.getDbName());
         return GlobalStateMgr.getCurrentState().getLocalMetastore().getTable(db.getFullName(), createTableStmt.getTableName());
     }
 
-    private static void dropTable(ConnectContext connectContext, String sql) throws Exception {
+    protected static void dropTable(ConnectContext connectContext, String sql) throws Exception {
         DropTableStmt dropTableStmt = (DropTableStmt) UtFrameUtils.parseStmtWithNewParser(sql, connectContext);
         GlobalStateMgr.getCurrentState().getLocalMetastore().dropTable(dropTableStmt);
     }
 
-    private static void alterTable(ConnectContext connectContext, String sql) throws Exception {
+    protected static void alterTable(ConnectContext connectContext, String sql) throws Exception {
         AlterTableStmt stmt = (AlterTableStmt) UtFrameUtils.parseStmtWithNewParser(sql, connectContext);
         DDLStmtExecutor.execute(stmt, connectContext);
     }
 
-    private static void recoverDatabase(ConnectContext connectContext, String sql) throws Exception {
+    protected static void recoverDatabase(ConnectContext connectContext, String sql) throws Exception {
         RecoverDbStmt stmt = (RecoverDbStmt) UtFrameUtils.parseStmtWithNewParser(sql, connectContext);
         GlobalStateMgr.getCurrentState().getLocalMetastore().recoverDatabase(stmt);
     }
 
-    private static void recoverPartition(ConnectContext connectContext, String sql) throws Exception {
+    protected static void recoverPartition(ConnectContext connectContext, String sql) throws Exception {
         RecoverPartitionStmt stmt = (RecoverPartitionStmt) UtFrameUtils.parseStmtWithNewParser(sql, connectContext);
         GlobalStateMgr.getCurrentState().getLocalMetastore().recoverPartition(stmt);
     }
 
-    private static Future<DropTableResponse> buildDropTableResponse(int errCode, String msg) {
+    protected static Future<DropTableResponse> buildDropTableResponse(int errCode, String msg) {
         DropTableResponse response = new DropTableResponse();
         response.status = new StatusPB();
         response.status.statusCode = errCode;
@@ -111,13 +112,13 @@ public class CatalogRecycleBinLakeTableTest {
         return CompletableFuture.completedFuture(response);
     }
 
-    private static void checkTableTablet(Table table, boolean expectExist) {
+    protected static void checkTableTablet(Table table, boolean expectExist) {
         for (Partition partition : table.getPartitions()) {
             checkPartitionTablet(partition, expectExist);
         }
     }
 
-    private static void checkPartitionTablet(Partition partition, boolean expectExist) {
+    protected static void checkPartitionTablet(Partition partition, boolean expectExist) {
         TabletInvertedIndex tabletIndex = GlobalStateMgr.getCurrentState().getTabletInvertedIndex();
         for (MaterializedIndex index :
                 partition.getDefaultPhysicalPartition().getLatestMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
@@ -132,11 +133,11 @@ public class CatalogRecycleBinLakeTableTest {
         }
     }
 
-    private static String getStorageVolumeIdOfTable(long tableId) {
+    protected static String getStorageVolumeIdOfTable(long tableId) {
         return GlobalStateMgr.getCurrentState().getStorageVolumeMgr().getStorageVolumeIdOfTable(tableId);
     }
 
-    private static void waitTableClearFinished(CatalogRecycleBin recycleBin, long id,
+    protected static void waitTableClearFinished(CatalogRecycleBin recycleBin, long id,
                                                long time) {
         while (recycleBin.getRecycleTableInfo(id) != null) {
             // For Lake Tables, partitions are processed by erasePartition()
@@ -149,7 +150,7 @@ public class CatalogRecycleBinLakeTableTest {
         }
     }
 
-    private static void waitPartitionClearFinished(CatalogRecycleBin recycleBin, long id,
+    protected static void waitPartitionClearFinished(CatalogRecycleBin recycleBin, long id,
                                                    long time) {
         while (recycleBin.getRecyclePartitionInfo(id) != null) {
             recycleBin.erasePartition(time);
@@ -160,7 +161,7 @@ public class CatalogRecycleBinLakeTableTest {
         }
     }
 
-    private static void waitTableToBeDone(CatalogRecycleBin recycleBin, long id, long time) {
+    protected static void waitTableToBeDone(CatalogRecycleBin recycleBin, long id, long time) {
         // The deletion flow is:
         // 1. eraseTable() adds partitions to idToPartition, lakeTableToPartitions tracks them
         // 2. erasePartition() processes partitions asynchronously
@@ -186,7 +187,7 @@ public class CatalogRecycleBinLakeTableTest {
         }
     }
 
-    private static void waitAllTablesToBeDone(CatalogRecycleBin recycleBin, List<Long> ids, long time) {
+    protected static void waitAllTablesToBeDone(CatalogRecycleBin recycleBin, List<Long> ids, long time) {
         ids.forEach(x -> Assertions.assertTrue(recycleBin.isLakeTablePartitionsDeletionInProgress(x)));
 
         // Note that the eraseTable() will add new async delete tasks if the deletion failed but retryable.
@@ -220,7 +221,7 @@ public class CatalogRecycleBinLakeTableTest {
         recycleBin.eraseTable(time);
     }
 
-    private static void waitPartitionToBeDone(CatalogRecycleBin recycleBin, long id, long time) {
+    protected static void waitPartitionToBeDone(CatalogRecycleBin recycleBin, long id, long time) {
         while (recycleBin.isDeletingPartition(id)) {
             recycleBin.erasePartition(time);
             try {
@@ -230,7 +231,7 @@ public class CatalogRecycleBinLakeTableTest {
         }
     }
 
-    private static boolean containsAsyncDeletePartition(Object recycleBin, long id) {
+    protected static boolean containsAsyncDeletePartition(Object recycleBin, long id) {
         Map<?, CompletableFuture<Boolean>> asyncDeleteForPartitions =
                 Deencapsulation.getField(recycleBin, "asyncDeleteForPartitions");
 
@@ -898,129 +899,6 @@ public class CatalogRecycleBinLakeTableTest {
         // Table should be erased now
         Assertions.assertNull(recycleBin.getTable(db.getId(), table.getId()));
         Assertions.assertFalse(recycleBin.isLakeTablePartitionsDeletionInProgress(table.getId()));
-    }
-
-    /**
-     * Test that force dropping a Lake Table with shared partition directories
-     * properly cleans up the shared directories. Without the forceRemoveDirectory flag,
-     * shared directories would be skipped by removePartitionDirectory().
-     */
-    @Test
-    public void testForceDropLakeTableCleansSharedDirectories(@Mocked LakeService lakeService) throws Exception {
-        LOG.warn("Start test: {}, lakeService={}", currentCaseName, lakeService);
-        final String dbName = "force_drop_shared_directory_test";
-        CatalogRecycleBin recycleBin = GlobalStateMgr.getCurrentState().getRecycleBin();
-        ConnectContext connectContext = UtFrameUtils.createDefaultCtx();
-
-        // Create database
-        String createDbStmtStr = String.format("create database %s;", dbName);
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseStmtWithNewParser(createDbStmtStr, connectContext);
-        GlobalStateMgr.getCurrentState().getLocalMetastore().createDb(createDbStmt.getFullDbName());
-        Database db = GlobalStateMgr.getCurrentState().getLocalMetastore().getDb(dbName);
-
-        // Create a table with 3 partitions
-        Table table = createTable(connectContext, String.format(
-                "CREATE TABLE %s.t1" +
-                        "(" +
-                        "  k1 DATE," +
-                        "  v1 varchar(10)" +
-                        ")" +
-                        "DUPLICATE KEY(k1)\n" +
-                        "PARTITION BY RANGE(k1) (" +
-                        "  PARTITION p1 VALUES LESS THAN('2024-01-01')," +
-                        "  PARTITION p2 VALUES LESS THAN('2024-02-01')," +
-                        "  PARTITION p3 VALUES LESS THAN('2024-03-01')" +
-                        ")" +
-                        "DISTRIBUTED BY HASH(k1) BUCKETS 1\n" +
-                        "PROPERTIES('replication_num' = '1');", dbName));
-
-        Assertions.assertTrue(table.isCloudNativeTable());
-        Partition p1 = table.getPartition("p1");
-        Partition p2 = table.getPartition("p2");
-        Partition p3 = table.getPartition("p3");
-        Assertions.assertNotNull(p1);
-        Assertions.assertNotNull(p2);
-        Assertions.assertNotNull(p3);
-        checkTableTablet(table, true);
-
-        // Force drop the table
-        dropTable(connectContext, String.format("DROP TABLE %s.t1 FORCE", dbName));
-        Assertions.assertNotNull(recycleBin.getTable(db.getId(), table.getId()));
-        Assertions.assertFalse(recycleBin.isTableRecoverable(db.getId(), table.getId()));
-
-        // Mock isSharedDirectory to always return true (simulating all partitions share a directory).
-        // With forceRemoveDirectory=true (set during table deletion), isSharedDirectory should NOT
-        // even be called because the && short-circuits in removePartitionDirectory.
-        AtomicBoolean isSharedDirectoryCalled = new AtomicBoolean(false);
-        new MockUp<LakeTableHelper>() {
-            @Mock
-            public boolean isSharedDirectory(String path, long partitionId) {
-                isSharedDirectoryCalled.set(true);
-                return true; // all dirs are "shared"
-            }
-        };
-        new MockUp<BrpcProxy>() {
-            @Mock
-            public LakeService getLakeService(TNetworkAddress address) throws RpcException {
-                return lakeService;
-            }
-        };
-        new MockUp<ConnectContext>() {
-            @Mock
-            public ComputeResource getCurrentComputeResource() {
-                return WarehouseManager.DEFAULT_RESOURCE;
-            }
-        };
-
-        // All 3 partitions should have their directories removed even though they are "shared",
-        // because forceRemoveDirectory=true bypasses the shared directory check.
-        new Expectations() {
-            {
-                lakeService.dropTable((DropTableRequest) any);
-                minTimes = 3;
-                maxTimes = 3;
-                result = buildDropTableResponse(0, "");
-            }
-        };
-
-        long delay = Math.max(Config.catalog_trash_expire_second * 1000, CatalogRecycleBin.getMinEraseLatency()) + 1;
-        long futureTime = System.currentTimeMillis() + delay;
-
-        // First eraseTable call: adds partitions with forceRemoveDirectory=true
-        recycleBin.eraseTable(futureTime);
-
-        // Verify partitions are tracked and have forceRemoveDirectory set
-        Assertions.assertTrue(recycleBin.isLakeTablePartitionsDeletionInProgress(table.getId()));
-        Assertions.assertEquals(3, recycleBin.getLakeTablePendingPartitionCount(table.getId()));
-        Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(p1.getId()));
-        Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(p2.getId()));
-        Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(p3.getId()));
-        // Verify forceRemoveDirectory is set on each partition
-        Assertions.assertTrue(recycleBin.isPartitionForceRemoveDirectory(p1.getId()));
-        Assertions.assertTrue(recycleBin.isPartitionForceRemoveDirectory(p2.getId()));
-        Assertions.assertTrue(recycleBin.isPartitionForceRemoveDirectory(p3.getId()));
-
-        // erasePartition processes the partitions
-        recycleBin.erasePartition(futureTime);
-        // Wait for async deletion to complete
-        Thread.sleep(500);
-        // Second erasePartition call to process completed async tasks
-        recycleBin.erasePartition(futureTime);
-
-        // Verify all partitions are deleted
-        Assertions.assertEquals(0, recycleBin.getLakeTablePendingPartitionCount(table.getId()));
-
-        // Verify isSharedDirectory was NOT called (short-circuited by forceRemoveDirectory=true)
-        Assertions.assertFalse(isSharedDirectoryCalled.get(),
-                "isSharedDirectory should not be called when forceRemoveDirectory is true");
-
-        // Final eraseTable call: cleans up table
-        recycleBin.eraseTable(futureTime);
-
-        // Table should be fully erased
-        Assertions.assertNull(recycleBin.getTable(db.getId(), table.getId()));
-        Assertions.assertFalse(recycleBin.isLakeTablePartitionsDeletionInProgress(table.getId()));
-        checkTableTablet(table, false);
     }
 
     /**
