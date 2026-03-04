@@ -20,7 +20,6 @@ import com.starrocks.catalog.Database;
 import com.starrocks.catalog.Table;
 import com.starrocks.common.Config;
 import com.starrocks.load.loadv2.LoadJob;
-import com.starrocks.load.routineload.RoutineLoadJob;
 import com.starrocks.load.streamload.StreamLoadTask;
 import com.starrocks.qe.DmlType;
 import com.starrocks.server.GlobalStateMgr;
@@ -72,14 +71,7 @@ public class LoadJobHistoryLogListener implements LoadJobListener {
 
     @Override
     public void onLoadJobTransactionFinish(TransactionState transactionState) {
-        // Handle routine load separately since it's managed by RoutineLoadMgr, not LoadMgr
-        if (transactionState.getSourceType() == TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK) {
-            // For ROUTINE_LOAD_TASK, the callbackIdList always contains exactly one element (the RoutineLoadJob id),
-            // which is set during RoutineLoadTaskInfo.beginTxn() via GlobalTransactionMgr.beginTransaction().
-            doRoutineLoadJobLog(transactionState.getCallbackId().get(0));
-        } else {
-            doJobLog(transactionState.getLabel());
-        }
+        doJobLog(transactionState.getLabel());
     }
 
 
@@ -110,20 +102,6 @@ public class LoadJobHistoryLogListener implements LoadJobListener {
                 String jsonString = GSON.toJson(loadJob.toThrift());
                 LOADS_HISTORY_LOG.info(jsonString);
             });
-        }
-    }
-
-    private void doRoutineLoadJobLog(long jobId) {
-        if (!needTrigger()) {
-            return;
-        }
-        // For routine load, callbackId is the jobId (set in RoutineLoadTaskInfo.beginTxn)
-        if (jobId > 0) {
-            RoutineLoadJob routineLoadJob = GlobalStateMgr.getCurrentState().getRoutineLoadMgr().getJob(jobId);
-            if (routineLoadJob != null) {
-                String jsonString = GSON.toJson(routineLoadJob.toThrift());
-                LOADS_HISTORY_LOG.info(jsonString);
-            }
         }
     }
 
