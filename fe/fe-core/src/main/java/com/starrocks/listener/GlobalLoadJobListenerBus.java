@@ -41,10 +41,21 @@ public class GlobalLoadJobListenerBus {
     /**
      * Do all callbacks after `broker load/spark load/routine load` transaction is finished which is
      *  only triggered without an error.
+     *
+     * This method is called by DatabaseTransactionMgr for ALL transaction types after the database
+     * IX lock is released. Stream load types are filtered out here since they are already handled
+     * by {@link #onStreamJobTransactionFinish(TransactionState)}.
+     *
      * @param transactionState finished transaction states
      */
     public void onLoadJobTransactionFinish(TransactionState transactionState) {
         if (transactionState == null) {
+            return;
+        }
+        // Stream load types are already handled by onStreamJobTransactionFinish
+        TransactionState.LoadJobSourceType sourceType = transactionState.getSourceType();
+        if (TransactionState.LoadJobSourceType.FRONTEND_STREAMING.equals(sourceType)
+                || TransactionState.LoadJobSourceType.BACKEND_STREAMING.equals(sourceType)) {
             return;
         }
         listeners.stream().forEach(listener -> listener.onLoadJobTransactionFinish(transactionState));

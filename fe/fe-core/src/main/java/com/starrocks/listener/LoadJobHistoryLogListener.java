@@ -20,6 +20,7 @@ import com.starrocks.catalog.Database;
 import com.starrocks.catalog.Table;
 import com.starrocks.common.Config;
 import com.starrocks.load.loadv2.LoadJob;
+import com.starrocks.load.routineload.RoutineLoadJob;
 import com.starrocks.load.streamload.StreamLoadTask;
 import com.starrocks.qe.DmlType;
 import com.starrocks.server.GlobalStateMgr;
@@ -36,6 +37,7 @@ import java.util.List;
 public class LoadJobHistoryLogListener implements LoadJobListener {
     public static final LoadJobHistoryLogListener INSTANCE = new LoadJobHistoryLogListener();
 
+    private static final Logger LOG = LogManager.getLogger(LoadJobHistoryLogListener.class);
     private static final Logger LOADS_HISTORY_LOG = LogManager.getLogger("loads_history");
     private static final Gson GSON = new Gson();
 
@@ -71,7 +73,14 @@ public class LoadJobHistoryLogListener implements LoadJobListener {
 
     @Override
     public void onLoadJobTransactionFinish(TransactionState transactionState) {
-        doJobLog(transactionState.getLabel());
+        // Handle routine load separately since it's managed by RoutineLoadMgr, not LoadMgr
+        if (transactionState.getSourceType() == TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK) {
+            // For ROUTINE_LOAD_TASK, the callbackIdList always contains exactly one element (the RoutineLoadJob id),
+            // which is set during RoutineLoadTaskInfo.beginTxn() via GlobalTransactionMgr.beginTransaction().
+            doRoutineLoadJobLog(transactionState.getCallbackId().get(0));
+        } else {
+            doJobLog(transactionState.getLabel());
+        }
     }
 
 
@@ -90,6 +99,21 @@ public class LoadJobHistoryLogListener implements LoadJobListener {
     @Override
     public void onInsertOverwriteJobCommitFinish(Database db, Table table, InsertOverwriteJobStats stats) {
         // skip
+    }
+
+    private void doRoutineLoadJobLog(long routineLoadJobId) {
+        if (!needTrigger()) {
+            return;
+        }
+        RoutineLoadJob routineLoadJob = GlobalStateMgr.getCurrentState().getRoutineLoadMgr().getJob(routineLoadJobId);
+        if (routineLoadJob != null) {
+            try {
+                String jsonString = GSON.toJson(routineLoadJob.toThrift());
+                LOADS_HISTORY_LOG.info(jsonString);
+            } catch (Exception e) {
+                LOG.warn("failed to log routine load job history, jobId: {}", routineLoadJobId, e);
+            }
+        }
     }
 
     private void doJobLog(String label) {

@@ -1217,7 +1217,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         unprotectUpdateLoadingStatus(txnState);
         updateState(JobState.FINISHED);
-        GlobalStateMgr.getCurrentState().getOperationListenerBus().onLoadJobTransactionFinish(txnState);
+        // onLoadJobTransactionFinish is called by DatabaseTransactionMgr after the IX lock is released,
+        // to avoid self-deadlock with RoutineLoadJob.toThrift() which acquires a database READ lock.
     }
 
     @Override

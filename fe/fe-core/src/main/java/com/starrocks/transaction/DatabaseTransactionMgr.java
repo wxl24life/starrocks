@@ -1357,6 +1357,7 @@ public class DatabaseTransactionMgr {
         transactionState.notifyVisible();
         // do after transaction finish
         GlobalStateMgr.getCurrentState().getOperationListenerBus().onStreamJobTransactionFinish(transactionState);
+        GlobalStateMgr.getCurrentState().getOperationListenerBus().onLoadJobTransactionFinish(transactionState);
         GlobalStateMgr.getCurrentState().getLocalMetastore().handleMVRepair(transactionState);
         LOG.info("finish transaction {} successfully", transactionState);
         updateTransactionMetrics(transactionState);
@@ -2092,8 +2093,12 @@ public class DatabaseTransactionMgr {
         }
 
         resetTransactionStateTabletCommitInfos(transactionState);
-        // do after transaction finish
+        // do after transaction finish, AFTER the IX lock is released.
+        // onLoadJobTransactionFinish is called here (instead of inside LoadJob.afterVisible()) to avoid
+        // self-deadlock: RoutineLoadJob.toThrift() acquires a database READ lock via LockManager, which
+        // conflicts with the INTENTION_EXCLUSIVE lock if called inside the lock context.
         GlobalStateMgr.getCurrentState().getOperationListenerBus().onStreamJobTransactionFinish(transactionState);
+        GlobalStateMgr.getCurrentState().getOperationListenerBus().onLoadJobTransactionFinish(transactionState);
         GlobalStateMgr.getCurrentState().getLocalMetastore().handleMVRepair(transactionState);
         LOG.info("finish transaction {} successfully", transactionState);
         updateTransactionMetrics(transactionState);
@@ -2232,9 +2237,10 @@ public class DatabaseTransactionMgr {
             locker.unLockTablesWithIntensiveDbLock(db.getId(), new ArrayList<>(tableIds), LockType.WRITE);
         }
 
-        // do after transaction finish in batch
+        // do after transaction finish in batch, AFTER the IX lock is released.
         for (TransactionState transactionState : stateBatch.getTransactionStates()) {
             GlobalStateMgr.getCurrentState().getOperationListenerBus().onStreamJobTransactionFinish(transactionState);
+            GlobalStateMgr.getCurrentState().getOperationListenerBus().onLoadJobTransactionFinish(transactionState);
             GlobalStateMgr.getCurrentState().getLocalMetastore().handleMVRepair(transactionState);
         }
 
