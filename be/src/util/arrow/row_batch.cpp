@@ -48,6 +48,7 @@
 
 #include <memory>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "exprs/column_ref.h"
 #include "gutil/strings/substitute.h"
@@ -98,10 +99,18 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         *result = arrow::binary();
         break;
     case TYPE_DATE:
-        *result = std::make_shared<arrow::Date32Type>();
+        if (config::enable_native_arrow_date_time_type) {
+            *result = std::make_shared<arrow::Date32Type>();
+        } else {
+            *result = arrow::utf8();
+        }
         break;
     case TYPE_DATETIME:
-        *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, timezone);
+        if (config::enable_native_arrow_date_time_type) {
+            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, timezone);
+        } else {
+            *result = arrow::utf8();
+        }
         break;
     case TYPE_DECIMALV2:
         *result = std::make_shared<arrow::Decimal128Type>(27, 9);
