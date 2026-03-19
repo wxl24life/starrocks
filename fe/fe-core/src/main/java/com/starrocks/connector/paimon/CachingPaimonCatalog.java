@@ -68,7 +68,7 @@ public class CachingPaimonCatalog extends DefaultPaimonCatalog {
     public CachingPaimonCatalog(String catalogName, Catalog paimonNativeCatalog) {
         super(catalogName, paimonNativeCatalog);
         this.cacheManager = GlobalStateMgr.getCurrentState().getLakeOptimizerCacheManager();
-        LOG.info("{} Created CachingPaimonCatalog for catalog: {}", LOG_PREFIX, catalogName);
+        LOG.debug("{} Created CachingPaimonCatalog for catalog: {}", LOG_PREFIX, catalogName);
     }
 
     @Override

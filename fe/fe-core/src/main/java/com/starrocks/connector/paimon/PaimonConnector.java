@@ -62,10 +62,7 @@ public class PaimonConnector implements Connector {
     private static final String DLF_USER_AGENT_KEY = "header.User-Agent";
     private static final String OSS_USER_AGENT_KEY = "fs.oss.user.agent.extended";
     private final HdfsEnvironment hdfsEnvironment;
-    // Catalog in PaimonSDK
     private final Map<String, Catalog> nativePaimonCatalogs = new ConcurrentHashMap<>();
-    // Catalog in StarRocks
-    private PaimonCatalog paimonCatalog;
     private final String catalogName;
     private final String catalogType;
     private final Options paimonOptions;
@@ -255,16 +252,14 @@ public class PaimonConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata() {
-        if (this.paimonCatalog != null) {
-            return new PaimonMetadata(catalogName, hdfsEnvironment, this.paimonCatalog, connectorProperties);
-        }
         Catalog paimonNativeCatalog = getPaimonNativeCatalog();
+        PaimonCatalog paimonCatalog;
         if (this.enableLakeOptimizer) {
-            this.paimonCatalog = new CachingPaimonCatalog(catalogName, paimonNativeCatalog);
+            paimonCatalog = new CachingPaimonCatalog(catalogName, paimonNativeCatalog);
         } else {
-            this.paimonCatalog = new DefaultPaimonCatalog(catalogName, paimonNativeCatalog);
+            paimonCatalog = new DefaultPaimonCatalog(catalogName, paimonNativeCatalog);
         }
-        return new PaimonMetadata(catalogName, hdfsEnvironment, this.paimonCatalog, connectorProperties);
+        return new PaimonMetadata(catalogName, hdfsEnvironment, paimonCatalog, connectorProperties);
     }
 
     @Override
