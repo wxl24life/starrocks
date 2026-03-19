@@ -99,14 +99,14 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         *result = arrow::binary();
         break;
     case TYPE_DATE:
-        if (config::enable_native_arrow_date_time_type) {
+        if (config::enable_native_arrow_new_type) {
             *result = std::make_shared<arrow::Date32Type>();
         } else {
             *result = arrow::utf8();
         }
         break;
     case TYPE_DATETIME:
-        if (config::enable_native_arrow_date_time_type) {
+        if (config::enable_native_arrow_new_type) {
             *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, timezone);
         } else {
             *result = arrow::utf8();

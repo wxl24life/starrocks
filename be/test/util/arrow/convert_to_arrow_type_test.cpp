@@ -22,9 +22,9 @@ namespace starrocks {
 
 class ConvertToArrowTypeTest : public testing::Test {
 public:
-    void SetUp() override { _original_value = config::enable_native_arrow_date_time_type; }
+    void SetUp() override { _original_value = config::enable_native_arrow_new_type; }
 
-    void TearDown() override { config::enable_native_arrow_date_time_type = _original_value; }
+    void TearDown() override { config::enable_native_arrow_new_type = _original_value; }
 
 private:
     bool _original_value;
@@ -32,7 +32,7 @@ private:
 
 TEST_F(ConvertToArrowTypeTest, test_date_to_utf8_by_default) {
     // Default behavior: DATE converts to utf8
-    config::enable_native_arrow_date_time_type = false;
+    config::enable_native_arrow_new_type = false;
 
     TypeDescriptor type_desc(TYPE_DATE);
     std::shared_ptr<arrow::DataType> arrow_type;
@@ -44,7 +44,7 @@ TEST_F(ConvertToArrowTypeTest, test_date_to_utf8_by_default) {
 
 TEST_F(ConvertToArrowTypeTest, test_datetime_to_utf8_by_default) {
     // Default behavior: DATETIME converts to utf8
-    config::enable_native_arrow_date_time_type = false;
+    config::enable_native_arrow_new_type = false;
 
     TypeDescriptor type_desc(TYPE_DATETIME);
     std::shared_ptr<arrow::DataType> arrow_type;
@@ -56,7 +56,7 @@ TEST_F(ConvertToArrowTypeTest, test_datetime_to_utf8_by_default) {
 
 TEST_F(ConvertToArrowTypeTest, test_date_to_date32_when_enabled) {
     // When enabled: DATE converts to Date32Type
-    config::enable_native_arrow_date_time_type = true;
+    config::enable_native_arrow_new_type = true;
 
     TypeDescriptor type_desc(TYPE_DATE);
     std::shared_ptr<arrow::DataType> arrow_type;
@@ -68,7 +68,7 @@ TEST_F(ConvertToArrowTypeTest, test_date_to_date32_when_enabled) {
 
 TEST_F(ConvertToArrowTypeTest, test_datetime_to_timestamp_when_enabled) {
     // When enabled: DATETIME converts to TimestampType with specified timezone
-    config::enable_native_arrow_date_time_type = true;
+    config::enable_native_arrow_new_type = true;
 
     TypeDescriptor type_desc(TYPE_DATETIME);
     std::shared_ptr<arrow::DataType> arrow_type;
@@ -84,7 +84,7 @@ TEST_F(ConvertToArrowTypeTest, test_datetime_to_timestamp_when_enabled) {
 
 TEST_F(ConvertToArrowTypeTest, test_datetime_to_timestamp_with_default_timezone) {
     // When enabled with default timezone parameter
-    config::enable_native_arrow_date_time_type = true;
+    config::enable_native_arrow_new_type = true;
 
     TypeDescriptor type_desc(TYPE_DATETIME);
     std::shared_ptr<arrow::DataType> arrow_type;
@@ -100,7 +100,7 @@ TEST_F(ConvertToArrowTypeTest, test_datetime_to_timestamp_with_default_timezone)
 
 TEST_F(ConvertToArrowTypeTest, test_other_types_unchanged) {
     // Other types should not be affected by the config
-    config::enable_native_arrow_date_time_type = false;
+    config::enable_native_arrow_new_type = false;
 
     // Test INT
     {
@@ -136,7 +136,7 @@ TEST_F(ConvertToArrowTypeTest, test_config_toggle) {
     std::shared_ptr<arrow::DataType> arrow_type;
 
     // First with config disabled
-    config::enable_native_arrow_date_time_type = false;
+    config::enable_native_arrow_new_type = false;
 
     auto st = convert_to_arrow_type(date_type, &arrow_type);
     ASSERT_TRUE(st.ok());
@@ -147,7 +147,7 @@ TEST_F(ConvertToArrowTypeTest, test_config_toggle) {
     ASSERT_TRUE(arrow_type->Equals(arrow::utf8()));
 
     // Now enable the config
-    config::enable_native_arrow_date_time_type = true;
+    config::enable_native_arrow_new_type = true;
 
     st = convert_to_arrow_type(date_type, &arrow_type);
     ASSERT_TRUE(st.ok());
@@ -158,7 +158,7 @@ TEST_F(ConvertToArrowTypeTest, test_config_toggle) {
     ASSERT_EQ(arrow_type->id(), arrow::Type::TIMESTAMP);
 
     // Disable again
-    config::enable_native_arrow_date_time_type = false;
+    config::enable_native_arrow_new_type = false;
 
     st = convert_to_arrow_type(date_type, &arrow_type);
     ASSERT_TRUE(st.ok());
