@@ -19,7 +19,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.starrocks.common.Pair;
-import com.starrocks.sql.analyzer.SemanticException;
 import com.starrocks.sql.optimizer.OptExpression;
 import com.starrocks.sql.optimizer.OptimizerContext;
 import com.starrocks.sql.optimizer.Utils;
@@ -37,6 +36,8 @@ import com.starrocks.sql.optimizer.operator.scalar.ColumnRefOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ScalarOperator;
 import com.starrocks.sql.optimizer.rewrite.ReplaceColumnRefRewriter;
 import com.starrocks.sql.optimizer.rule.RuleType;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashSet;
 import java.util.List;
@@ -47,6 +48,8 @@ import java.util.stream.Collectors;
 // for aggregate queries with group by keys like `group by col,expr(col),constant` or `group by constant`,
 // these expr and constant won't affect the effect of aggregation grouping, we can remove them
 public class PruneGroupByKeysRule extends TransformationRule {
+    private static final Logger LOG = LogManager.getLogger(PruneGroupByKeysRule.class);
+
     public PruneGroupByKeysRule() {
         super(RuleType.TF_PRUNE_GROUP_BY_KEYS, Pattern.create(OperatorType.LOGICAL_AGGR)
                 .addChildren(Pattern.create(OperatorType.LOGICAL_PROJECT, OperatorType.PATTERN_LEAF)));
@@ -84,8 +87,11 @@ public class PruneGroupByKeysRule extends TransformationRule {
         for (ColumnRefOperator groupingKey : groupingKeys) {
             ScalarOperator groupingExpr = projections.get(groupingKey);
             if (groupingExpr == null) {
-                throw new SemanticException("cannot find grouping key in projection, key:%s, projections:%s",
-                        groupingKey, projections);
+                // After MV transparent rewrite with Union, column pruning rules may
+                // desynchronize the Agg's grouping keys from the child Project's entries.
+                // Skip this optimization since it's not required for correctness.
+                LOG.debug("Skipping PruneGroupByKeysRule: grouping key {} not found in projections", groupingKey);
+                return Lists.newArrayList();
             }
 
             // if the output col of this groupingExpr had been added into the newGroupingKeys, it means this
@@ -192,7 +198,11 @@ public class PruneGroupByKeysRule extends TransformationRule {
             Set<ColumnRefOperator> columnRefOperators = columnRefFactory.getColumnRefs(usedColumns);
             for (ColumnRefOperator columnRefOperator : columnRefOperators) {
                 ScalarOperator scalarOperator = projections.get(columnRefOperator);
-                Preconditions.checkState(scalarOperator != null, "cannot find column ref");
+                if (scalarOperator == null) {
+                    LOG.debug("Skipping PruneGroupByKeysRule: aggregation column {} not found in projections",
+                            columnRefOperator);
+                    return Lists.newArrayList();
+                }
                 newProjections.put(columnRefOperator, scalarOperator);
             }
             newPostAggProjections.put(aggregation.getKey(), aggregation.getKey());
