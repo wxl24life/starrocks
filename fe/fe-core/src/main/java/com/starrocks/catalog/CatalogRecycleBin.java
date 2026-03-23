@@ -587,7 +587,7 @@ public class CatalogRecycleBin extends FrontendDaemon implements Writable, Memor
                     // This is expected in follower replay scenario: leader has already deleted
                     // partitions physically, follower just replays the table erase edit log
                     // and cleans up the in-memory tracking data.
-                    LOG.info("Cleaning up lakeTableToPartitions for tableId {} during table erase. "
+                    LOG.debug("Cleaning up lakeTableToPartitions for tableId {} during table erase. "
                                     + "pendingPartitionCount={}, partitionIds={}",
                             tableId, partitionIds.size(), partitionIds);
                 }
@@ -641,15 +641,13 @@ public class CatalogRecycleBin extends FrontendDaemon implements Writable, Memor
             RecyclePartitionInfo recyclePartitionInfo = table.buildRecyclePartitionInfo(dbId, partition);
             // Mark as not recoverable since the table is being erased
             recyclePartitionInfo.setRecoverable(false);
-            // Force remove shared directories since the entire table is being deleted
-            recyclePartitionInfo.setForceRemoveDirectory(true);
+            // Mark this partition as coming from table deletion (also forces directory removal)
+            recyclePartitionInfo.setFromTableDeletion(true);
 
             // Add to idToPartition so erasePartition() can process it
             idToPartition.put(partitionId, recyclePartitionInfo);
             // Use the table's recycle time to maintain consistency with ClusterSnapshot safety checks
             idToRecycleTime.put(partitionId, partitionRecycleTime);
-            // Mark this partition as coming from table deletion
-            recyclePartitionInfo.setFromTableDeletion(true);
             partitionIds.add(partitionId);
         }
 
@@ -659,7 +657,7 @@ public class CatalogRecycleBin extends FrontendDaemon implements Writable, Memor
 
         // Track the relationship between table and partitions
         lakeTableToPartitions.put(tableId, partitionIds);
-        LOG.info("Added {} partitions from Lake table '{}' (tableId: {}) to recycle bin for deletion",
+        LOG.debug("Added {} partitions from Lake table '{}' (tableId: {}) to recycle bin for deletion",
                 partitionIds.size(), table.getName(), tableId);
         return true;
     }
@@ -787,6 +785,7 @@ public class CatalogRecycleBin extends FrontendDaemon implements Writable, Memor
                 try {
                     finished = future.get();
                 } catch (Exception e) {
+                    finished = false;
                     LOG.warn("erase partition failed in Recycle Bin, DB id: {}, table id: {}, partition name: " +
                              "{}, partition id: {}, error message: {}", partitionInfo.getDbId(), partitionInfo.getTableId(),
                              partitionInfo.getPartition().getName(), partitionInfo.getPartition().getId(), e.getMessage());
