@@ -928,9 +928,9 @@ CONF_Int64(pipeline_sink_buffer_size, "64");
 CONF_Int64(pipeline_sink_brpc_dop, "64");
 CONF_mInt64(paimon_sink_commit_chunk_num, "16");
 // Enable native Arrow types (Date32, Timestamp, etc.) when converting StarRocks types to Arrow types.
-// If false (default), DATE and DATETIME are converted to Arrow utf8() type for backward compatibility.
-// If true, DATE is converted to Arrow Date32Type, and DATETIME is converted to Arrow TimestampType.
-CONF_mBool(enable_native_arrow_new_type, "false");
+// If true (default), DATE is converted to Arrow Date32Type, and DATETIME is converted to Arrow TimestampType.
+// If false, DATE and DATETIME are converted to Arrow utf8() type for backward compatibility.
+CONF_mBool(enable_native_arrow_new_type, "true");
 // Used to reject coming fragment instances, when the number of running drivers
 // exceeds it*pipeline_exec_thread_pool_thread_num.
 CONF_Int64(pipeline_max_num_drivers_per_exec_thread, "10240");
