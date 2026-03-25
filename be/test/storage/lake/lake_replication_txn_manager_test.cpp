@@ -998,8 +998,8 @@ TEST_F(LakeReplicationRemoteStorageTest, test_fast_cancel_txn_aborted_before_cop
     rowset->set_overlapped(false);
     rowset->set_num_rows(10);
     rowset->set_data_size(1024);
-    rowset->add_segments("test_segment_001.dat");
-    rowset->add_segments("test_segment_002.dat");
+    rowset->add_segments("0000000000000001_aaaaaaaa-bbbb-cccc-dddd-000000000001.dat");
+    rowset->add_segments("0000000000000001_aaaaaaaa-bbbb-cccc-dddd-000000000002.dat");
     src_meta_v2->set_next_rowset_id(2);
 
     // Pre-populate the metacache with source tablet metadata at the starlet URI path
@@ -1047,8 +1047,8 @@ TEST_F(LakeReplicationRemoteStorageTest, test_fast_cancel_txn_aborted_during_cop
     rowset->set_overlapped(false);
     rowset->set_num_rows(10);
     rowset->set_data_size(1024);
-    rowset->add_segments("test_segment_001.dat");
-    rowset->add_segments("test_segment_002.dat");
+    rowset->add_segments("0000000000000001_aaaaaaaa-bbbb-cccc-dddd-000000000001.dat");
+    rowset->add_segments("0000000000000001_aaaaaaaa-bbbb-cccc-dddd-000000000002.dat");
     src_meta_v2->set_next_rowset_id(2);
 
     // Pre-populate the metacache with source tablet metadata at the starlet URI path
@@ -1114,7 +1114,7 @@ TEST_F(LakeReplicationRemoteStorageTest, test_no_fast_cancel_when_txn_active) {
     rowset->set_overlapped(false);
     rowset->set_num_rows(10);
     rowset->set_data_size(1024);
-    rowset->add_segments("test_segment_001.dat");
+    rowset->add_segments("0000000000000001_aaaaaaaa-bbbb-cccc-dddd-000000000001.dat");
     src_meta_v2->set_next_rowset_id(2);
 
     // Pre-populate the metacache with source tablet metadata at the starlet URI path
