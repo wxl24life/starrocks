@@ -466,7 +466,6 @@ public class CatalogRecycleBinLakeTableDropTableTest extends CatalogRecycleBinLa
         Assertions.assertTrue(recycleBin.isLakeTablePartitionsDeletionInProgress(table.getId()));
         Assertions.assertEquals(1, recycleBin.getLakeTablePendingPartitionCount(table.getId()));
         Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(defaultPartition.getId()));
-        Assertions.assertTrue(recycleBin.isPartitionForceRemoveDirectory(defaultPartition.getId()));
 
         // erasePartition processes the partition (RecycleLakeUnPartitionInfo.delete())
         recycleBin.erasePartition(futureTime);
@@ -556,8 +555,6 @@ public class CatalogRecycleBinLakeTableDropTableTest extends CatalogRecycleBinLa
         Assertions.assertEquals(2, recycleBin.getLakeTablePendingPartitionCount(table.getId()));
         Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(p1.getId()));
         Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(p2.getId()));
-        Assertions.assertTrue(recycleBin.isPartitionForceRemoveDirectory(p1.getId()));
-        Assertions.assertTrue(recycleBin.isPartitionForceRemoveDirectory(p2.getId()));
 
         // erasePartition processes the partitions (RecycleLakeListPartitionInfo.delete())
         recycleBin.erasePartition(futureTime);
@@ -616,9 +613,6 @@ public class CatalogRecycleBinLakeTableDropTableTest extends CatalogRecycleBinLa
         Assertions.assertNull(table.getPartition("p1"));
         Assertions.assertNotNull(recycleBin.getRecyclePartitionInfo(p1.getId()));
 
-        // Verify forceRemoveDirectory is false (default) for individually dropped partition
-        Assertions.assertFalse(recycleBin.isPartitionForceRemoveDirectory(p1.getId()),
-                "Individually dropped partition should have forceRemoveDirectory=false");
         // Verify it's NOT marked as from table deletion
         Assertions.assertFalse(recycleBin.isPartitionFromTableDeletion(p1.getId()),
                 "Individually dropped partition should not be marked as from table deletion");
@@ -827,10 +821,6 @@ public class CatalogRecycleBinLakeTableDropTableTest extends CatalogRecycleBinLa
         Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(p1.getId()));
         Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(p2.getId()));
         Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(p3.getId()));
-        // Verify forceRemoveDirectory is set on each partition
-        Assertions.assertTrue(recycleBin.isPartitionForceRemoveDirectory(p1.getId()));
-        Assertions.assertTrue(recycleBin.isPartitionForceRemoveDirectory(p2.getId()));
-        Assertions.assertTrue(recycleBin.isPartitionForceRemoveDirectory(p3.getId()));
 
         // erasePartition processes the partitions
         recycleBin.erasePartition(futureTime);
@@ -869,9 +859,6 @@ public class CatalogRecycleBinLakeTableDropTableTest extends CatalogRecycleBinLa
 
         // isAnyLakeTablePartitionDeleting with non-existent tableId should return false
         Assertions.assertFalse(recycleBin.isAnyLakeTablePartitionDeleting(nonExistentTableId));
-
-        // isPartitionForceRemoveDirectory with non-existent partitionId should return false
-        Assertions.assertFalse(recycleBin.isPartitionForceRemoveDirectory(nonExistentPartitionId));
 
         // isLakeTablePartitionsDeletionInProgress with non-existent tableId should return false
         Assertions.assertFalse(recycleBin.isLakeTablePartitionsDeletionInProgress(nonExistentTableId));

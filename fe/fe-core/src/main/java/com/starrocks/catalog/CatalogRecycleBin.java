@@ -1342,12 +1342,6 @@ public class CatalogRecycleBin extends FrontendDaemon implements Writable, Memor
         return info != null && info.isFromTableDeletion();
     }
 
-    @VisibleForTesting
-    synchronized boolean isPartitionForceRemoveDirectory(long partitionId) {
-        RecyclePartitionInfo info = idToPartition.get(partitionId);
-        return info != null && info.isForceRemoveDirectory();
-    }
-
     /**
      * Check if any partition of a Lake Table is currently being deleted asynchronously.
      * This is useful for tests to wait for the current round of deletion attempts to complete.

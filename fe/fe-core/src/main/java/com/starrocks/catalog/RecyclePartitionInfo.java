@@ -114,11 +114,9 @@ public abstract class RecyclePartitionInfo extends JsonWriter {
     }
 
     public boolean isForceRemoveDirectory() {
+        // `fromTableDeletion` here indicate whether the partition is generated from table-level deletion flow
+        // if true, force remove the partition directory even if it's a shared directory
         return fromTableDeletion;
-    }
-
-    public void setForceRemoveDirectory(boolean forceRemoveDirectory) {
-        this.fromTableDeletion = forceRemoveDirectory;
     }
 
     public boolean isFromTableDeletion() {
