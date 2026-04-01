@@ -161,6 +161,7 @@ private:
 
     // GIN (Generalized Inverted Index) filter
     RuntimeProfile::Counter* _gin_filtered_timer = nullptr;
+    RuntimeProfile::Counter* _gin_index_init_timer = nullptr;
     RuntimeProfile::Counter* _gin_filtered_counter = nullptr;
     RuntimeProfile::Counter* _gin_prefix_filter_timer = nullptr;
     RuntimeProfile::Counter* _gin_ngram_dict_filter_timer = nullptr;

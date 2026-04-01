@@ -3333,11 +3333,14 @@ Status SegmentIterator::_apply_inverted_index() {
     RETURN_IF(_scan_range.empty(), Status::OK());
     RETURN_IF(!_opts.enable_gin_filter, Status::OK());
 
-    RETURN_IF_ERROR(_init_inverted_index_iterators());
+    SCOPED_RAW_TIMER(&_opts.stats->gin_index_filter_ns);
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->gin_index_init_ns);
+        RETURN_IF_ERROR(_init_inverted_index_iterators());
+    }
     if (!_inverted_index_ctx || !_inverted_index_ctx->has_inverted_index) {
         return Status::OK();
     }
-    SCOPED_RAW_TIMER(&_opts.stats->gin_index_filter_ns);
 
     roaring::Roaring row_bitmap = range2roaring(_scan_range);
     size_t input_rows = row_bitmap.cardinality();
