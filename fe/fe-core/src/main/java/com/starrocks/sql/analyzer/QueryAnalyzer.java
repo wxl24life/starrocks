@@ -44,6 +44,7 @@ import com.starrocks.catalog.Function;
 import com.starrocks.catalog.HiveTable;
 import com.starrocks.catalog.MaterializedIndexMeta;
 import com.starrocks.catalog.OlapTable;
+import com.starrocks.catalog.PaimonTable;
 import com.starrocks.catalog.Partition;
 import com.starrocks.catalog.Resource;
 import com.starrocks.catalog.Table;
@@ -618,6 +619,11 @@ public class QueryAnalyzer {
                     if (tableRelation.getQueryPeriodString() != null && !table.isTemporal()) {
                         throw unsupportedException("Unsupported table type for temporal clauses, table type: " +
                                 table.getType());
+                    }
+                    if (tableRelation.getQueryPeriodString() != null
+                            && table instanceof PaimonTable
+                            && ((PaimonTable) table).getLakeOptimizerMode() != PaimonTable.LakeOptimizerMode.DISABLED) {
+                        throw unsupportedException("time travel is not supported when lake optimizer is enabled");
                     }
 
                     if (table.isSupported()) {
