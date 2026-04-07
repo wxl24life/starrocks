@@ -49,7 +49,7 @@ public class LakeOptimizerMetaManager extends FrontendDaemon {
     private static final String LOG_PREFIX = "[LakeOptimizer]";
 
     public LakeOptimizerMetaManager() {
-        super("lake optimizer meta manager", 60L * 1000L);
+        super("lake optimizer meta manager", 30L * 1000L);
     }
 
     private boolean checkDatabaseExist() {
@@ -226,7 +226,6 @@ public class LakeOptimizerMetaManager extends FrontendDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        trySleep(Config.statistic_manager_sleep_time_sec * 1000);
         if (!Config.enable_lake_optimizer) {
             return;
         }
