@@ -60,14 +60,20 @@ public class FlussConnector implements Connector {
         this.connection = ConnectionFactory.createConnection(conf);
         this.admin = connection.getAdmin();
 
-        String ramUser = DlfUtil.getRamUser();
-        this.tableProperties.put("table.datalake.paimon.dlf.token-path", DlfUtil.getMetaToken(ramUser));
         this.tableProperties.put("table.datalake.paimon.token.provider", "dlf");
-        if (Strings.isNullOrEmpty(ramUser)) {
-            String qualifiedUser = ConnectContext.get().getQualifiedUser();
-            String user = ConnectContext.get().getCurrentUserIdentity().getUser();
-            throw new StarRocksConnectorException("Failed to find a valid RAM user from %s(%s). " +
-                    "Please check your user properties.", qualifiedUser, user);
+
+        String tokenLoader = properties.get("dlf.token-loader");
+        if (!Strings.isNullOrEmpty(tokenLoader)) {
+            this.tableProperties.put("table.datalake.paimon.dlf.token-loader", tokenLoader);
+        } else {
+            String ramUser = DlfUtil.getRamUser();
+            if (Strings.isNullOrEmpty(ramUser)) {
+                String qualifiedUser = ConnectContext.get().getQualifiedUser();
+                String user = ConnectContext.get().getCurrentUserIdentity().getUser();
+                throw new StarRocksConnectorException("Failed to find a valid RAM user from %s(%s). " +
+                        "Please check your user properties.", qualifiedUser, user);
+            }
+            this.tableProperties.put("table.datalake.paimon.dlf.token-path", DlfUtil.getMetaToken(ramUser));
         }
     }
 
