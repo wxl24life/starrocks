@@ -159,10 +159,11 @@ public class PaimonScanNodeTest {
         PaimonScanNode scanNode = new PaimonScanNode(new PlanNodeId(0), desc, "XXX");
 
         DeletionFile deletionFile = new DeletionFile("dummy", 1, 2, 2L);
-        scanNode.splitRawFileScanRangeLocations(rawFile, deletionFile, 0L, 0L);
-        scanNode.splitScanRangeLocations(rawFile, 0, 256 * 1024 * 1024, 64 * 1024 * 1024, null, 0L, 0L);
+        List<TScanRangeLocations> scanRangeLocationsList = scanNode.getScanRangeLocations(0);
+        PaimonScanNode.splitRawFileScanRangeLocations(rawFile, deletionFile, 0L, 0L,
+                scanRangeLocationsList);
         scanNode.addSplitScanRangeLocations(split, null, 256 * 1024 * 1024, false, 0L);
-        Assertions.assertEquals(6, scanNode.getScanRangeLocations(10).size());
+        Assertions.assertEquals(2, scanRangeLocationsList.size());
     }
 
     @Test
@@ -212,10 +213,12 @@ public class PaimonScanNodeTest {
 
         // Test with null recordCount
         DeletionFile deletionFileWithoutCardinality = new DeletionFile("dummy", 1, 2, null);
-        scanNode.splitRawFileScanRangeLocations(rawFile, deletionFileWithoutCardinality, 0L, null);
+        List<TScanRangeLocations> scanRangeLocationsList = scanNode.getScanRangeLocations(0);
+        PaimonScanNode.splitRawFileScanRangeLocations(rawFile, deletionFileWithoutCardinality, 0L, null,
+                scanRangeLocationsList);
 
-        Assertions.assertEquals(1, scanNode.getScanRangeLocations(10).size());
-        TScanRangeLocations tScanRangeLocations = scanNode.getScanRangeLocations(10).get(0);
+        Assertions.assertEquals(1, scanRangeLocationsList.size());
+        TScanRangeLocations tScanRangeLocations = scanRangeLocationsList.get(0);
         Assertions.assertFalse(tScanRangeLocations.getScan_range().getHdfs_scan_range().isSetRecord_count());
     }
 
@@ -240,10 +243,12 @@ public class PaimonScanNodeTest {
 
         // Test with valid recordCount
         DeletionFile deletionFileWithCardinality = new DeletionFile("dummy", 1, 2, 100L);
-        scanNode.splitRawFileScanRangeLocations(rawFile, deletionFileWithCardinality, 0L, 500L);
+        List<TScanRangeLocations> scanRangeLocationsList = scanNode.getScanRangeLocations(0);
+        PaimonScanNode.splitRawFileScanRangeLocations(rawFile, deletionFileWithCardinality, 0L, 500L,
+                scanRangeLocationsList);
 
-        Assertions.assertEquals(1, scanNode.getScanRangeLocations(10).size());
-        TScanRangeLocations tScanRangeLocations = scanNode.getScanRangeLocations(10).get(0);
+        Assertions.assertEquals(1, scanRangeLocationsList.size());
+        TScanRangeLocations tScanRangeLocations = scanRangeLocationsList.get(0);
         // When recordCount is provided, record_count should be set
         Assertions.assertTrue(tScanRangeLocations.getScan_range().getHdfs_scan_range().isSetRecord_count());
         Assertions.assertEquals(500L, tScanRangeLocations.getScan_range().getHdfs_scan_range().getRecord_count());

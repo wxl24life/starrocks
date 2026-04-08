@@ -27,7 +27,10 @@ import com.starrocks.connector.CatalogConnector;
 import com.starrocks.connector.GetRemoteFilesParams;
 import com.starrocks.connector.RemoteFileInfo;
 import com.starrocks.connector.fluss.FlussRemoteFileDesc;
+import com.starrocks.connector.share.credential.CloudConfigurationConstants;
 import com.starrocks.credential.CloudConfiguration;
+import com.starrocks.credential.CloudConfigurationFactory;
+import com.starrocks.credential.aliyun.AliyunCloudCredential;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.optimizer.operator.scalar.ScalarOperator;
 import com.starrocks.sql.plan.HDFSScanNodePredicates;
@@ -41,17 +44,32 @@ import com.starrocks.thrift.TPlanNodeType;
 import com.starrocks.thrift.TScanRange;
 import com.starrocks.thrift.TScanRangeLocation;
 import com.starrocks.thrift.TScanRangeLocations;
+import org.apache.fluss.flink.lake.split.LakeSnapshotSplit;
+import org.apache.fluss.flink.source.split.LogSplit;
 import org.apache.fluss.flink.source.split.SourceSplitSerializer;
 import org.apache.fluss.flink.source.split.HybridSnapshotLogSplit;
 import org.apache.fluss.flink.source.split.SourceSplitBase;
 import org.apache.fluss.lake.paimon.source.PaimonLakeSource;
+import org.apache.fluss.lake.paimon.source.PaimonSplit;
 import org.apache.fluss.lake.source.LakeSource;
+import org.apache.fluss.flink.utils.DataLakeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.CatalogContext;
+import org.apache.paimon.catalog.CatalogFactory;
+import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.options.Options;
+import org.apache.paimon.rest.RESTToken;
+import org.apache.paimon.rest.RESTTokenFileIO;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.source.DataSplit;
+import org.apache.paimon.table.source.RawFile;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -68,6 +86,7 @@ public class FlussScanNode extends ScanNode {
     private final FlussTable flussTable;
     private final HDFSScanNodePredicates scanNodePredicates = new HDFSScanNodePredicates();
     private final List<TScanRangeLocations> scanRangeLocationsList = new ArrayList<>();
+    private boolean hasNativeReaderSplits = false;
     private CloudConfiguration cloudConfiguration = null;
 
     public FlussScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
@@ -137,13 +156,58 @@ public class FlussScanNode extends ScanNode {
                 throw new IOException("HybridSnapshotLogSplit is not supported, table detail: " +
                         flussTable.getTableInfo() + "isDataLakeEnabled: " + lakeEnabled);
             }
-            addSplitScanRangeLocations(split, i);
+            long partitionId = -1;
             String partitionValue = split.getPartitionName();
             if (!selectedPartitions.containsKey(partitionValue)) {
-                selectedPartitions.put(partitionValue, nextPartitionId());
+                partitionId = nextPartitionId();
+                selectedPartitions.put(partitionValue, partitionId);
+            }
+            if (split instanceof LakeSnapshotSplit
+                    && ((LakeSnapshotSplit) split).getLakeSplit() instanceof PaimonSplit) {
+                // LakeSnapshotSplit is only produced for log (append-only) tables by LakeSplitGenerator,
+                // so the underlying Paimon DataSplit always has raw files (no merge needed) and
+                // can be read directly by StarRocks native reader without JNI.
+                // Note: non-Paimon lake formats (e.g. Iceberg) fall through to JNI reader below.
+                PaimonSplit pSplit = (PaimonSplit) ((LakeSnapshotSplit) split).getLakeSplit();
+                DataSplit dataSplit = pSplit.dataSplit();
+                List<RawFile> rawFiles = dataSplit.convertToRawFiles().get();
+                for (RawFile rawFile : rawFiles) {
+                    PaimonScanNode.splitRawFileScanRangeLocations(rawFile, null,
+                            partitionId, null, scanRangeLocationsList);
+                }
+                hasNativeReaderSplits = true;
+            } else {
+                // LogSplit, LakeSnapshotAndFlussLogSplit (PK tables), non-Paimon lake splits,
+                // and other types fall back to JNI reader.
+                addSplitScanRangeLocations(split, i);
             }
         }
         scanNodePredicates.setSelectedPartitionIds(selectedPartitions.values());
+        traceReaderMetrics();
+    }
+
+    private void traceReaderMetrics() {
+        int nativeReaderCount = 0;
+        int jniReaderCount = 0;
+        long nativeReaderLength = 0;
+        long jniReaderLength = 0;
+
+        for (TScanRangeLocations rangeLocation : scanRangeLocationsList) {
+            THdfsScanRange hdfsScanRange = rangeLocation.getScan_range().getHdfs_scan_range();
+            if (hdfsScanRange.isUse_fluss_jni_reader()) {
+                jniReaderCount++;
+                jniReaderLength += hdfsScanRange.length;
+            } else {
+                nativeReaderCount++;
+                nativeReaderLength += hdfsScanRange.length - hdfsScanRange.offset;
+            }
+        }
+        String prefix = "Fluss.scan." + flussTable.getTableName() + ".";
+        Tracers.record(EXTERNAL, prefix + "totalSplitNum", String.valueOf(scanRangeLocationsList.size()));
+        Tracers.record(EXTERNAL, prefix + "nativeReaderSplitNum", String.valueOf(nativeReaderCount));
+        Tracers.record(EXTERNAL, prefix + "nativeReaderReadBytes", nativeReaderLength + " B");
+        Tracers.record(EXTERNAL, prefix + "jniReaderSplitNum", String.valueOf(jniReaderCount));
+        Tracers.record(EXTERNAL, prefix + "jniReaderReadBytes", jniReaderLength + " B");
     }
 
     public void addSplitScanRangeLocations(SourceSplitBase split, int loop) {
@@ -170,6 +234,39 @@ public class FlussScanNode extends ScanNode {
         scanRangeLocations.addToLocations(scanRangeLocation);
 
         scanRangeLocationsList.add(scanRangeLocations);
+    }
+
+    private void updateCloudConfigurationFromPaimonCatalog() {
+        try {
+            Map<String, String> properties = new HashMap<>(flussTable.getTableInfo().getProperties().toMap());
+            if (flussTable.getTableProperties() != null) {
+                properties.putAll(flussTable.getTableProperties());
+            }
+            Map<String, String> lakeCatalogProps =
+                    DataLakeUtils.extractLakeCatalogProperties(
+                            org.apache.fluss.config.Configuration.fromMap(properties));
+            try (Catalog catalog = CatalogFactory.createCatalog(
+                    CatalogContext.create(Options.fromMap(lakeCatalogProps)))) {
+                FileStoreTable table = (FileStoreTable) catalog.getTable(
+                        Identifier.create(flussTable.getDbName(), flussTable.getTableName()));
+                if (table.fileIO() instanceof RESTTokenFileIO) {
+                    RESTTokenFileIO fileIO = (RESTTokenFileIO) table.fileIO();
+                    RESTToken token = fileIO.validToken();
+                    Map<String, String> cloudProps = new HashMap<>();
+                    cloudProps.put(CloudConfigurationConstants.ALIYUN_OSS_ACCESS_KEY,
+                            token.token().get(AliyunCloudCredential.FS_OSS_ACCESS_KEY));
+                    cloudProps.put(CloudConfigurationConstants.ALIYUN_OSS_SECRET_KEY,
+                            token.token().get(AliyunCloudCredential.FS_OSS_SECRET_KEY));
+                    cloudProps.put(CloudConfigurationConstants.ALIYUN_OSS_STS_TOKEN,
+                            token.token().get(AliyunCloudCredential.FS_OSS_SECURITY_TOKEN));
+                    cloudProps.put(CloudConfigurationConstants.ALIYUN_OSS_ENDPOINT,
+                            token.token().get(AliyunCloudCredential.FS_OSS_ENDPOINT));
+                    cloudConfiguration = CloudConfigurationFactory.buildCloudConfigurationForStorage(cloudProps);
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to get data token from Paimon catalog: " + e.getMessage(), e);
+        }
     }
 
     private long nextPartitionId() {
@@ -242,6 +339,10 @@ public class FlussScanNode extends ScanNode {
         String sqlPredicates = getExplainString(conjuncts);
         msg.hdfs_scan_node.setSql_predicates(sqlPredicates);
         msg.hdfs_scan_node.setTable_name(flussTable.getName());
+
+        if (hasNativeReaderSplits) {
+            updateCloudConfigurationFromPaimonCatalog();
+        }
 
         LOG.debug(cloudConfiguration.toConfString());
         HdfsScanNode.setScanOptimizeOptionToThrift(tHdfsScanNode, this);

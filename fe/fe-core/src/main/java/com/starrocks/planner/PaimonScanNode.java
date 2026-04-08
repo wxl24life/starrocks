@@ -275,11 +275,9 @@ public class PaimonScanNode extends ScanNode {
                         // If row count is not available, count(1) optimization will not take effect
                         Long recordCount = dataSplit.mergedRowCountAvailable() ? dataSplit.mergedRowCount() : null;
                         for (int i = 0; i < rawFiles.size(); i++) {
-                            if (deletionFiles.isPresent()) {
-                                splitRawFileScanRangeLocations(rawFiles.get(i), deletionFiles.get().get(i), partitionId, recordCount);
-                            } else {
-                                splitRawFileScanRangeLocations(rawFiles.get(i), null, partitionId, recordCount);
-                            }
+                            DeletionFile deletionFile = deletionFiles.isPresent() ? deletionFiles.get().get(i) : null;
+                            splitRawFileScanRangeLocations(rawFiles.get(i), deletionFile,
+                                    partitionId, recordCount, scanRangeLocationsList);
                         }
                     } else {
                         FormatDataSplit formatDataSplit = (FormatDataSplit) split;
@@ -346,7 +344,7 @@ public class PaimonScanNode extends ScanNode {
         Tracers.record(EXTERNAL, dvPrefix + "readBytes", String.valueOf(deletionVectorLength));
     }
 
-    private THdfsFileFormat fromType(String type) {
+    static THdfsFileFormat fromType(String type) {
         THdfsFileFormat tHdfsFileFormat;
         switch (type.toLowerCase(Locale.ROOT)) {
             case "orc":
@@ -373,35 +371,37 @@ public class PaimonScanNode extends ScanNode {
         return optKey;
     }
 
-    public void splitRawFileScanRangeLocations(RawFile rawFile, @Nullable DeletionFile deletionFile,
-                                               long partitionId, @Nullable Long recordCount) {
+    public static void splitRawFileScanRangeLocations(RawFile rawFile, @Nullable DeletionFile deletionFile,
+                                                      long partitionId, @Nullable Long recordCount,
+                                                      List<TScanRangeLocations> scanRangeLocationsList) {
         SessionVariable sv = SessionVariable.DEFAULT_SESSION_VARIABLE;
         long splitSize = sv.getConnectorMaxSplitSize();
         long totalSize = rawFile.length();
         long offset = rawFile.offset();
         boolean needSplit = totalSize > splitSize;
         if (needSplit) {
-            splitScanRangeLocations(rawFile, offset, totalSize, splitSize, deletionFile, partitionId, recordCount);
+            splitScanRangeLocations(rawFile, offset, totalSize, splitSize, deletionFile, partitionId, recordCount, scanRangeLocationsList);
         } else {
-            addRawFileScanRangeLocations(rawFile, rawFile.offset(), rawFile.length(), deletionFile, partitionId, 0, recordCount);
+            addRawFileScanRangeLocations(rawFile, rawFile.offset(), rawFile.length(), deletionFile, partitionId, 0, recordCount, scanRangeLocationsList);
         }
     }
 
-    public void splitScanRangeLocations(RawFile rawFile,
-                                        long offset,
-                                        long length,
-                                        long splitSize,
-                                        @Nullable DeletionFile deletionFile,
-                                        long partitionId,
-                                        @Nullable Long recordCount) {
+    private static void splitScanRangeLocations(RawFile rawFile,
+                                               long offset,
+                                               long length,
+                                               long splitSize,
+                                               @Nullable DeletionFile deletionFile,
+                                               long partitionId,
+                                               @Nullable Long recordCount,
+                                               List<TScanRangeLocations> scanRangeLocationsList) {
         int loop = 0;
         long remainingBytes = length;
         do {
             if (remainingBytes < 2 * splitSize) {
-                addRawFileScanRangeLocations(rawFile, offset + length - remainingBytes, remainingBytes, deletionFile, partitionId, loop, recordCount);
+                addRawFileScanRangeLocations(rawFile, offset + length - remainingBytes, remainingBytes, deletionFile, partitionId, loop, recordCount, scanRangeLocationsList);
                 remainingBytes = 0;
             } else {
-                addRawFileScanRangeLocations(rawFile, offset + length - remainingBytes, splitSize, deletionFile, partitionId, loop, recordCount);
+                addRawFileScanRangeLocations(rawFile, offset + length - remainingBytes, splitSize, deletionFile, partitionId, loop, recordCount, scanRangeLocationsList);
                 remainingBytes -= splitSize;
             }
             loop++;
@@ -433,13 +433,14 @@ public class PaimonScanNode extends ScanNode {
         scanRangeLocationsList.add(scanRangeLocations);
     }
 
-    private void addRawFileScanRangeLocations(RawFile rawFile,
-                                              long offset,
-                                              long length,
-                                              @Nullable DeletionFile deletionFile,
-                                              long partitionId,
-                                              int loop,
-                                              @Nullable Long recordCount) {
+    private static void addRawFileScanRangeLocations(RawFile rawFile,
+                                                     long offset,
+                                                     long length,
+                                                     @Nullable DeletionFile deletionFile,
+                                                     long partitionId,
+                                                     int loop,
+                                                     @Nullable Long recordCount,
+                                                     List<TScanRangeLocations> scanRangeLocationsList) {
         TScanRangeLocations scanRangeLocations = new TScanRangeLocations();
 
         THdfsScanRange hdfsScanRange = new THdfsScanRange();

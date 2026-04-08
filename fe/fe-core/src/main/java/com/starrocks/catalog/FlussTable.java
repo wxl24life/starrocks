@@ -86,6 +86,10 @@ public class FlussTable extends Table {
         return tableInfo;
     }
 
+    public Map<String, String> getTableProperties() {
+        return tableProperties;
+    }
+
     @Override
     public String getUUID() {
         if (Strings.isNullOrEmpty(this.uuid)) {

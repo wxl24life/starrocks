@@ -35,6 +35,7 @@ import com.starrocks.connector.exception.StarRocksConnectorException;
 import com.starrocks.credential.CloudConfiguration;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.sql.optimizer.OptimizerContext;
+import com.starrocks.sql.optimizer.Utils;
 import com.starrocks.sql.optimizer.operator.scalar.ColumnRefOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ScalarOperator;
 import com.starrocks.sql.optimizer.statistics.ColumnStatistic;
@@ -48,10 +49,14 @@ import org.apache.fluss.flink.lake.LakeSplitGenerator;
 import org.apache.fluss.flink.lake.split.LakeSnapshotSplit;
 import org.apache.fluss.flink.source.split.LogSplit;
 import org.apache.fluss.flink.source.split.SourceSplitBase;
+import org.apache.fluss.lake.source.LakeSource;
+import org.apache.fluss.lake.source.LakeSplit;
 import org.apache.fluss.metadata.PartitionInfo;
 import org.apache.fluss.metadata.Schema;
 import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.metadata.TablePath;
+import org.apache.fluss.predicate.Predicate;
+import org.apache.fluss.types.RowType;
 import org.apache.fluss.utils.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -245,6 +250,25 @@ public class FlussMetadata implements ConnectorMetadata {
         }
     }
 
+    private void applyLakeSourceFilters(LakeSource<LakeSplit> lakeSource, FlussTable flussTable,
+                                        ScalarOperator predicate) {
+        RowType flussRowType = flussTable.getTableInfo().getRowType();
+        FlussPredicateConverter lakeConverter = new FlussPredicateConverter(flussRowType);
+        List<Predicate> lakePredicates = new ArrayList<>();
+
+        List<ScalarOperator> scalarOperators = Utils.extractConjuncts(predicate);
+        for (ScalarOperator operator : scalarOperators) {
+            Predicate lakePredicate = lakeConverter.convert(operator);
+            if (lakePredicate != null) {
+                lakePredicates.add(lakePredicate);
+            }
+        }
+
+        if (!lakePredicates.isEmpty()) {
+            lakeSource.withFilters(lakePredicates);
+        }
+    }
+
     @Override
     public List<RemoteFileInfo> getRemoteFiles(Table table, GetRemoteFilesParams params) {
         RemoteFileInfo remoteFileInfo = new RemoteFileInfo();
@@ -260,8 +284,12 @@ public class FlussMetadata implements ConnectorMetadata {
             properties.putAll(this.tableProperties);
 
             Supplier<Set<PartitionInfo>> listPartitionSupplier = () -> new LinkedHashSet<>(listPartitions(table));
+            LakeSource<LakeSplit> lakeSource = createLakeSource(flussTable.getTableInfo().getTablePath(), properties);
+            if (lakeSource != null) {
+                applyLakeSourceFilters(lakeSource, flussTable, predicate);
+            }
             LakeSplitGenerator lakeSplitGenerator = new LakeSplitGenerator(tableInfo, admin,
-                    createLakeSource(flussTable.getTableInfo().getTablePath(), properties), bucketOffsetsRetriever,
+                    lakeSource, bucketOffsetsRetriever,
                     new LatestOffsetsInitializer(), tableInfo.getNumBuckets(), listPartitionSupplier);
             List<SourceSplitBase> splits = new ArrayList<>();
             try {
