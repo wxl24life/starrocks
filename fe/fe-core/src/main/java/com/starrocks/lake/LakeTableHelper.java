@@ -73,7 +73,7 @@ public class LakeTableHelper {
         return true;
     }
 
-    static boolean deleteTableFromRecycleBin(long dbId, OlapTable table, boolean replay) {
+    public static boolean deleteTableFromRecycleBin(long dbId, OlapTable table, boolean replay) {
         Preconditions.checkState(table.isCloudNativeTableOrMaterializedView());
         table.removeTableBinds(replay);
         if (replay) {

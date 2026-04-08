@@ -112,9 +112,7 @@ public class CatalogRecycleBinLakeTableDropTableTest extends CatalogRecycleBinLa
         long futureTime = System.currentTimeMillis() + delay;
 
         // Erase the individually dropped partition p1 first
-        recycleBin.erasePartition(futureTime);
-        Thread.sleep(500);
-        recycleBin.erasePartition(futureTime);
+        waitAsyncPartitionTaskFinished(recycleBin, table.getId(), futureTime);
 
         // eraseTable should handle the empty table in a single call:
         // addLakeTablePartitionsToRecycleBin returns false (no partitions),
@@ -291,9 +289,7 @@ public class CatalogRecycleBinLakeTableDropTableTest extends CatalogRecycleBinLa
         Assertions.assertEquals(2, recycleBin.getLakeTablePendingPartitionCount(table.getId()));
 
         // Now process the partitions
-        recycleBin.erasePartition(futureTime);
-        Thread.sleep(500);
-        recycleBin.erasePartition(futureTime);
+        waitAsyncPartitionTaskFinished(recycleBin, table.getId(), futureTime);
 
         // All partitions should be deleted
         Assertions.assertEquals(0, recycleBin.getLakeTablePendingPartitionCount(table.getId()));
@@ -373,22 +369,17 @@ public class CatalogRecycleBinLakeTableDropTableTest extends CatalogRecycleBinLa
         Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(p1.getId()));
 
         // First erasePartition: submits async task which will throw exception
-        recycleBin.erasePartition(futureTime);
-        Thread.sleep(500);
-
-        // Second erasePartition: processes completed task with exception
-        // future.get() throws ExecutionException wrapping RuntimeException
-        // finished stays false, asyncDeleteForPartitions is cleaned up for retry
-        recycleBin.erasePartition(futureTime);
+        // and then processes the completed task with exception.
+        // future.get() throws ExecutionException wrapping RuntimeException,
+        // finished stays false, asyncDeleteForPartitions is cleaned up for retry.
+        waitAsyncPartitionTaskFinished(recycleBin, table.getId(), futureTime);
 
         // Partition should still be pending (failed, not removed)
         Assertions.assertEquals(1, recycleBin.getLakeTablePendingPartitionCount(table.getId()));
         Assertions.assertNotNull(recycleBin.getRecyclePartitionInfo(p1.getId()));
 
         // Retry: submit new async task
-        recycleBin.erasePartition(futureTime);
-        Thread.sleep(500);
-        recycleBin.erasePartition(futureTime);
+        waitAsyncPartitionTaskFinished(recycleBin, table.getId(), futureTime);
 
         // Now partition should be deleted
         Assertions.assertEquals(0, recycleBin.getLakeTablePendingPartitionCount(table.getId()));
@@ -468,9 +459,7 @@ public class CatalogRecycleBinLakeTableDropTableTest extends CatalogRecycleBinLa
         Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(defaultPartition.getId()));
 
         // erasePartition processes the partition (RecycleLakeUnPartitionInfo.delete())
-        recycleBin.erasePartition(futureTime);
-        Thread.sleep(500);
-        recycleBin.erasePartition(futureTime);
+        waitAsyncPartitionTaskFinished(recycleBin, table.getId(), futureTime);
 
         // Partition should be deleted
         Assertions.assertEquals(0, recycleBin.getLakeTablePendingPartitionCount(table.getId()));
@@ -557,9 +546,7 @@ public class CatalogRecycleBinLakeTableDropTableTest extends CatalogRecycleBinLa
         Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(p2.getId()));
 
         // erasePartition processes the partitions (RecycleLakeListPartitionInfo.delete())
-        recycleBin.erasePartition(futureTime);
-        Thread.sleep(500);
-        recycleBin.erasePartition(futureTime);
+        waitAsyncPartitionTaskFinished(recycleBin, table.getId(), futureTime);
 
         // Partitions should be deleted
         Assertions.assertEquals(0, recycleBin.getLakeTablePendingPartitionCount(table.getId()));
@@ -823,11 +810,7 @@ public class CatalogRecycleBinLakeTableDropTableTest extends CatalogRecycleBinLa
         Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(p3.getId()));
 
         // erasePartition processes the partitions
-        recycleBin.erasePartition(futureTime);
-        // Wait for async deletion to complete
-        Thread.sleep(500);
-        // Second erasePartition call to process completed async tasks
-        recycleBin.erasePartition(futureTime);
+        waitAsyncPartitionTaskFinished(recycleBin, table.getId(), futureTime);
 
         // Verify all partitions are deleted
         Assertions.assertEquals(0, recycleBin.getLakeTablePendingPartitionCount(table.getId()));
@@ -1081,9 +1064,7 @@ public class CatalogRecycleBinLakeTableDropTableTest extends CatalogRecycleBinLa
         Assertions.assertEquals(2, recycleBin.getLakeTablePendingPartitionCount(table.getId()));
 
         // erasePartition processes and removes partitions from idToPartition
-        recycleBin.erasePartition(futureTime);
-        Thread.sleep(500);
-        recycleBin.erasePartition(futureTime);
+        waitAsyncPartitionTaskFinished(recycleBin, table.getId(), futureTime);
 
         // Verify partitions are removed from idToPartition
         Assertions.assertNull(recycleBin.getRecyclePartitionInfo(p1.getId()));
@@ -1173,15 +1154,11 @@ public class CatalogRecycleBinLakeTableDropTableTest extends CatalogRecycleBinLa
         Assertions.assertTrue(recycleBin.isLakeTablePartitionsDeletionInProgress(table.getId()));
         Assertions.assertTrue(recycleBin.isPartitionFromTableDeletion(p1.getId()));
 
-        // First erasePartition: submits async task, dropTable returns error (status code != 0)
-        recycleBin.erasePartition(futureTime);
-        Thread.sleep(500);
-
-        // Second erasePartition: processes completed task, future.get() returns false
-        // asyncDeleteForPartitions entry is removed for retry
-        // "else if (asyncDeleteForPartitions.get(partitionInfo) == null)" path is taken
-        // setNextEraseMinTime is called to schedule retry
-        recycleBin.erasePartition(futureTime);
+        // First erasePartition: submits async task, dropTable returns error (status code != 0).
+        // Then it processes completed task, future.get() returns false,
+        // asyncDeleteForPartitions entry is removed for retry and
+        // setNextEraseMinTime is called to schedule retry.
+        waitAsyncPartitionTaskFinished(recycleBin, table.getId(), futureTime);
 
         // Partition should still be in idToPartition (failed, not removed)
         Assertions.assertEquals(1, recycleBin.getLakeTablePendingPartitionCount(table.getId()));
@@ -1193,9 +1170,7 @@ public class CatalogRecycleBinLakeTableDropTableTest extends CatalogRecycleBinLa
         long farFutureTime = System.currentTimeMillis() + CatalogRecycleBin.getFailRetryInterval() + delay + 1000;
 
         // Retry: submit new async task, this time it succeeds
-        recycleBin.erasePartition(farFutureTime);
-        Thread.sleep(500);
-        recycleBin.erasePartition(farFutureTime);
+        waitAsyncPartitionTaskFinished(recycleBin, table.getId(), farFutureTime);
 
         // Now partition should be deleted
         Assertions.assertEquals(0, recycleBin.getLakeTablePendingPartitionCount(table.getId()));
@@ -1278,11 +1253,8 @@ public class CatalogRecycleBinLakeTableDropTableTest extends CatalogRecycleBinLa
         // Async task is running, isAnyLakeTablePartitionDeleting should return true
         Assertions.assertTrue(recycleBin.isAnyLakeTablePartitionDeleting(table.getId()));
 
-        // Wait for async task to complete
-        Thread.sleep(500);
-
-        // Process completed task
-        recycleBin.erasePartition(futureTime);
+        // Wait for async task to complete and process result
+        waitAsyncPartitionTaskFinished(recycleBin, table.getId(), futureTime);
 
         // After processing, partition is removed from idToPartition and async future is cleaned up
         // isAnyLakeTablePartitionDeleting should return false (info is null in idToPartition)
@@ -1507,5 +1479,23 @@ public class CatalogRecycleBinLakeTableDropTableTest extends CatalogRecycleBinLa
 
         // Clean up
         recycleBin.clear();
+    }
+
+    private static void waitAsyncPartitionTaskFinished(CatalogRecycleBin recycleBin, long tableId, long eraseTimeMs) {
+        long deadlineMs = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < deadlineMs) {
+            recycleBin.erasePartition(eraseTimeMs);
+            if (!recycleBin.isAnyLakeTablePartitionDeleting(tableId)) {
+                return;
+            }
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                Assertions.fail("Interrupted while waiting async partition deletion for tableId " + tableId);
+            }
+        }
+        Assertions.fail("Timed out waiting async partition deletion for tableId " + tableId
+                + ", pendingPartitionCount=" + recycleBin.getLakeTablePendingPartitionCount(tableId));
     }
 }

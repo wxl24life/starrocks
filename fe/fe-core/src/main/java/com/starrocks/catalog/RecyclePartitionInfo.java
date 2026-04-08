@@ -51,12 +51,12 @@ public abstract class RecyclePartitionInfo extends JsonWriter {
      * Used to skip partition-level erase edit log because table-level erase log
      * will be recorded after all related partitions are deleted.
      * When true, also force remove the partition directory even if it's a shared directory.
-     * This field is transient and not serialized.
      *
      * Marked volatile because it is written in synchronized eraseTable() but read by
      * async delete tasks submitted in erasePartition() on a different thread.
      */
-    protected transient volatile boolean fromTableDeletion = false;
+    @SerializedName(value = "fromTableDeletion")
+    protected volatile boolean fromTableDeletion = false;
 
     public RecyclePartitionInfo() {
         recoverable = true;

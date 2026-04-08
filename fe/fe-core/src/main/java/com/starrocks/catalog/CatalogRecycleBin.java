@@ -52,6 +52,7 @@ import com.starrocks.common.ErrorReport;
 import com.starrocks.common.ThreadPoolManager;
 import com.starrocks.common.io.Writable;
 import com.starrocks.common.util.FrontendDaemon;
+import com.starrocks.lake.LakeTableHelper;
 import com.starrocks.memory.MemoryTrackable;
 import com.starrocks.memory.estimate.Estimator;
 import com.starrocks.persist.ImageWriter;
@@ -596,7 +597,7 @@ public class CatalogRecycleBin extends FrontendDaemon implements Writable, Memor
                     if (partitionInfo != null) {
                         asyncDeleteForPartitions.remove(partitionInfo);
                     }
-                    idToRecycleTime.remove(partitionId);
+                    removeRecycleMarkers(partitionId);
                 }
             }
         }
@@ -690,12 +691,10 @@ public class CatalogRecycleBin extends FrontendDaemon implements Writable, Memor
     private void cleanupLakeTableAfterPartitionsDeletion(RecycleTableInfo info) {
         long tableId = info.getTable().getId();
         lakeTableToPartitions.remove(tableId);
-        // Clean up table-level resources
-        // Note: removeTableBinds() was already called in addLakeTablePartitionsToRecycleBin()
         OlapTable table = (OlapTable) info.getTable();
-        table.removeTabletsFromInvertedIndex();
-        GlobalStateMgr.getCurrentState().getWarehouseMgr().removeTableWarehouseInfo(tableId);
-        LOG.info("All partitions of Lake table '{}' (tableId: {}) have been deleted, cleaned up table resources",
+        // Reuse helper replay cleanup path to keep table-level cleanup behavior consistent.
+        LakeTableHelper.deleteTableFromRecycleBin(info.getDbId(), table, true);
+        LOG.debug("All partitions of Lake table '{}' (tableId: {}) have been deleted, cleaned up table resources",
                 table.getName(), tableId);
     }
 
