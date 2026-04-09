@@ -15,11 +15,13 @@
 package com.starrocks.lake.compaction;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.starrocks.catalog.Database;
 import com.starrocks.catalog.MaterializedIndex;
 import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.PhysicalPartition;
+import com.starrocks.catalog.Table;
 import com.starrocks.catalog.Tablet;
 import com.starrocks.common.AnalysisException;
 import com.starrocks.common.Config;
@@ -82,6 +84,7 @@ public class CompactionScheduler extends Daemon {
     private final SynchronizedCircularQueue<CompactionRecord> history;
     private long lastPartitionCleanTime;
     private Set<Long> disabledIds; // copy-on-write, table id or partition id
+    private Set<Long> compactionServiceTableIds; // copy-on-write, table ids that should use compaction service
 
     CompactionScheduler(@NotNull CompactionMgr compactionManager, @NotNull SystemInfoService systemInfoService,
                         @NotNull GlobalTransactionMgr transactionMgr, @NotNull GlobalStateMgr stateMgr,
@@ -95,8 +98,10 @@ public class CompactionScheduler extends Daemon {
         this.lastPartitionCleanTime = System.currentTimeMillis();
         this.history = new SynchronizedCircularQueue<>(Config.lake_compaction_history_size);
         this.disabledIds = Collections.unmodifiableSet(new HashSet<>());
+        this.compactionServiceTableIds = Collections.unmodifiableSet(new HashSet<>());
 
         disableTableOrPartitionId(disableIdsStr);
+        updateCompactionServiceTables(Config.lake_compaction_service_tables);
     }
 
     @Override
@@ -193,23 +198,55 @@ public class CompactionScheduler extends Daemon {
             return;
         }
 
-        // Chose and group partitions by warehouse id
-        Map<Long, List<PartitionStatisticsSnapshot>> warehouseToPartitionsMap =
-                compactionManager.choosePartitionsToCompact(runningCompactions.keySet(), disabledIds)
-                        .stream()
-                        .collect(Collectors.groupingBy(this::getCompactionWarehouseId));
+        // Get all candidate partitions first
+        List<PartitionStatisticsSnapshot> partitions = compactionManager.choosePartitionsToCompact(
+                runningCompactions.keySet(), disabledIds);
 
-        boolean enableCompactionService = Config.enable_lake_compaction_service;
-        if (enableCompactionService) {
-            // maybe we can design another schedule policy when enable compaction service not using `tryScheduleCompactionInWarehouse`,
-            // we just pass `enableCompactionService` for now.
-            warehouseToPartitionsMap.entrySet().forEach(entry ->
-                    tryScheduleCompactionInWarehouse(entry.getKey(), entry.getValue(), enableCompactionService));
-        } else {
-            // Parallelize the compaction schedule for each warehouse
-            warehouseToPartitionsMap.entrySet().parallelStream().forEach(entry ->
-                    tryScheduleCompactionInWarehouse(entry.getKey(), entry.getValue(), enableCompactionService));
+        // Group partitions by warehouse and whether they use compaction service
+        Map<Long, List<PartitionStatisticsSnapshot>> csWarehouseToPartitions = new HashMap<>();
+        Map<Long, List<PartitionStatisticsSnapshot>> normalWarehouseToPartitions = new HashMap<>();
+
+        for (PartitionStatisticsSnapshot snapshot : partitions) {
+            PartitionIdentifier partition = snapshot.getPartition();
+            long warehouseId = getCompactionWarehouseId(snapshot);
+
+            // Check if this table should use compaction service
+            boolean useCompactionService = shouldTableUseCompactionService(partition);
+
+            if (useCompactionService) {
+                Warehouse csWarehouse = GlobalStateMgr.getCurrentState().getWarehouseMgr().getCompactionServiceWarehouse();
+                long csWarehouseId = csWarehouse.getId();
+                csWarehouseToPartitions.computeIfAbsent(csWarehouseId, k -> new ArrayList<>()).add(snapshot);
+            } else {
+                normalWarehouseToPartitions.computeIfAbsent(warehouseId, k -> new ArrayList<>()).add(snapshot);
+            }
         }
+
+        // Schedule partitions using compaction service (sequentially for consistency)
+        for (Map.Entry<Long, List<PartitionStatisticsSnapshot>> entry : csWarehouseToPartitions.entrySet()) {
+            tryScheduleCompactionInWarehouse(entry.getKey(), entry.getValue(), true);
+        }
+
+        // Schedule partitions NOT using compaction service (parallel as before)
+        normalWarehouseToPartitions.entrySet().parallelStream().forEach(entry ->
+                tryScheduleCompactionInWarehouse(entry.getKey(), entry.getValue(), false));
+    }
+
+    /**
+     * Check if the table of this partition should use compaction service.
+     */
+    @VisibleForTesting
+    protected boolean shouldTableUseCompactionService(PartitionIdentifier partition) {
+        if (!Config.enable_lake_compaction_service) {
+            return false;
+        }
+
+        // If whitelist is empty, all tables use compaction service (backward compatible)
+        if (compactionServiceTableIds == null || compactionServiceTableIds.isEmpty()) {
+            return true;
+        }
+
+        return compactionServiceTableIds.contains(partition.getTableId());
     }
 
     private void tryScheduleCompactionInWarehouse(long warehouseId,
@@ -719,5 +756,53 @@ public class CompactionScheduler extends Daemon {
             }
         }
         disabledIds = Collections.unmodifiableSet(newDisabledIds);
+    }
+
+    public void updateCompactionServiceTables(String tablesStr) {
+        Set<Long> newTableIds = new HashSet<>();
+        if (!Strings.isNullOrEmpty(tablesStr)) {
+            String[] arr = tablesStr.split(";");
+            for (String a : arr) {
+                String trimmed = a.trim();
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+                String[] parts = trimmed.split("\\.");
+                if (parts.length != 2) {
+                    LOG.warn("Bad format of compaction service table name: {}, should be like 'db1.table1;db2.*'",
+                            trimmed);
+                    continue;
+                }
+                String dbName = parts[0].trim();
+                String tableName = parts[1].trim();
+                Database db = stateMgr.getLocalMetastore().getDb(dbName);
+                if (db == null) {
+                    LOG.warn("Database not found for compaction service table: {}", trimmed);
+                    continue;
+                }
+                if ("*".equals(tableName)) {
+                    // Add all tables in the database
+                    for (Table table : db.getTables()) {
+                        newTableIds.add(table.getId());
+                    }
+                    LOG.info("Added all tables from database {} for compaction service, count={}",
+                            dbName, db.getTables().size());
+                } else {
+                    Table table = stateMgr.getLocalMetastore().getTable(dbName, tableName);
+                    if (table == null) {
+                        LOG.warn("Table not found for compaction service table: {}", trimmed);
+                        continue;
+                    }
+                    newTableIds.add(table.getId());
+                }
+            }
+        }
+        compactionServiceTableIds = Collections.unmodifiableSet(newTableIds);
+        LOG.info("Updated compaction service table ids: {}", compactionServiceTableIds);
+    }
+
+    @VisibleForTesting
+    protected Set<Long> getCompactionServiceTableIds() {
+        return compactionServiceTableIds;
     }
 }

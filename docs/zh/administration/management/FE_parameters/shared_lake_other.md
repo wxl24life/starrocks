@@ -380,6 +380,15 @@ ADMIN SET FRONTEND CONFIG ("key" = "value");
 - 描述: 如果分区在此时间范围内没有更新（加载、DELETE 或 Compactions），系统将不会对此分区执行 AutoVacuum。
 - 引入版本: v3.1.0
 
+### `lake_compaction_service_tables`
+
+- 默认值：""
+- 类型：String
+- 单位：-
+- 是否动态：是
+- 描述：当 `enable_lake_compaction_service` 设置为 `true` 时，指定哪些表使用 compaction service。格式为 `db1.table1;db2.table2`，表名之间用分号隔开。当该项为空且 `enable_lake_compaction_service` 设置为 `true` 时，所有表都使用 compaction service。当该项非空时，只有指定的表使用 compaction service，其他表使用原有 compaction 逻辑。
+- 引入版本：v3.5.7
+
 ### `lake_compaction_allow_partial_success`
 
 - 默认值: true

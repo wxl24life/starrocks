@@ -637,6 +637,92 @@ public class CompactionSchedulerTest {
         Config.enable_lake_compaction_service = false;
         Config.lake_enable_bind_compaction_with_load_warehouse = false;
     }
+
+    @Test
+    public void testCompactionServiceTablesWhitelist() {
+        CompactionScheduler compactionScheduler = new CompactionScheduler(new CompactionMgr(), null, null,
+                globalStateMgr, "");
+
+        Database db1 = new Database(1001, "db1");
+        Database db2 = new Database(1002, "db2");
+        LakeTable table1 = new LakeTable(2001, "table1", new ArrayList<>(), null, null, null);
+        LakeTable table2 = new LakeTable(2002, "table2", new ArrayList<>(), null, null, null);
+
+        db1.registerTableUnlocked(table1);
+        db2.registerTableUnlocked(table2);
+        new MockUp<GlobalStateMgr>() {
+            @Mock
+            public LocalMetastore getLocalMetastore() {
+                return new LocalMetastore(globalStateMgr, null, null);
+            }
+        };
+
+        new MockUp<LocalMetastore>() {
+            @Mock
+            public Database getDb(String name) {
+                if ("db1".equals(name)) {
+                    return db1;
+                }
+                if ("db2".equals(name)) {
+                    return db2;
+                }
+                return null;
+            }
+
+            @Mock
+            public Table getTable(String dbName, String tblName) {
+                if ("db1".equals(dbName) && "table1".equals(tblName)) {
+                    return table1;
+                }
+                if ("db2".equals(dbName) && "table2".equals(tblName)) {
+                    return table2;
+                }
+                return null;
+            }
+        };
+
+        // Test empty whitelist - all tables should use compaction service when enabled
+        compactionScheduler.updateCompactionServiceTables("");
+        Assertions.assertTrue(compactionScheduler.getCompactionServiceTableIds().isEmpty());
+
+        // Test non-empty whitelist
+        compactionScheduler.updateCompactionServiceTables("db1.table1;db2.table2");
+        Set<Long> tableIds = compactionScheduler.getCompactionServiceTableIds();
+        Assertions.assertEquals(2, tableIds.size());
+        Assertions.assertTrue(tableIds.contains(2001L));
+        Assertions.assertTrue(tableIds.contains(2002L));
+        Assertions.assertFalse(tableIds.contains(9999L));
+
+        // Test with spaces
+        compactionScheduler.updateCompactionServiceTables(" db1.table1 ; db2.table2 ");
+        tableIds = compactionScheduler.getCompactionServiceTableIds();
+        Assertions.assertEquals(2, tableIds.size());
+        Assertions.assertTrue(tableIds.contains(2001L));
+
+        // Test non-existing table is skipped
+        compactionScheduler.updateCompactionServiceTables("db1.table1;db3.table3");
+        tableIds = compactionScheduler.getCompactionServiceTableIds();
+        Assertions.assertEquals(1, tableIds.size());
+        Assertions.assertTrue(tableIds.contains(2001L));
+
+        // Test clear whitelist
+        compactionScheduler.updateCompactionServiceTables("");
+        Assertions.assertTrue(compactionScheduler.getCompactionServiceTableIds().isEmpty());
+
+        // Test db.* wildcard - all tables in db1
+        compactionScheduler.updateCompactionServiceTables("db1.*");
+        tableIds = compactionScheduler.getCompactionServiceTableIds();
+        Assertions.assertEquals(1, tableIds.size());
+
+        // Test db.* combined with specific table
+        compactionScheduler.updateCompactionServiceTables("db1.*;db2.table2");
+        tableIds = compactionScheduler.getCompactionServiceTableIds();
+        Assertions.assertEquals(2, tableIds.size());
+
+        // Test db.* for non-existing database
+        compactionScheduler.updateCompactionServiceTables("db3.*");
+        Assertions.assertTrue(compactionScheduler.getCompactionServiceTableIds().isEmpty());
+    }
 }
 
 class MockedCompactionScheduler extends CompactionScheduler {

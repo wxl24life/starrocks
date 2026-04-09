@@ -380,6 +380,15 @@ This topic introduces the following types of FE configurations:
 - Description: If a partition has no updates (loading, DELETE, or Compactions) within this time range, the system will not perform AutoVacuum on this partition.
 - Introduced in: v3.1.0
 
+### `lake_compaction_service_tables`
+
+- Default: ""
+- Type: String
+- Unit: -
+- Is mutable: Yes
+- Description: The tables that should use compaction service when `enable_lake_compaction_service` is set to `true`. The format is `db1.table1;db2.table2`, separated by semicolon. When this item is empty and `enable_lake_compaction_service` is set to `true`, all tables use compaction service. When this item is non-empty, only the specified tables use compaction service, and other tables use the original compaction logic.
+- Introduced in: v3.5.7
+
 ### `lake_compaction_allow_partial_success`
 
 - Default: true

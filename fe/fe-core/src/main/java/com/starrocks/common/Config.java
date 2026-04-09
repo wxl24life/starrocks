@@ -3303,6 +3303,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static String lake_compaction_service_warehouse = "default_warehouse";
 
+    @ConfField(mutable = true, comment = "Tables that should use compaction service when " +
+            "enable_lake_compaction_service is true. Format: 'db1.table1;db2.*;db3.table3'. " +
+            "Use 'db.*' to include all tables in a database. " +
+            "When empty and enable_lake_compaction_service is true, all tables use compaction service. " +
+            "When non-empty, only specified tables use compaction service, others use original compaction logic.")
+    public static String lake_compaction_service_tables = "";
+
     @ConfField(mutable = true)
     public static String lake_background_warehouse = "default_warehouse";
 
