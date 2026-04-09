@@ -180,23 +180,24 @@ public class FlussMetadata implements ConnectorMetadata {
 
     @Override
     public Table getTable(ConnectContext context, String dbName, String tblName) {
-        TablePath identifier = TablePath.of(dbName, tblName);
-        if (tables.containsKey(identifier)) {
-            return tables.get(identifier);
+        TablePath cacheKey = TablePath.of(dbName, tblName);
+        if (tables.containsKey(cacheKey)) {
+            return tables.get(cacheKey);
         }
 
         String realTblName = tblName;
+        TablePath flussIdentifier = TablePath.of(dbName, tblName);
         if (tblName.contains(LAKE_TABLE_SPLITTER)) {
             realTblName = tblName.split("\\" + LAKE_TABLE_SPLITTER)[0];
-            identifier = TablePath.of(dbName, realTblName);
+            flussIdentifier = TablePath.of(dbName, realTblName);
         }
         if (tblName.contains(RT_TABLE_SPLITTER)) {
             realTblName = tblName.split("\\" + RT_TABLE_SPLITTER)[0];
-            identifier = TablePath.of(dbName, realTblName);
+            flussIdentifier = TablePath.of(dbName, realTblName);
         }
 
         try {
-            TableInfo tableInfo = this.admin.getTableInfo(identifier).get();
+            TableInfo tableInfo = this.admin.getTableInfo(flussIdentifier).get();
             List<Schema.Column> flussColumns = tableInfo.getSchema().getColumns();
             ArrayList<Column> fullSchema = new ArrayList<>(flussColumns.size());
             for (Schema.Column flussColumn : flussColumns) {
@@ -206,8 +207,8 @@ public class FlussMetadata implements ConnectorMetadata {
                 fullSchema.add(column);
             }
             String comment = tableInfo.getComment().orElse("");
-            FlussTable table = new FlussTable(catalogName, dbName, realTblName, fullSchema, connection.getTable(identifier),
-                    connection.getConfiguration(), this.tableProperties);
+            FlussTable table = new FlussTable(catalogName, dbName, realTblName, fullSchema,
+                    connection.getTable(flussIdentifier), connection.getConfiguration(), this.tableProperties);
             table.setComment(comment);
             if (tblName.contains(LAKE_TABLE_SPLITTER)) {
                 table.setTableNamePrefix(LAKE_TABLE_SPLITTER);
@@ -215,7 +216,7 @@ public class FlussMetadata implements ConnectorMetadata {
             if (tblName.contains(RT_TABLE_SPLITTER)) {
                 table.setTableNamePrefix(RT_TABLE_SPLITTER);
             }
-            this.tables.put(identifier, table);
+            this.tables.put(cacheKey, table);
             return table;
         } catch (Exception e) {
             LOG.error("Failed to get Fluss table {}.{}.{}.", catalogName, dbName, tblName, e);
@@ -251,8 +252,8 @@ public class FlussMetadata implements ConnectorMetadata {
         TablePath identifier = TablePath.of(flussTable.getDbName(), flussTable.getTableName());
         TableInfo tableInfo = flussTable.getTableInfo();
         OffsetsInitializer.BucketOffsetsRetriever bucketOffsetsRetriever = new BucketOffsetsRetrieverImpl(admin, identifier);
-        PredicateSearchKey filter = PredicateSearchKey.of(flussTable.getDbName(), flussTable.getTableName(),
-                -1, params.getPredicate());
+        PredicateSearchKey filter = PredicateSearchKey.of(flussTable.getDbName(),
+                flussTable.getTableName() + flussTable.getTableNamePrefix(), -1, params.getPredicate());
 
         if (!flussSplits.containsKey(filter)) {
             Map<String, String> properties = new HashMap<>(flussTable.getTableInfo().getProperties().toMap());
@@ -265,6 +266,9 @@ public class FlussMetadata implements ConnectorMetadata {
             List<SourceSplitBase> splits = new ArrayList<>();
             try {
                 splits = lakeSplitGenerator.generateHybridLakeFlussSplits();
+                if (splits == null) {
+                    splits = new ArrayList<>();
+                }
             } catch (Exception e) {
                 LOG.error("Failed to get Fluss splits for table {}.{}.{}.",
                         catalogName, flussTable.getDbName(), flussTable.getTableName(), e);
