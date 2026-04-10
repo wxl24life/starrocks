@@ -83,6 +83,8 @@ public:
             EXPECT_TRUE(::mkdtemp(tmpl.data()) != nullptr);
             config::starlet_cache_dir = tmpl;
             staros::starlet::fslib::FLAGS_star_cache_async_init = false;
+            staros::starlet::fslib::FLAGS_star_cache_disk_size_bytes = 10 * 1024 * 1024; // 10MB for UT
+            staros::starlet::fslib::FLAGS_star_cache_disk_size_percent = 0;
             setenv(staros::starlet::fslib::kFslibCacheDir.c_str(), config::starlet_cache_dir.c_str(),
                    1 /* overwrite */);
         }
