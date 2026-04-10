@@ -157,7 +157,7 @@ Status LakeReplicationTxnManager::replicate_lake_remote_storage(const TReplicate
         return Status::Corruption("No missing version");
     }
 
-#if !defined(BE_TEST) && defined(USE_STAROS)
+#ifdef USE_STAROS
     std::string src_meta_dir;
     std::string src_data_dir;
     std::shared_ptr<FileSystem> shared_src_fs;
@@ -166,6 +166,10 @@ Status LakeReplicationTxnManager::replicate_lake_remote_storage(const TReplicate
     if (has_s3_full_path) {
         // S3 storage type: FE provides full S3 path (supports partitioned prefix feature)
         // Use S3 raw path mode - starlet will use the path as-is without normalize_path
+        if (src_partition_full_path.find("s3://") != 0) {
+            return Status::InvalidArgument(
+                    fmt::format("Full path must be S3 type (start with 's3://'), got: {}", src_partition_full_path));
+        }
         std::string src_partition_starlet_uri = convert_s3_path_to_starlet_uri(src_partition_full_path, src_tablet_id);
 
         // Append metadata and segment directory names
@@ -205,15 +209,7 @@ Status LakeReplicationTxnManager::replicate_lake_remote_storage(const TReplicate
                          build_source_tablet_meta(src_tablet_id, src_visible_version, src_meta_dir, shared_src_fs));
     }
 #else
-    auto src_meta_dir = "test_lake_replication/meta";
-    auto src_data_dir = "test_lake_replication/data";
-    auto shared_src_fs_st_or = FileSystem::CreateSharedFromString(src_data_dir);
-    if (!shared_src_fs_st_or.ok()) {
-        return Status::Corruption("Failed to create virtual starlet filesystem");
-    }
-    auto shared_src_fs = shared_src_fs_st_or.value();
-    ASSIGN_OR_RETURN(auto src_tablet_meta,
-                     _tablet_manager->get_tablet_metadata(src_tablet_id, src_visible_version, false, 0, nullptr));
+    return Status::NotSupported("Lake replication remote storage requires build with shared-data support!");
 #endif
 
     VLOG(3) << "Lake replicate storage task, built source meta and data dir, meta dir: " << src_meta_dir
