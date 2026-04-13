@@ -16,6 +16,7 @@ package com.starrocks.alter;
 
 import com.starrocks.catalog.Database;
 import com.starrocks.catalog.Table;
+import com.starrocks.common.Config;
 import com.starrocks.common.FeConstants;
 import com.starrocks.common.proc.RollupProcDir;
 import com.starrocks.qe.ConnectContext;
@@ -59,7 +60,8 @@ public class LakeRollupJobTest {
                 System.out.println("Mocked MaterializedViewHandler.runAfterCatalogReady() called");
             }
         };
-
+        // Prevent background MaterializedViewHandler daemon from racing with manual job state transitions
+        Config.alter_scheduler_interval_millisecond = 100000;
         UtFrameUtils.createMinStarRocksCluster(RunMode.SHARED_DATA);
         connectContext = UtFrameUtils.createDefaultCtx();
 

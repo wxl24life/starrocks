@@ -23,6 +23,7 @@ import com.starrocks.catalog.MaterializedIndexMeta;
 import com.starrocks.catalog.MaterializedView;
 import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.Table;
+import com.starrocks.common.Config;
 import com.starrocks.common.Pair;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.ShowResultSet;
@@ -37,8 +38,10 @@ import com.starrocks.utframe.UtFrameUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
@@ -50,6 +53,7 @@ import java.util.Set;
 import static com.starrocks.sql.optimizer.MVTestUtils.waitingRollupJobV2Finish;
 import static com.starrocks.sql.optimizer.rule.transformation.materialization.MVTestBase.executeInsertSql;
 
+@TestMethodOrder(MethodOrderer.MethodName.class)
 public class LakeSyncMaterializedViewTest {
 
 
@@ -65,6 +69,7 @@ public class LakeSyncMaterializedViewTest {
 
     @BeforeAll
     public static void beforeClass() throws Exception {
+        Config.alter_scheduler_interval_millisecond = 100000;
         UtFrameUtils.createMinStarRocksCluster(RunMode.SHARED_DATA);
         //ConnectorPlanTestBase.doInit(temp.newFolder().toURI().toString());
         // create connect context
@@ -774,5 +779,7 @@ public class LakeSyncMaterializedViewTest {
         if (testMethod.isPresent()) {
             this.name = testMethod.get().getName();
         }
+        // Clear any leftover rollup jobs to prevent cross-test interference
+        GlobalStateMgr.getCurrentState().getRollupHandler().clearJobs();
     }
 }
