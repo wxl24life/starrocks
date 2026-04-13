@@ -177,7 +177,7 @@ public class LakePublishBatchTest {
                 ")" +
                 "DISTRIBUTED BY HASH(pk) BUCKETS 3" +
                 " PROPERTIES(\"replication_num\" = \"" + 3 +
-                "\", \"storage_medium\" = \"SSD\", \"file_bundling\" = \"false\")";
+                "\", \"storage_medium\" = \"SSD\")";
         starRocksAssert.withTable(sql2);
     }
 
@@ -834,6 +834,9 @@ public class LakePublishBatchTest {
 
             PublishVersionDaemon publishVersionDaemon = new PublishVersionDaemon();
             publishVersionDaemon.runAfterCatalogReady();
+
+            Assertions.assertTrue(waiter1.await(10, TimeUnit.SECONDS));
+            Assertions.assertTrue(waiter2.await(10, TimeUnit.SECONDS));
         }
     }
 }
