@@ -1084,7 +1084,8 @@ public class PartitionBasedMvRefreshProcessor extends BaseTaskRunProcessor {
         return result;
     }
 
-    private void initSnapshotBaseTables() throws LockTimeoutException {
+    @VisibleForTesting
+    void initSnapshotBaseTables() throws LockTimeoutException {
         Stopwatch stopwatch = Stopwatch.createStarted();
         this.snapshotBaseTables = collectBaseTableSnapshotInfos(mv);
         logger.info("Finish init snapshot base tables for mv:{}, cost(ms): {}", mv.getName(),
