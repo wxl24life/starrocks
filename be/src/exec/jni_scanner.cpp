@@ -136,7 +136,11 @@ Status JniScanner::_get_next_chunk(JNIEnv* env, long* chunk_meta) {
     _app_stats.io_count += 1;
     *chunk_meta = env->CallLongMethod(_jni_scanner_obj, _jni_scanner_get_next_chunk);
     RETURN_IF_ERROR(JVMFunctionHelper::_check_jni_exception(
-            env, "Failed to call the nextChunkOffHeap method of off-heap table scanner."));
+            env,
+            fmt::format("Failed to call the nextChunkOffHeap method of off-heap table scanner. "
+                        "You may try enabling deletion vector for table '{}' "
+                        "or setting `set paimon_force_native_reader = true`.",
+                        _scanner_params.paimon_table_path)));
     return Status::OK();
 }
 
