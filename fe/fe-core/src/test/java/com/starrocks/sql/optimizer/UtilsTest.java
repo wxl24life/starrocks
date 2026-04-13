@@ -48,9 +48,9 @@ import com.starrocks.utframe.StarRocksAssert;
 import com.starrocks.utframe.UtFrameUtils;
 import mockit.Expectations;
 import mockit.Mocked;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeAll;
 
 import java.util.HashMap;
 import java.util.List;
@@ -93,7 +93,7 @@ public class UtilsTest {
         }
     }
 
-    @BeforeAll
+    @BeforeClass
     public static void beforeClass() throws Exception {
         Config.alter_scheduler_interval_millisecond = 1;
         UtFrameUtils.createMinStarRocksCluster();
@@ -426,7 +426,8 @@ public class UtilsTest {
         }
     }
 
-    @Test void testMergeWithProject2() {
+    @Test
+    public void testMergeWithProject2() {
         Map<ColumnRefOperator, ScalarOperator> columnRefMap1 = new HashMap<>();
         Map<ColumnRefOperator, ScalarOperator> columnRefMap2 = new HashMap<>();
         for (int i = 0; i < 10; i++) {
