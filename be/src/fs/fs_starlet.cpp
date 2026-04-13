@@ -40,6 +40,7 @@
 #include "service/staros_worker.h"
 #include "storage/lake/filenames.h"
 #include "storage/olap_common.h"
+#include "testutil/sync_point.h"
 #include "util/defer_op.h"
 #include "util/lru_cache.h"
 #include "util/stopwatch.hpp"
@@ -787,8 +788,19 @@ std::shared_ptr<FileSystem> new_fs_starlet(int64_t shard_id, bool use_s3_raw_pat
     // Starlet will use normalize_path to combine sys.root with the relative path
 
     bool enable_datacache = false;
+    // Allow tests to inject a mock filesystem via sync point (fires before the real call).
+    // In production this callback is a no-op and fs_st stays as the sentinel error,
+    // causing the code to fall through to the real g_worker call below.
     absl::StatusOr<std::shared_ptr<staros::starlet::fslib::FileSystem>> fs_st =
-            g_worker->get_shard_filesystem(shard_id, conf, &enable_datacache);
+            absl::UnknownError("not set by sync point");
+    TEST_SYNC_POINT_CALLBACK("new_fs_starlet::get_shard_filesystem", &fs_st);
+    if (!fs_st.ok()) {
+        if (UNLIKELY(g_worker == nullptr)) {
+            LOG(WARNING) << "g_worker is null, cannot get shard filesystem for shard_id: " << shard_id;
+            return nullptr;
+        }
+        fs_st = g_worker->get_shard_filesystem(shard_id, conf, &enable_datacache);
+    }
 
     if (!fs_st.ok()) {
         LOG(WARNING) << "Failed to get shard filesystem, shard_id: " << shard_id

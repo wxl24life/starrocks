@@ -65,7 +65,6 @@
 #include "testutil/assert.h"
 #include "testutil/id_generator.h"
 #include "testutil/sync_point.h"
-#include "util/failpoint/fail_point.h"
 #include "util/threadpool.h"
 
 namespace starrocks::lake {
@@ -318,7 +317,7 @@ protected:
     // Create a test file with specified content
     Status create_test_file(const std::string& path, const std::string& content) {
         WritableFileOptions opts{.sync_on_close = true, .mode = FileSystem::CREATE_OR_OPEN_WITH_TRUNCATE};
-        ASSIGN_OR_RETURN(auto fs, FileSystemFactory::CreateSharedFromString(path));
+        ASSIGN_OR_RETURN(auto fs, FileSystem::CreateSharedFromString(path));
         ASSIGN_OR_RETURN(auto wf, fs->new_writable_file(opts, path));
         RETURN_IF_ERROR(wf->append(content));
         return wf->close();
@@ -345,7 +344,7 @@ TEST_F(CopyNonSegmentFileWithRetryTest, test_copy_error_retry_succeeds) {
     });
 
     // Simulate the retry logic from lake_replication_txn_manager.cpp
-    ASSIGN_OR_ABORT(auto src_fs, FileSystemFactory::CreateSharedFromString(src_path));
+    ASSIGN_OR_ABORT(auto src_fs, FileSystem::CreateSharedFromString(src_path));
     ASSIGN_OR_ABORT(auto expected_size, src_fs->get_file_size(src_path));
     EXPECT_EQ(expected_size, content.size());
 
@@ -390,7 +389,7 @@ TEST_F(CopyNonSegmentFileWithRetryTest, test_copy_size_mismatch_exhausts_retries
         *size = *size / 2;
     });
 
-    ASSIGN_OR_ABORT(auto src_fs, FileSystemFactory::CreateSharedFromString(src_path));
+    ASSIGN_OR_ABORT(auto src_fs, FileSystem::CreateSharedFromString(src_path));
     ASSIGN_OR_ABORT(auto expected_size, src_fs->get_file_size(src_path));
 
     const size_t buff_size = std::max<size_t>(std::min<size_t>(expected_size, 16 * 1024 * 1024), 1 * 1024 * 1024);
@@ -801,6 +800,172 @@ TEST_F(TryBuildSourceTabletMetaWithFallbackTest, test_db_id_not_in_path) {
 
     ASSERT_TRUE(result.ok()) << result.status();
 }
+
+// Mock starlet fslib FileSystem for LakeReplicationRemoteStorageTest
+class MockStarletFileSystemForReplication : public staros::starlet::fslib::FileSystem {
+public:
+    MockStarletFileSystemForReplication() = default;
+    ~MockStarletFileSystemForReplication() override = default;
+
+    std::string_view scheme() override { return "mock"; }
+
+    absl::StatusOr<std::unique_ptr<staros::starlet::fslib::ReadOnlyFile>> open(
+            std::string_view path, const staros::starlet::fslib::ReadOptions& opts) override {
+        return absl::UnimplementedError("mock open");
+    }
+
+    absl::StatusOr<std::unique_ptr<staros::starlet::fslib::WritableFile>> create(
+            std::string_view path, const staros::starlet::fslib::WriteOptions& opts) override {
+        return absl::UnimplementedError("mock create");
+    }
+
+    absl::StatusOr<bool> exists(std::string_view path) override { return absl::UnimplementedError("mock exists"); }
+
+    absl::Status rename_file(std::string_view src, std::string_view dest) override {
+        return absl::UnimplementedError("mock rename_file");
+    }
+
+    absl::Status rename_dir(std::string_view src, std::string_view dest) override {
+        return absl::UnimplementedError("mock rename_dir");
+    }
+
+    absl::Status delete_file(std::string_view path) override { return absl::UnimplementedError("mock delete_file"); }
+
+    absl::Status delete_files(absl::Span<const std::string> paths) override {
+        return absl::UnimplementedError("mock delete_files");
+    }
+
+    absl::Status delete_dir(std::string_view path, bool recursive = false) override {
+        return absl::UnimplementedError("mock delete_dir");
+    }
+
+    absl::StatusOr<staros::starlet::fslib::Stat> stat(std::string_view path) override {
+        return absl::UnimplementedError("mock stat");
+    }
+
+    absl::Status hard_link(std::string_view src, std::string_view dest) override {
+        return absl::UnimplementedError("mock hard_link");
+    }
+
+    absl::Status mkdir(std::string_view path, bool create_parent = false) override {
+        return absl::UnimplementedError("mock mkdir");
+    }
+
+    absl::Status list_dir(std::string_view path, bool recursive,
+                          std::function<bool(staros::starlet::fslib::EntryStat)> visitor,
+                          std::string_view name_prefix = std::string_view()) override {
+        return absl::UnimplementedError("mock list_dir");
+    }
+
+protected:
+    absl::Status initialize(const staros::starlet::fslib::Configuration& conf) override { return absl::OkStatus(); }
+};
+
+class LakeReplicationRemoteStorageTest : public testing::Test {
+protected:
+    void SetUp() override {
+        (void)fs::remove_all(_test_dir);
+        CHECK_OK(fs::create_directories(lake::join_path(_test_dir, lake::kSegmentDirectoryName)));
+        CHECK_OK(fs::create_directories(lake::join_path(_test_dir, lake::kMetadataDirectoryName)));
+        CHECK_OK(fs::create_directories(lake::join_path(_test_dir, lake::kTxnLogDirectoryName)));
+        _location_provider = std::make_shared<lake::FixedLocationProvider>(_test_dir);
+        _mem_tracker = std::make_unique<MemTracker>(1024 * 1024);
+        _update_manager = std::make_unique<lake::UpdateManager>(_location_provider, _mem_tracker.get());
+        _tablet_mgr = std::make_unique<lake::TabletManager>(_location_provider, _update_manager.get(), 16384);
+        _replication_txn_manager = std::make_unique<lake::LakeReplicationTxnManager>(_tablet_mgr.get());
+
+        _src_tablet_metadata = std::make_shared<TabletMetadata>();
+        _src_tablet_metadata->set_id(_src_tablet_id);
+        _src_tablet_metadata->set_version(1);
+        _src_tablet_metadata->set_next_rowset_id(1);
+        auto schema = _src_tablet_metadata->mutable_schema();
+        schema->set_keys_type(DUP_KEYS);
+        schema->set_id(next_id());
+        schema->set_num_short_key_columns(1);
+        auto c0 = schema->add_column();
+        c0->set_unique_id(next_id());
+        c0->set_name("c0");
+        c0->set_type("INT");
+        c0->set_is_key(true);
+        c0->set_is_nullable(false);
+
+        CHECK_OK(_tablet_mgr->put_tablet_metadata(*_src_tablet_metadata));
+
+        _target_tablet_metadata = std::make_shared<TabletMetadata>();
+        _target_tablet_metadata->set_id(_target_tablet_id);
+        _target_tablet_metadata->set_version(1);
+        _target_tablet_metadata->set_next_rowset_id(1);
+        auto target_schema = _target_tablet_metadata->mutable_schema();
+        target_schema->set_keys_type(DUP_KEYS);
+        target_schema->set_id(next_id());
+        target_schema->set_num_short_key_columns(1);
+        auto target_c0 = target_schema->add_column();
+        target_c0->set_unique_id(next_id());
+        target_c0->set_name("c0");
+        target_c0->set_type("INT");
+        target_c0->set_is_key(true);
+        target_c0->set_is_nullable(false);
+
+        CHECK_OK(_tablet_mgr->put_tablet_metadata(*_target_tablet_metadata));
+
+        SyncPoint::GetInstance()->EnableProcessing();
+    }
+
+    void TearDown() override {
+        SyncPoint::GetInstance()->ClearAllCallBacks();
+        SyncPoint::GetInstance()->DisableProcessing();
+        ExecEnv::GetInstance()->delete_file_thread_pool()->wait();
+        (void)fs::remove_all(_test_dir);
+    }
+
+    TReplicateSnapshotRequest build_request(bool with_full_path) {
+        TReplicateSnapshotRequest request;
+        request.__set_transaction_id(_transaction_id);
+        request.__set_table_id(_table_id);
+        request.__set_partition_id(_partition_id);
+        request.__set_tablet_id(_target_tablet_id);
+        request.__set_tablet_type(TTabletType::TABLET_TYPE_LAKE);
+        request.__set_schema_hash(_schema_hash);
+        request.__set_visible_version(_version);
+        request.__set_data_version(_version);
+        request.__set_src_tablet_id(_src_tablet_id);
+        request.__set_src_tablet_type(TTabletType::TABLET_TYPE_LAKE);
+        request.__set_src_visible_version(2);
+        request.__set_src_db_id(_src_db_id);
+        request.__set_src_table_id(_src_table_id);
+        request.__set_src_partition_id(_src_partition_id);
+        request.__set_virtual_tablet_id(_virtual_tablet_id);
+        if (with_full_path) {
+            request.__set_src_partition_full_path("s3://test-bucket/test-prefix/service-id/db12345/67890/11111");
+        }
+        return request;
+    }
+
+protected:
+    constexpr static const char* const kTestDirectory = "test_lake_replication_remote_storage";
+
+    std::unique_ptr<TabletManager> _tablet_mgr;
+    std::shared_ptr<lake::LocationProvider> _location_provider;
+    std::unique_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<lake::UpdateManager> _update_manager;
+    std::unique_ptr<lake::LakeReplicationTxnManager> _replication_txn_manager;
+    std::shared_ptr<TabletMetadata> _src_tablet_metadata;
+    std::shared_ptr<TabletMetadata> _target_tablet_metadata;
+
+    std::string _test_dir = kTestDirectory;
+
+    int64_t _transaction_id = 500;
+    int64_t _table_id = 50001;
+    int64_t _partition_id = 50002;
+    int64_t _target_tablet_id = 60001;
+    int64_t _src_tablet_id = 70001;
+    int64_t _version = 1;
+    int32_t _schema_hash = 368169781;
+    int64_t _virtual_tablet_id = 80001;
+    int64_t _src_db_id = 12345;
+    int64_t _src_table_id = 67890;
+    int64_t _src_partition_id = 11111;
+};
 
 // Test Case 4: has_full_path=false, new_fs_starlet returns valid fs, meta build fails
 TEST_F(LakeReplicationRemoteStorageTest, test_no_full_path_meta_build_failure) {
