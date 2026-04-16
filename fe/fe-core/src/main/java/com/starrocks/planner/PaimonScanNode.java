@@ -205,9 +205,10 @@ public class PaimonScanNode extends ScanNode {
                         split instanceof FormatDataSplit && (formatTableFormat == FormatTable.Format.ORC || formatTableFormat == FormatTable.Format.PARQUET);
 
                 PaimonReaderType readerType;
+                boolean isFormatDataSplit = split instanceof FormatDataSplit;
                 if (forceJNIReader) {
                     readerType = PaimonReaderType.JNI;
-                } else if (forcePaimonNativeReader || "aliorc".equals(paimonTableFileFormat)) {
+                } else if (!isFormatDataSplit && (forcePaimonNativeReader || "aliorc".equals(paimonTableFileFormat))) {
                     readerType = PaimonReaderType.PAIMON_NATIVE;
                 } else if (nativeSupportedFormat) {
                     readerType = PaimonReaderType.STARROCKS_NATIVE;
