@@ -29,6 +29,7 @@ import com.starrocks.common.AnalysisException;
 import com.starrocks.common.Config;
 import com.starrocks.connector.partitiontraits.CachedPartitionTraits;
 import com.starrocks.connector.partitiontraits.DeltaLakePartitionTraits;
+import com.starrocks.connector.partitiontraits.FlussPartitionTraits;
 import com.starrocks.connector.partitiontraits.HivePartitionTraits;
 import com.starrocks.connector.partitiontraits.HudiPartitionTraits;
 import com.starrocks.connector.partitiontraits.IcebergPartitionTraits;
@@ -75,6 +76,7 @@ public abstract class ConnectorPartitionTraits {
                     .put(Table.TableType.KUDU, KuduPartitionTraits::new)
                     .put(Table.TableType.JDBC, JDBCPartitionTraits::new)
                     .put(Table.TableType.DELTALAKE, DeltaLakePartitionTraits::new)
+                    .put(Table.TableType.FLUSS, FlussPartitionTraits::new)
                     .build();
 
     protected Table table;

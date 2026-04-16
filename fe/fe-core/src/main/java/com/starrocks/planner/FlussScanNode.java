@@ -20,6 +20,7 @@ import com.google.common.collect.Maps;
 import com.starrocks.analysis.SlotDescriptor;
 import com.starrocks.analysis.TupleDescriptor;
 import com.starrocks.catalog.FlussTable;
+import com.starrocks.catalog.PartitionKey;
 import com.starrocks.catalog.Type;
 import com.starrocks.common.profile.Timer;
 import com.starrocks.common.profile.Tracers;
@@ -132,10 +133,18 @@ public class FlussScanNode extends ScanNode {
     public void setupScanRangeLocations(TupleDescriptor tupleDescriptor, ScalarOperator predicate, long limit) throws IOException {
         List<String> fieldNames =
                 tupleDescriptor.getSlots().stream().map(s -> s.getColumn().getName()).collect(Collectors.toList());
+
+        List<PartitionKey> partitionKeys = new ArrayList<>();
+        for (long partitionId : scanNodePredicates.getSelectedPartitionIds()) {
+            PartitionKey partitionKey = scanNodePredicates.getIdToPartitionKey().get(partitionId);
+            partitionKeys.add(partitionKey);
+        }
+
         List<RemoteFileInfo> fileInfos;
         try (Timer ignored = Tracers.watchScope(EXTERNAL, flussTable.getTableName() + ".getFlussRemoteFileInfos")) {
             GetRemoteFilesParams params =
-                    GetRemoteFilesParams.newBuilder().setPredicate(predicate).setFieldNames(fieldNames).setLimit(limit).build();
+                    GetRemoteFilesParams.newBuilder().setPartitionKeys(partitionKeys)
+                            .setPredicate(predicate).setFieldNames(fieldNames).setLimit(limit).build();
             fileInfos = GlobalStateMgr.getCurrentState().getMetadataMgr().getRemoteFiles(flussTable, params);
         }
 

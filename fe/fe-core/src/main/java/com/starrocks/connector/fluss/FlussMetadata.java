@@ -66,6 +66,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
@@ -136,8 +137,11 @@ public class FlussMetadata implements ConnectorMetadata {
             List<PartitionInfo> partitionInfos = admin.listPartitionInfos(identifier).get();
             for (PartitionInfo partitionInfo : partitionInfos) {
                 // TODO: partition update time
-                Partition srPartition = new Partition(partitionInfo.getPartitionName(), System.currentTimeMillis());
-                this.partitionInfos.get(identifier).put(srPartition.getPartitionName(), srPartition);
+                // Use getPartitionQualifiedName() to produce Hive-compatible "key=value/key=value" format
+                // instead of getPartitionName() which produces "value$value" format.
+                String qualifiedName = partitionInfo.getResolvedPartitionSpec().getPartitionQualifiedName();
+                Partition partition = new Partition(qualifiedName, System.currentTimeMillis());
+                this.partitionInfos.get(identifier).put(qualifiedName, partition);
             }
         } catch (Exception e) {
             Throwable t = ExceptionUtils.stripExecutionException(e);
@@ -282,11 +286,24 @@ public class FlussMetadata implements ConnectorMetadata {
         if (!flussSplits.containsKey(filter)) {
             Map<String, String> properties = new HashMap<>(flussTable.getTableInfo().getProperties().toMap());
             properties.putAll(this.tableProperties);
-
-            Supplier<Set<PartitionInfo>> listPartitionSupplier = () -> new LinkedHashSet<>(listPartitions(table));
             LakeSource<LakeSplit> lakeSource = createLakeSource(flussTable.getTableInfo().getTablePath(), properties);
             if (lakeSource != null) {
-                applyLakeSourceFilters(lakeSource, flussTable, predicate);
+                applyLakeSourceFilters(lakeSource, flussTable, params.getPredicate());
+            }
+
+            // Filter partitions using pruned partition keys (key=value/key=value format).
+            Set<String> selectedPartitionNames = params.getPartitionKeys().stream()
+                    .filter(Objects::nonNull)
+                    .map(PartitionKey::getName)
+                    .collect(Collectors.toSet());
+            Supplier<Set<PartitionInfo>> listPartitionSupplier;
+            if (selectedPartitionNames.isEmpty()) {
+                listPartitionSupplier = LinkedHashSet::new;
+            } else {
+                listPartitionSupplier = () -> listPartitions(table).stream()
+                        .filter(p -> selectedPartitionNames.contains(
+                                p.getResolvedPartitionSpec().getPartitionQualifiedName()))
+                        .collect(Collectors.toCollection(LinkedHashSet::new));
             }
             LakeSplitGenerator lakeSplitGenerator = new LakeSplitGenerator(tableInfo, admin,
                     lakeSource, bucketOffsetsRetriever,
