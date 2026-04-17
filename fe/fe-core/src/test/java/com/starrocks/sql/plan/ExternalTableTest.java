@@ -220,7 +220,6 @@ public class ExternalTableTest extends PlanTestBase {
                         "  0:SCAN JDBC\n" +
                         "     TABLE: `test_table`\n" +
                         "     QUERY: SELECT `a`, `b`, `c` FROM `test_table` WHERE (`a` > 10)"), plan);
-
     }
 
     @Test
