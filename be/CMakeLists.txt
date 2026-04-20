@@ -274,7 +274,7 @@ add_library(paimon-aliorc-file-format SHARED IMPORTED)
 set_target_properties(paimon-aliorc-file-format PROPERTIES IMPORTED_LOCATION ${PAIMON_LIBRARY_ROOT}/libpaimon_aliorc_file_format.so)
 
 add_library(paimon-orc-file-format SHARED IMPORTED)
-set_target_properties(paimon-orc-file-format PROPERTIES IMPORTED_LOCATION ${PAIMON_LIBRARY_ROOT}/libpaimon_apache_orc_file_format.so)
+set_target_properties(paimon-orc-file-format PROPERTIES IMPORTED_LOCATION ${PAIMON_LIBRARY_ROOT}/libpaimon_orc_file_format.so)
 
 add_library(paimon-parquet-file-format SHARED IMPORTED)
 set_target_properties(paimon-parquet-file-format PROPERTIES IMPORTED_LOCATION ${PAIMON_LIBRARY_ROOT}/libpaimon_parquet_file_format.so)

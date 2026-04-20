@@ -14,23 +14,26 @@
 
 #include "paimon_file_system.h"
 
+#include <iostream>
 #include "fmt/format.h"
 #include "fs/fs.h"
 #include "gen_cpp/CloudConfiguration_types.h"
 
 namespace starrocks {
 
-const std::string PaimonFileSystemFactory::IDENTIFIER = "paimon";
+const char PaimonFileSystemFactory::IDENTIFIER[] = "paimon";
 const std::string PaimonOptions::ROOT_PATH = "path";
 
 const char* PaimonFileSystemFactory::Identifier() const {
-    return IDENTIFIER.c_str();
+    return IDENTIFIER;
 }
 
 paimon::Result<std::unique_ptr<paimon::FileSystem>> PaimonFileSystemFactory::Create(
         const std::string& path, const std::map<std::string, std::string>& options) const {
     return std::make_unique<PaimonFileSystem>(options);
 }
+
+REGISTER_PAIMON_FACTORY(PaimonFileSystemFactory);
 
 uint64_t PaimonFileStatus::GetLen() const {
     return _len;
@@ -384,10 +387,6 @@ paimon::Result<int32_t> PaimonOutputStream::Write(const char* buffer, uint32_t s
     return paimon::Result(static_cast<int32_t>(size));
 }
 
-paimon::Result<int32_t> PaimonOutputStream::Write(const char* buffer, uint32_t size, uint64_t crc32c) {
-    return Write(buffer, size);
-}
-
 paimon::Status PaimonOutputStream::Close() {
     const auto st = _file->close();
     if (!st.ok()) {
@@ -397,14 +396,14 @@ paimon::Status PaimonOutputStream::Close() {
     return paimon::Status::OK();
 }
 
-paimon::Result<uint64_t> PaimonOutputStream::Flush() {
+paimon::Status PaimonOutputStream::Flush() {
     WritableFile::FlushMode mode = WritableFile::FLUSH_SYNC;
     auto st = _file->flush(mode);
     if (!st.ok()) {
         return paimon::Status::IOError(
                 fmt::format("Failed to flush file {}, reason: {}", _file->filename(), st.detailed_message()));
     }
-    return paimon::Result(_file->size());
+    return paimon::Status::OK();
 }
 
 paimon::Result<int64_t> PaimonOutputStream::GetPos() const {

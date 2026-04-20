@@ -113,8 +113,6 @@ static Aws::Utils::Logging::LogLevel parse_aws_sdk_log_level(const std::string& 
     return level;
 }
 
-REGISTER_PAIMON_FACTORY(paimon, starrocks::PaimonFileSystemFactory);
-
 extern int meta_tool_main(int argc, char** argv);
 
 extern int index_tool_main(int argc, char** argv);

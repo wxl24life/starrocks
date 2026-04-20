@@ -49,8 +49,7 @@ public:
     ~PaimonOutputStream() override;
     paimon::Status Close() override;
     paimon::Result<int32_t> Write(const char* buffer, uint32_t size) override;
-    paimon::Result<int32_t> Write(const char* buffer, uint32_t size, uint64_t crc32c) override;
-    paimon::Result<uint64_t> Flush() override;
+    paimon::Status Flush() override;
     paimon::Result<int64_t> GetPos() const override;
     paimon::Result<std::string> GetUri() const override;
 
@@ -114,7 +113,7 @@ private:
 
 class PaimonFileSystemFactory : public paimon::FileSystemFactory {
 public:
-    static const std::string IDENTIFIER;
+    static const char IDENTIFIER[];
     const char* Identifier() const override;
     paimon::Result<std::unique_ptr<paimon::FileSystem>> Create(
             const std::string& path, const std::map<std::string, std::string>& options) const override;
