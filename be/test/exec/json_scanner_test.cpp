@@ -14,6 +14,7 @@
 
 #include "exec/json_scanner.h"
 
+#include <filesystem>
 #include <gtest/gtest.h>
 
 #include <utility>
@@ -154,6 +155,10 @@ protected:
         ofs << json_data;
         ofs.close();
     }
+
+    void enable_load_error_log() { _state->_query_options.query_type = TQueryType::LOAD; }
+
+    const std::string& error_log_file_path() const { return _state->get_error_log_file_path(); }
 
     void SetUp() override {
         config::vector_chunk_size = 4096;
@@ -611,6 +616,38 @@ TEST_F(JsonScannerTest, test_json_with_long_string) {
     EXPECT_EQ(1, chunk->num_rows());
 
     EXPECT_EQ("['{\"area\":\"beijing\",\"country\":\"china\"}', '[\"478472290\",\"478473274\"]']", chunk->debug_row(0));
+}
+
+TEST_F(JsonScannerTest, test_construct_row_failure_writes_error_log_file) {
+    std::string json_filename = "be/test/exec/test_data/json_scanner/test_construct_row_failure.json";
+    DeferOp defer([&] { std::filesystem::remove(json_filename); });
+    write_json_to_file(json_filename, R"([{"k1":"v1"}])");
+
+    enable_load_error_log();
+
+    std::vector<TypeDescriptor> types;
+    types.emplace_back(TypeDescriptor::create_char_type(3));
+
+    std::vector<TBrokerRangeDesc> ranges;
+    TBrokerRangeDesc range;
+    range.format_type = TFileFormatType::FORMAT_JSON;
+    range.file_type = TFileType::FILE_LOCAL;
+    range.strip_outer_array = true;
+    range.__isset.strip_outer_array = true;
+    range.__isset.jsonpaths = true;
+    range.jsonpaths = R"(["$"])";
+    range.__isset.json_root = false;
+    range.__set_path(json_filename);
+    ranges.emplace_back(range);
+
+    auto scanner = create_json_scanner(types, ranges, {"k1"});
+
+    ASSERT_OK(scanner->open());
+    auto st_or_chunk = scanner->get_next();
+    ASSERT_TRUE(st_or_chunk.ok() || st_or_chunk.status().is_end_of_file() || st_or_chunk.status().is_data_quality_error())
+            << st_or_chunk.status().to_string();
+    ASSERT_GT(scanner->TEST_scanner_counter()->num_rows_filtered, 0);
+    ASSERT_FALSE(error_log_file_path().empty());
 }
 
 TEST_F(JsonScannerTest, test_ndjson) {

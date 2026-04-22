@@ -94,6 +94,7 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                 ctx->commit_infos = std::move(executor->runtime_state()->tablet_commit_infos());
                 ctx->fail_infos = std::move(executor->runtime_state()->tablet_fail_infos());
                 Status status = executor->status();
+                bool too_many_filtered_rows = false;
                 if (status.ok()) {
                     ctx->number_total_rows = executor->runtime_state()->num_rows_load_sink() +
                                              executor->runtime_state()->num_rows_load_filtered() +
@@ -109,6 +110,7 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                         // reasons,
                         // some users may rely on this error message.
                         status = Status::InternalError("too many filtered rows");
+                        too_many_filtered_rows = true;
                     }
 
                     if (status.ok()) {
@@ -138,6 +140,17 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                 }
                 ctx->write_data_cost_nanos = MonotonicNanos() - ctx->start_write_data_nanos;
                 ctx->promise.set_value(status);
+
+                // Some filtered-row paths do not emit row-level error logs.
+                // Ensure ErrorURL is still available for "too many filtered rows".
+                if (too_many_filtered_rows && executor->runtime_state()->get_error_log_file_path().empty()) {
+                    std::string summary = fmt::format(
+                            "too many filtered rows. NumberTotalRows={}, NumberLoadedRows={}, NumberFilteredRows={}, "
+                            "NumberUnselectedRows={}, max_filter_ratio={}",
+                            ctx->number_total_rows, ctx->number_loaded_rows, ctx->number_filtered_rows,
+                            ctx->number_unselected_rows, ctx->max_filter_ratio);
+                    executor->runtime_state()->append_error_msg_to_file("", summary, true);
+                }
 
                 if (!executor->runtime_state()->get_error_log_file_path().empty()) {
                     ctx->error_url = to_load_error_http_path(executor->runtime_state()->get_error_log_file_path());

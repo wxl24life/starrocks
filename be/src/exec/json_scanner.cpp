@@ -487,10 +487,9 @@ Status JsonReader::_read_rows(Chunk* chunk, int32_t rows_to_read, int32_t* rows_
         st = _construct_row(&row, chunk);
         if (!st.ok()) {
             if (_counter->num_rows_filtered++ < MAX_ERROR_LINES_IN_FILE) {
-                // We would continue to construct row even if error is returned,
-                // hence the number of error appended to the file should be limited.
                 std::string_view sv;
                 (void)!row.raw_json().get(sv);
+                _append_error_msg(std::string(sv.data(), sv.size()), st.to_string());
                 LOG(WARNING) << "skip json parse error when constructing row, " << _get_current_meta_msg() << ", " << st
                              << ", row: " << sv;
             }
