@@ -35,9 +35,19 @@
 
 namespace starrocks {
 
-Status convert_chunk_to_arrow_batch(Chunk* chunk, std::vector<ExprContext*>& _output_expr_ctxs,
+Status do_convert_chunk_to_arrow_batch(Chunk* chunk, const std::vector<ExprContext*>& output_expr_ctxs,
+                                       const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
+                                       std::shared_ptr<arrow::RecordBatch>* result);
+
+Status convert_chunk_to_arrow_batch(Chunk* chunk, const std::vector<ExprContext*>& output_expr_ctxs,
                                     const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
                                     std::shared_ptr<arrow::RecordBatch>* result);
+
+// Partial conversion: expr_ctxs selects a subset of columns from the chunk.
+// Validates expr count matches schema fields (not chunk column count).
+Status convert_partial_chunk_to_arrow_batch(Chunk* chunk, const std::vector<ExprContext*>& output_expr_ctxs,
+                                            const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
+                                            std::shared_ptr<arrow::RecordBatch>* result);
 
 Status convert_columns_to_arrow_batch(size_t num_rows, const Columns& columns, arrow::MemoryPool* pool,
                                       const TypeDescriptor* type_descs, const std::shared_ptr<arrow::Schema>& schema,

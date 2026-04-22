@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "arrow/type.h"
+#include "column/vectorized_fwd.h"
 #include "exec/paimon_writer.h"
 #include "util/runtime_profile.h"
 
@@ -72,8 +73,8 @@ private:
 
     Status create_file_store_write(std::unique_ptr<paimon::WriteContext> context);
 
-    StatusOr<std::vector<int32_t>> calculate_bucket_ids(const std::shared_ptr<arrow::RecordBatch>& record_batch,
-                                                        int32_t bucket_num);
+    StatusOr<Buffer<int32_t>> calculate_bucket_ids(const std::shared_ptr<arrow::RecordBatch>& record_batch,
+                                                   int32_t bucket_num);
 
     std::string commit_message;
 

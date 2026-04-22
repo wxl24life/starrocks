@@ -17,11 +17,15 @@
 #include <memory>
 #include <unordered_map>
 
+#include "arrow/type.h"
 #include "column/chunk.h"
+#include "column/fixed_length_column.h"
 #include "connector/utils.h"
 #include "exec/pipeline/exchange/shuffler.h"
 #include "exprs/expr_context.h"
 #include "gutil/hash/hash.h"
+#include "util/arrow/row_batch.h"
+#include "util/arrow/starrocks_column_to_arrow.h"
 #include "util/runtime_profile.h"
 
 namespace starrocks::pipeline {
@@ -268,7 +272,6 @@ KeyPartitionExchanger::KeyPartitionExchanger(const std::shared_ptr<ChunkBufferMe
                                              LocalExchangeSourceOperatorFactory* source,
                                              std::vector<ExprContext*> partition_expr_ctxs, const size_t num_sinks)
         : LocalExchanger(strings::Substitute("KeyPartition"), memory_manager, source),
-          _source(source),
           _partition_expr_ctxs(std::move(partition_expr_ctxs)) {}
 
 Status KeyPartitionExchanger::prepare(RuntimeState* state) {
@@ -326,11 +329,15 @@ Status KeyPartitionExchanger::accept(const ChunkPtr& chunk, const int32_t sink_d
 BucketPartitionExchanger::BucketPartitionExchanger(const std::shared_ptr<ChunkBufferMemoryManager>& memory_manager,
                                                    LocalExchangeSourceOperatorFactory* source,
                                                    std::vector<ExprContext*> partition_expr_ctxs,
-                                                   std::vector<ExprContext*> bucket_expr_ctxs, const size_t num_sinks)
+                                                   std::vector<ExprContext*> bucket_expr_ctxs,
+                                                   std::vector<std::string> bucket_key_names, int32_t bucket_num,
+                                                   bool has_primary_key)
         : LocalExchanger(strings::Substitute("BucketPartition"), memory_manager, source),
-          _source(source),
           _partition_expr_ctxs(std::move(partition_expr_ctxs)),
-          _bucket_expr_ctxs(std::move(bucket_expr_ctxs)) {}
+          _bucket_expr_ctxs(std::move(bucket_expr_ctxs)),
+          _bucket_key_names(std::move(bucket_key_names)),
+          _bucket_num(bucket_num),
+          _has_primary_key(has_primary_key) {}
 
 Status BucketPartitionExchanger::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(LocalExchanger::prepare(state));
@@ -338,6 +345,18 @@ Status BucketPartitionExchanger::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::open(_partition_expr_ctxs, state));
     RETURN_IF_ERROR(Expr::prepare(_bucket_expr_ctxs, state));
     RETURN_IF_ERROR(Expr::open(_bucket_expr_ctxs, state));
+
+    // Pre-build Arrow schema for bucket columns to avoid rebuilding per chunk
+    std::vector<std::shared_ptr<arrow::Field>> arrow_fields;
+    arrow_fields.reserve(_bucket_expr_ctxs.size());
+    for (size_t i = 0; i < _bucket_expr_ctxs.size(); i++) {
+        auto nullable = _bucket_expr_ctxs[i]->root()->is_nullable();
+        std::shared_ptr<arrow::DataType> arrow_type;
+        RETURN_IF_ERROR(convert_to_arrow_type(_bucket_expr_ctxs[i]->root()->type(), &arrow_type, state->timezone()));
+        arrow_fields.emplace_back(std::make_shared<arrow::Field>(_bucket_key_names[i], std::move(arrow_type), nullable));
+    }
+    _bucket_arrow_schema = std::make_shared<arrow::Schema>(std::move(arrow_fields));
+
     return Status::OK();
 }
 
@@ -355,34 +374,43 @@ Status BucketPartitionExchanger::accept(const ChunkPtr& chunk, const int32_t sin
         return Status::OK();
     }
 
-    std::vector<ColumnPtr> partition_bucket_columns;
+    // Calculate partition values for each row
+    std::vector<ColumnPtr> partition_columns;
     for (size_t i = 0; i < _partition_expr_ctxs.size(); i++) {
         ASSIGN_OR_RETURN(auto partition_column, _partition_expr_ctxs[i]->evaluate(chunk.get()));
-        partition_bucket_columns.push_back(std::move(partition_column));
-    }
-    for (size_t i = 0; i < _bucket_expr_ctxs.size(); i++) {
-        ASSIGN_OR_RETURN(auto bucket_column, _bucket_expr_ctxs[i]->evaluate(chunk.get()));
-        partition_bucket_columns.push_back(std::move(bucket_column));
+        partition_columns.push_back(std::move(partition_column));
     }
 
+    // Calculate bucket IDs using Paimon's algorithm with cached arrow schema
+    std::shared_ptr<arrow::RecordBatch> bucket_record_batch;
+    RETURN_IF_ERROR(convert_partial_chunk_to_arrow_batch(chunk.get(), _bucket_expr_ctxs, _bucket_arrow_schema,
+                                                          arrow::default_memory_pool(), &bucket_record_batch));
+    ASSIGN_OR_RETURN(auto bucket_ids, connector::PaimonUtils::calculate_bucket_ids(
+                                               bucket_record_batch, _bucket_key_names, _bucket_num, _has_primary_key,
+                                               _bucket_arrow_schema));
+
+    // Group rows by (partition_values..., bucket_id)
     std::unordered_map<std::vector<std::string>, std::vector<uint32_t>> key2indices;
     for (int i = 0; i < num_rows; i++) {
-        std::vector<std::string> bucket_key;
-        for (int j = 0; j < partition_bucket_columns.size(); j++) {
-            auto type = j < _partition_expr_ctxs.size()
-                                ? _partition_expr_ctxs[j]->root()->type()
-                                : _bucket_expr_ctxs[j - _partition_expr_ctxs.size()]->root()->type();
-            ASSIGN_OR_RETURN(auto bucket_value,
-                             connector::HiveUtils::column_value(type, partition_bucket_columns[j], i));
-            bucket_key.push_back(std::move(bucket_value));
+        std::vector<std::string> key;
+        for (int j = 0; j < partition_columns.size(); j++) {
+            const auto& type = _partition_expr_ctxs[j]->root()->type();
+            ASSIGN_OR_RETURN(auto partition_value,
+                             connector::HiveUtils::column_value(type, partition_columns[j], i));
+            key.push_back(std::move(partition_value));
         }
-        key2indices[bucket_key].push_back(i);
+        key.push_back(std::to_string(bucket_ids[i]));
+        key2indices[std::move(key)].push_back(i);
     }
 
+    // Calculate hash values for shuffle using vectorized column-level hash
     std::vector<uint32_t> hash_values(chunk->num_rows(), HashUtil::FNV_SEED);
-    for (auto& column : partition_bucket_columns) {
+    for (auto& column : partition_columns) {
         column->fnv_hash(hash_values.data(), 0, num_rows);
     }
+    auto bucket_id_column = Int32Column::create();
+    bucket_id_column->get_data().swap(bucket_ids);
+    bucket_id_column->fnv_hash(hash_values.data(), 0, num_rows);
 
     for (auto& [key, indices] : key2indices) {
         uint32_t shuffle_channel_id = hash_values[indices[0]] % source_op_cnt;

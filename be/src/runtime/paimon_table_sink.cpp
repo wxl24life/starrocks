@@ -117,7 +117,8 @@ Status PaimonTableSink::decompose_to_pipeline(pipeline::OpFactories prev_operato
     } else {
         auto ops = context->interpolate_local_bucket_exchange(
                 runtime_state, pipeline::Operator::s_pseudo_plan_node_id_for_final_sink, prev_operators,
-                partition_expr_ctxs, bucket_expr_ctxs, sink_dop);
+                partition_expr_ctxs, bucket_expr_ctxs, paimon_table_desc->get_bucket_keys(),
+                paimon_table_desc->get_bucket_num(), !paimon_table_desc->get_primary_keys().empty(), sink_dop);
         ops.emplace_back(std::move(op));
         context->add_pipeline(std::move(ops));
     }

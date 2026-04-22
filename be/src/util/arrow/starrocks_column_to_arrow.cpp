@@ -908,13 +908,9 @@ private:
     std::shared_ptr<arrow::Array>& _array;
 }; // namespace starrocks
 
-Status convert_chunk_to_arrow_batch(Chunk* chunk, std::vector<ExprContext*>& output_expr_ctxs,
-                                    const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
-                                    std::shared_ptr<arrow::RecordBatch>* result) {
-    if (output_expr_ctxs.size() != schema->num_fields()) {
-        return Status::InvalidArgument(fmt::format("arrow schema fields({}) do not match output expressions({})",
-                                                   schema->num_fields(), output_expr_ctxs.size()));
-    }
+Status do_convert_chunk_to_arrow_batch(Chunk* chunk, std::vector<ExprContext*>& output_expr_ctxs,
+                                       const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
+                                       std::shared_ptr<arrow::RecordBatch>* result) {
 
     const size_t num_result_cols = output_expr_ctxs.size();
     std::vector<std::shared_ptr<arrow::Array>> result_columns(num_result_cols);
@@ -938,6 +934,27 @@ Status convert_chunk_to_arrow_batch(Chunk* chunk, std::vector<ExprContext*>& out
     *result = arrow::RecordBatch::Make(schema, num_rows, std::move(result_columns));
 
     return Status::OK();
+}
+
+Status convert_chunk_to_arrow_batch(Chunk* chunk, const std::vector<ExprContext*>& output_expr_ctxs,
+                                    const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
+                                    std::shared_ptr<arrow::RecordBatch>* result) {
+    if (chunk->num_columns() != schema->num_fields()) {
+        return Status::InvalidArgument("number fields not match");
+    }
+    return do_convert_chunk_to_arrow_batch(chunk, output_expr_ctxs, schema, pool, result);
+}
+
+Status convert_partial_chunk_to_arrow_batch(Chunk* chunk, const std::vector<ExprContext*>& output_expr_ctxs,
+                                            const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
+                                            std::shared_ptr<arrow::RecordBatch>* result) {
+    if (output_expr_ctxs.size() != schema->num_fields()) {
+        return Status::InvalidArgument("number fields not match");
+    }
+    if (chunk->num_columns() < schema->num_fields()) {
+        return Status::InvalidArgument("chunk columns should be no less than schema fields");
+    }
+    return do_convert_chunk_to_arrow_batch(chunk, output_expr_ctxs, schema, pool, result);
 }
 
 Status convert_columns_to_arrow_batch(size_t num_rows, const Columns& columns, arrow::MemoryPool* pool,

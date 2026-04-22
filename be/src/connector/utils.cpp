@@ -16,10 +16,14 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include "arrow/c/bridge.h"
+#include "util/defer_op.h"
+#include "arrow/type.h"
 #include "column/column.h"
 #include "column/datum.h"
 #include "exprs/expr.h"
 #include "formats/parquet/parquet_file_writer.h"
+#include "paimon/utils/bucket_id_calculator.h"
 #include "util/compression/compression_utils.h"
 #include "util/url_coding.h"
 
@@ -123,4 +127,53 @@ StatusOr<std::string> HiveUtils::column_value(const TypeDescriptor& type_desc, c
     }
 }
 
+StatusOr<Buffer<int32_t>> PaimonUtils::calculate_bucket_ids(
+        const std::shared_ptr<arrow::RecordBatch>& record_batch, const std::vector<std::string>& bucket_keys,
+        int32_t bucket_num, bool has_primary_key, const std::shared_ptr<arrow::Schema>& schema) {
+    // Create bucket key schema and array for BucketIdCalculator
+    arrow::FieldVector bucket_fields;
+    arrow::ArrayVector bucket_arrays;
+
+    for (const auto& key : bucket_keys) {
+        bucket_fields.push_back(schema->GetFieldByName(key));
+        bucket_arrays.push_back(record_batch->GetColumnByName(key));
+    }
+
+    auto bucket_schema = std::make_shared<arrow::Schema>(bucket_fields);
+    auto bucket_array = arrow::StructArray::Make(bucket_arrays, bucket_fields).ValueUnsafe();
+
+    ::ArrowArray c_bucket_array;
+    arrow::Status result = arrow::ExportArray(*bucket_array, &c_bucket_array);
+    if (!result.ok()) {
+        return Status::InternalError("Failed to export bucket_array.");
+    }
+    DeferOp defer_release_array([&c_bucket_array]() {
+        if (c_bucket_array.release) c_bucket_array.release(&c_bucket_array);
+    });
+
+    ::ArrowSchema c_bucket_schema;
+    result = arrow::ExportSchema(*bucket_schema, &c_bucket_schema);
+    if (!result.ok()) {
+        return Status::InternalError("Failed to export bucket_schema.");
+    }
+    DeferOp defer_release_schema([&c_bucket_schema]() {
+        if (c_bucket_schema.release) c_bucket_schema.release(&c_bucket_schema);
+    });
+
+    // Create BucketIdCalculator and calculate bucket IDs
+    auto bucket_calculator_res = paimon::BucketIdCalculator::Create(has_primary_key, bucket_num);
+    if (!bucket_calculator_res.ok()) {
+        return Status::InternalError(
+                fmt::format("Failed to create BucketIdCalculator: {}", bucket_calculator_res.status().message()));
+    }
+
+    std::unique_ptr<paimon::BucketIdCalculator> calculator = std::move(bucket_calculator_res).value();
+    Buffer<int32_t> bucket_ids(record_batch->num_rows());
+    auto calculate_status = calculator->CalculateBucketIds(&c_bucket_array, &c_bucket_schema, bucket_ids.data());
+    if (!calculate_status.ok()) {
+        return Status::InternalError(fmt::format("Failed to calculate bucket IDs: {}", calculate_status.message()));
+    }
+
+    return bucket_ids;
+}
 } // namespace starrocks::connector

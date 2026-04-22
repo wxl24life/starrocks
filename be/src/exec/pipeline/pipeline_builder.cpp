@@ -190,7 +190,7 @@ OpFactories PipelineBuilderContext::interpolate_local_key_partition_exchange(
 OpFactories PipelineBuilderContext::interpolate_local_bucket_exchange(
         RuntimeState* state, int32_t plan_node_id, OpFactories& pred_operators,
         const std::vector<ExprContext*>& partition_expr_ctxs, const std::vector<ExprContext*>& bucket_expr_ctxs,
-        int num_receivers) {
+        const std::vector<std::string>& bucket_key_names, int32_t bucket_num, bool has_primary_key, int num_receivers) {
     auto* pred_source_op = source_operator(pred_operators);
     size_t source_dop = pred_source_op->degree_of_parallelism();
     auto mem_mgr =
@@ -198,7 +198,8 @@ OpFactories PipelineBuilderContext::interpolate_local_bucket_exchange(
     auto local_shuffle_source =
             std::make_shared<LocalExchangeSourceOperatorFactory>(next_operator_id(), plan_node_id, mem_mgr);
     auto local_exchanger = std::make_shared<BucketPartitionExchanger>(
-            mem_mgr, local_shuffle_source.get(), partition_expr_ctxs, bucket_expr_ctxs, source_dop);
+            mem_mgr, local_shuffle_source.get(), partition_expr_ctxs, bucket_expr_ctxs, bucket_key_names, bucket_num,
+            has_primary_key);
     auto local_shuffle_sink =
             std::make_shared<LocalExchangeSinkOperatorFactory>(next_operator_id(), plan_node_id, local_exchanger);
     pred_operators.emplace_back(std::move(local_shuffle_sink));

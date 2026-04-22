@@ -17,6 +17,8 @@
 #include <memory>
 #include <utility>
 
+#include <arrow/type_fwd.h>
+
 #include "column/vectorized_fwd.h"
 #include "exec/chunk_buffer_memory_manager.h"
 #include "exec/pipeline/exchange/local_exchange_source_operator.h"
@@ -252,7 +254,6 @@ public:
     Status accept(const ChunkPtr& chunk, int32_t sink_driver_sequence) override;
 
 private:
-    LocalExchangeSourceOperatorFactory* _source;
     const std::vector<ExprContext*> _partition_expr_ctxs;
 };
 
@@ -260,7 +261,8 @@ class BucketPartitionExchanger final : public LocalExchanger {
 public:
     BucketPartitionExchanger(const std::shared_ptr<ChunkBufferMemoryManager>& memory_manager,
                              LocalExchangeSourceOperatorFactory* source, std::vector<ExprContext*> _partition_expr_ctxs,
-                             std::vector<ExprContext*> _bucket_expr_ctxs, size_t num_sinks);
+                             std::vector<ExprContext*> _bucket_expr_ctxs, std::vector<std::string> bucket_key_names,
+                             int32_t bucket_num, bool has_primary_key);
 
     Status prepare(RuntimeState* state) override;
     void close(RuntimeState* state) override;
@@ -268,9 +270,12 @@ public:
     Status accept(const ChunkPtr& chunk, int32_t sink_driver_sequence) override;
 
 private:
-    LocalExchangeSourceOperatorFactory* _source;
     const std::vector<ExprContext*> _partition_expr_ctxs;
     const std::vector<ExprContext*> _bucket_expr_ctxs;
+    const std::vector<std::string> _bucket_key_names;
+    const int32_t _bucket_num;
+    const bool _has_primary_key;
+    std::shared_ptr<arrow::Schema> _bucket_arrow_schema;
 };
 
 // Exchange the local data for broadcast

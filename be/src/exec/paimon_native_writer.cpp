@@ -17,7 +17,6 @@
 #include <algorithm>
 
 #include "arrow/c/bridge.h"
-#include "arrow/c/helpers.h"
 #include "arrow/type.h"
 #include "column/chunk.h"
 #include "column/column.h"
@@ -32,7 +31,6 @@
 #include "paimon/memory/memory_pool.h"
 #include "paimon/record_batch.h"
 #include "paimon/result.h"
-#include "paimon/utils/bucket_id_calculator.h"
 #include "paimon/write_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -229,20 +227,12 @@ StatusOr<std::unique_ptr<paimon::RecordBatch>> PaimonNativeWriter::convert_chunk
     }
 
     // Set bucket information
+    // After BucketPartitionExchanger shuffle, all rows in this chunk belong to the same bucket,
+    // so only compute bucket ID for the first row using zero-copy Slice
     if (_paimon_table->get_bucket_num() > 0) {
-        ASSIGN_OR_RETURN(auto bucket_ids, calculate_bucket_ids(record_batch, _paimon_table->get_bucket_num()));
+        auto first_row_batch = record_batch->Slice(0, 1);
+        ASSIGN_OR_RETURN(auto bucket_ids, calculate_bucket_ids(first_row_batch, _paimon_table->get_bucket_num()));
         builder.SetBucket(bucket_ids[0]);
-        // TODO: for debug only, can be removed in the future
-        int32_t debug_id = -1;
-        for (int i = 0; i < bucket_ids.size(); ++i) {
-            if (i == 0) {
-                debug_id = bucket_ids[i];
-            } else if (debug_id != bucket_ids[i]) {
-                LOG(ERROR) << "debug_id = " << debug_id << ", new id = " << bucket_ids[i] << std::endl;
-                LOG(ERROR) << "debug row = " << chunk->debug_row(0) << ", new row = " << chunk->debug_row(i)
-                           << std::endl;
-            }
-        }
     }
 
     auto res = builder.Finish();
@@ -252,49 +242,10 @@ StatusOr<std::unique_ptr<paimon::RecordBatch>> PaimonNativeWriter::convert_chunk
     return std::move(res).value();
 }
 
-StatusOr<std::vector<int32_t>> PaimonNativeWriter::calculate_bucket_ids(
+StatusOr<Buffer<int32_t>> PaimonNativeWriter::calculate_bucket_ids(
         const std::shared_ptr<arrow::RecordBatch>& record_batch, int32_t bucket_num) {
-    const std::vector<std::string> bucket_keys = _paimon_table->get_bucket_keys();
-
-    // Create bucket key schema and array for BucketIdCalculator
-    arrow::FieldVector bucket_fields;
-    arrow::ArrayVector bucket_arrays;
-
-    for (const auto& key : bucket_keys) {
-        bucket_fields.push_back(_schema->GetFieldByName(key));
-        bucket_arrays.push_back(record_batch->GetColumnByName(key));
-    }
-
-    auto bucket_schema = std::make_shared<arrow::Schema>(bucket_fields);
-    auto bucket_array = arrow::StructArray::Make(bucket_arrays, bucket_fields).ValueUnsafe();
-
-    ::ArrowArray c_bucket_array;
-    arrow::Status result = arrow::ExportArray(*bucket_array, &c_bucket_array);
-    if (!result.ok()) {
-        return Status::InternalError(fmt::format("Failed to export bucket_array."));
-    }
-    ::ArrowSchema c_bucket_schema;
-    result = arrow::ExportSchema(*bucket_schema, &c_bucket_schema);
-    if (!result.ok()) {
-        return Status::InternalError(fmt::format("Failed to export bucket_schema."));
-    }
-
-    // Create BucketIdCalculator and calculate bucket IDs
-    auto bucket_calc_res = paimon::BucketIdCalculator::Create(!_paimon_table->get_primary_keys().empty(), bucket_num);
-    if (!bucket_calc_res.ok()) {
-        return Status::InternalError(
-                fmt::format("Failed to create BucketIdCalculator: {}", bucket_calc_res.status().message()));
-    }
-
-    std::unique_ptr<paimon::BucketIdCalculator> calculator = std::move(bucket_calc_res).value();
-    // TODO: optimization here，only the bucket ID of the first row of data needs to be computed.
-    std::vector<int32_t> bucket_ids(record_batch->num_rows());
-    auto calc_status = calculator->CalculateBucketIds(&c_bucket_array, &c_bucket_schema, bucket_ids.data());
-    if (!calc_status.ok()) {
-        return Status::InternalError(fmt::format("Failed to calculate bucket IDs: {}", calc_status.message()));
-    }
-
-    return bucket_ids;
+    return connector::PaimonUtils::calculate_bucket_ids(record_batch, _paimon_table->get_bucket_keys(), bucket_num,
+                                                        !_paimon_table->get_primary_keys().empty(), _schema);
 }
 
 } // namespace starrocks

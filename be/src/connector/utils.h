@@ -16,11 +16,14 @@
 
 #include <future>
 #include <queue>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include <arrow/type_fwd.h>
+#include "column/vectorized_fwd.h"
+
 #include "common/statusor.h"
-#include "exprs/expr_context.h"
 #include "fmt/format.h"
 #include "formats/column_evaluator.h"
 #include "formats/parquet/parquet_file_writer.h"
@@ -38,6 +41,13 @@ public:
             bool support_null_partition);
 
     static StatusOr<std::string> column_value(const TypeDescriptor& type_desc, const ColumnPtr& column, int idx);
+};
+
+class PaimonUtils {
+public:
+    static StatusOr<Buffer<int32_t>> calculate_bucket_ids(
+            const std::shared_ptr<arrow::RecordBatch>& record_batch, const std::vector<std::string>& bucket_keys,
+            int32_t bucket_num, bool has_primary_key, const std::shared_ptr<arrow::Schema>& schema);
 };
 
 class IcebergUtils {
