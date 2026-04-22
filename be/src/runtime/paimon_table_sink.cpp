@@ -101,11 +101,19 @@ Status PaimonTableSink::decompose_to_pipeline(pipeline::OpFactories prev_operato
     size_t sink_dop = context->data_sink_dop();
 
     if (paimon_table_desc->get_bucket_num() == -1) {
-        auto ops = context->maybe_interpolate_local_passthrough_exchange(
-                runtime_state, pipeline::Operator::s_pseudo_plan_node_id_for_final_sink, prev_operators, sink_dop,
-                false);
-        ops.emplace_back(std::move(op));
-        context->add_pipeline(std::move(ops));
+        if (!t_paimon_sink.is_static_partition_sink && !partition_expr_ctxs.empty()) {
+            auto ops = context->interpolate_local_key_partition_exchange(
+                    runtime_state, pipeline::Operator::s_pseudo_plan_node_id_for_final_sink, prev_operators,
+                    partition_expr_ctxs, sink_dop);
+            ops.emplace_back(std::move(op));
+            context->add_pipeline(std::move(ops));
+        } else {
+            auto ops = context->maybe_interpolate_local_passthrough_exchange(
+                    runtime_state, pipeline::Operator::s_pseudo_plan_node_id_for_final_sink, prev_operators, sink_dop,
+                    pipeline::LocalExchanger::PassThroughType::SCALE);
+            ops.emplace_back(std::move(op));
+            context->add_pipeline(std::move(ops));
+        }
     } else {
         auto ops = context->interpolate_local_bucket_exchange(
                 runtime_state, pipeline::Operator::s_pseudo_plan_node_id_for_final_sink, prev_operators,
