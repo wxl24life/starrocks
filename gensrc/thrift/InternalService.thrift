@@ -294,7 +294,6 @@ struct TQueryOptions {
 
   104: optional TOverflowMode overflow_mode = TOverflowMode.OUTPUT_NULL;
   105: optional bool use_column_pool = true; // Deprecated
-  117: optional bool error_for_division_by_zero = false;
   // Deprecated
   106: optional bool enable_agg_spill_preaggregation;
   107: optional i64 global_runtime_filter_build_max_size;
@@ -322,6 +321,8 @@ struct TQueryOptions {
   120: optional bool enable_connector_split_io_tasks = false;
   121: optional i64 connector_max_split_size = 0;
   122: optional bool enable_connector_sink_writer_scaling = true;
+
+  123: optional bool error_for_division_by_zero = false;
 
   130: optional bool enable_wait_dependent_event = false;
 
