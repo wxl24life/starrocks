@@ -19,9 +19,11 @@ import com.starrocks.analysis.TupleDescriptor;
 import com.starrocks.catalog.IcebergTable;
 import com.starrocks.connector.CatalogConnector;
 import com.starrocks.connector.iceberg.IcebergUtil;
+import com.starrocks.connector.share.credential.CloudConfigurationConstants;
 import com.starrocks.credential.CloudConfiguration;
 import com.starrocks.credential.CloudConfigurationFactory;
 import com.starrocks.credential.CloudType;
+import com.starrocks.credential.aliyun.AliyunCloudCredential;
 import com.starrocks.qe.SessionVariable;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.thrift.TCloudConfiguration;
@@ -31,6 +33,13 @@ import com.starrocks.thrift.TDataSinkType;
 import com.starrocks.thrift.TExplainLevel;
 import com.starrocks.thrift.TIcebergTableSink;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.io.StorageCredential;
+import org.apache.iceberg.rest.DlfFileIO;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import static com.starrocks.analysis.OutFileClause.PARQUET_COMPRESSION_TYPE_MAP;
 import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT;
@@ -47,8 +56,9 @@ public class IcebergTableSink extends DataSink {
     private final long targetMaxFileSize;
     private final boolean isStaticPartitionSink;
     private final String tableIdentifier;
-    private final CloudConfiguration cloudConfiguration;
     private String targetBranch;
+    private final org.apache.iceberg.Table icebergNativeTable;
+    private CloudConfiguration cloudConfiguration;
 
     public IcebergTableSink(IcebergTable icebergTable, TupleDescriptor desc, boolean isStaticPartitionSink,
                             SessionVariable sessionVariable, String targetBranch) {
@@ -59,6 +69,7 @@ public class IcebergTableSink extends DataSink {
         this.targetTableId = icebergTable.getId();
         this.tableIdentifier = icebergTable.getUUID();
         this.isStaticPartitionSink = isStaticPartitionSink;
+        this.icebergNativeTable = icebergTable.getNativeTable();
         this.fileFormat = nativeTable.properties().getOrDefault(DEFAULT_FILE_FORMAT, DEFAULT_FILE_FORMAT_DEFAULT)
                 .toLowerCase();
         this.compressionType = sessionVariable.getConnectorSinkCompressionCodec();
@@ -109,6 +120,31 @@ public class IcebergTableSink extends DataSink {
         TCompressionType compression = PARQUET_COMPRESSION_TYPE_MAP.get(compressionType);
         tIcebergTableSink.setCompression_type(compression);
         tIcebergTableSink.setTarget_max_file_size(targetMaxFileSize);
+        if (icebergNativeTable.io() instanceof DlfFileIO) {
+            DlfFileIO fileIO = (DlfFileIO) icebergNativeTable.io();
+            List<StorageCredential> token = fileIO.validToken();
+            Map<String, String> credentialsMap =
+                    token.stream()
+                            .map(StorageCredential::config)
+                            .flatMap(map -> map.entrySet().stream())
+                            .collect(
+                                    Collectors.toMap(
+                                            Map.Entry::getKey,
+                                            Map.Entry::getValue,
+                                            (existing, replacement) -> replacement));
+
+            Map<String, String> properties = new HashMap<>();
+            properties.put(CloudConfigurationConstants.ALIYUN_OSS_ACCESS_KEY,
+                    credentialsMap.getOrDefault(AliyunCloudCredential.FS_OSS_ACCESS_KEY, ""));
+            properties.put(CloudConfigurationConstants.ALIYUN_OSS_SECRET_KEY,
+                    credentialsMap.getOrDefault(AliyunCloudCredential.FS_OSS_SECRET_KEY, ""));
+            properties.put(CloudConfigurationConstants.ALIYUN_OSS_STS_TOKEN,
+                    credentialsMap.getOrDefault(AliyunCloudCredential.FS_OSS_SECURITY_TOKEN, ""));
+            properties.put(CloudConfigurationConstants.ALIYUN_OSS_ENDPOINT,
+                    credentialsMap.getOrDefault(AliyunCloudCredential.FS_OSS_ENDPOINT, ""));
+
+            cloudConfiguration = CloudConfigurationFactory.buildCloudConfigurationForStorage(properties);
+        }
         TCloudConfiguration tCloudConfiguration = new TCloudConfiguration();
         cloudConfiguration.toThrift(tCloudConfiguration);
         tIcebergTableSink.setCloud_configuration(tCloudConfiguration);
