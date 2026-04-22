@@ -94,6 +94,8 @@ private:
     std::shared_ptr<arrow::Schema> _schema;
 
     std::unique_ptr<paimon::FileStoreWrite> _file_store_write;
+    std::string _partition_default_value = "__DEFAULT_PARTITION__";
+    static const std::string PARTITION_DEFAULT_NAME;
 };
 
 } // namespace starrocks

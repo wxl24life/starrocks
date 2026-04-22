@@ -41,6 +41,8 @@
 
 namespace starrocks {
 
+const std::string PaimonNativeWriter::PARTITION_DEFAULT_NAME = "partition.default-name";
+
 PaimonNativeWriter::PaimonNativeWriter(PaimonTableDescriptor* paimon_table, const TCloudConfiguration& cloud_conf,
                                        std::vector<ExprContext*> partition_expr, std::vector<ExprContext*> bucket_expr,
                                        std::vector<ExprContext*> output_expr,
@@ -68,6 +70,10 @@ Status PaimonNativeWriter::do_init(RuntimeState* runtime_state) {
 
     std::map<std::string, std::string> paimon_options = _paimon_table->get_paimon_options();
     const std::string& root_path = paimon_options.at(PaimonOptions::ROOT_PATH);
+    auto it = paimon_options.find(PARTITION_DEFAULT_NAME);
+    if (it != paimon_options.end()) {
+        _partition_default_value = it->second;
+    }
 
     for (const auto& [key, value] : _cloud_conf.cloud_properties) {
         paimon_options[key] = value;
@@ -181,8 +187,13 @@ StatusOr<std::map<std::string, std::string>> PaimonNativeWriter::extract_partiti
     for (int i = 0; i < partition_keys.size(); ++i) {
         ASSIGN_OR_RETURN(ColumnPtr column, _partition_expr[i]->evaluate(chunk.get()));
         auto type = _partition_expr[i]->root()->type();
-        ASSIGN_OR_RETURN(auto value, connector::HiveUtils::column_value(type, column, 0));
-        partition_values.emplace(partition_keys[i], value);
+        if (column->has_null() && column->get(0).is_null()) {
+            // Use partition.default-name (e.g. "__DEFAULT_PARTITION__") for NULL partition values
+            partition_values.emplace(partition_keys[i], _partition_default_value);
+        } else {
+            ASSIGN_OR_RETURN(auto value, connector::HiveUtils::column_value(type, column, 0));
+            partition_values.emplace(partition_keys[i], value);
+        }
     }
     return partition_values;
 }

@@ -251,6 +251,7 @@ public class PaimonTable extends Table {
         Map<String, String> originalOptions = new HashMap<>(paimonNativeTable.options());
         originalOptions.putIfAbsent(CoreOptions.FILE_FORMAT.key(), CoreOptions.FILE_FORMAT.defaultValue());
         originalOptions.putIfAbsent(CoreOptions.MANIFEST_FORMAT.key(), CoreOptions.MANIFEST_FORMAT.defaultValue());
+        originalOptions.putIfAbsent(CoreOptions.PARTITION_DEFAULT_NAME.key(), CoreOptions.PARTITION_DEFAULT_NAME.defaultValue());
 
         tPaimonTable.setPaimon_options(originalOptions);
         tPaimonTable.setPaimon_native_table(encodedTable);
