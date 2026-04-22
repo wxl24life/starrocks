@@ -29,9 +29,9 @@ import org.apache.paimon.data.BinaryArray;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.BinaryRowWriter;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.manifest.ExternalManifestEntry;
 import org.apache.paimon.manifest.FileKind;
 import org.apache.paimon.manifest.ManifestEntry;
-import org.apache.paimon.manifest.ManifestEntryWithDeletionFile;
 import org.apache.paimon.memory.MemorySegment;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.stats.SimpleStats;
@@ -78,7 +78,7 @@ public class PaimonMetaWriterTest {
 
             List<Column> cols = Collections.singletonList(new Column("id", Type.INT, true));
             PaimonTable table = new PaimonTable(100L, "catalog", "db", "tbl", cols, 1L, 5L, nativeTable);
-            Map<BinaryRow, Map<Integer, List<ManifestEntryWithDeletionFile>>> groupedManifests =
+            Map<BinaryRow, Map<Integer, List<ExternalManifestEntry>>> groupedManifests =
                     createGroupedManifests(3);
 
             AtomicInteger insertCount = new AtomicInteger(0);
@@ -155,7 +155,7 @@ public class PaimonMetaWriterTest {
 
             List<Column> cols = Collections.singletonList(new Column("id", Type.INT, true));
             PaimonTable table = new PaimonTable(100L, "catalog", "db", "tbl", cols, 1L, 5L, nativeTable);
-            Map<BinaryRow, Map<Integer, List<ManifestEntryWithDeletionFile>>> groupedManifests =
+            Map<BinaryRow, Map<Integer, List<ExternalManifestEntry>>> groupedManifests =
                     createGroupedManifests(1);
 
             List<String> deleteSqls = new ArrayList<>();
@@ -208,9 +208,9 @@ public class PaimonMetaWriterTest {
         return new PaimonTable(tableId, "catalog", "db", "tbl", cols, beginSnapshot, endSnapshot, nativeTable);
     }
 
-    private Map<BinaryRow, Map<Integer, List<ManifestEntryWithDeletionFile>>> createGroupedManifests(
+    private Map<BinaryRow, Map<Integer, List<ExternalManifestEntry>>> createGroupedManifests(
             int partitionCount) {
-        Map<BinaryRow, Map<Integer, List<ManifestEntryWithDeletionFile>>> grouped = new HashMap<>();
+        Map<BinaryRow, Map<Integer, List<ExternalManifestEntry>>> grouped = new HashMap<>();
         for (int i = 0; i < partitionCount; i++) {
             BinaryRow partition = createPartitionRow(i);
             DataFileMeta fileMeta = DataFileMeta.forAppend(
@@ -229,8 +229,8 @@ public class PaimonMetaWriterTest {
                     null,
                     null);
             ManifestEntry entry = ManifestEntry.create(FileKind.ADD, partition, 0, 1, fileMeta);
-            ManifestEntryWithDeletionFile wrapper = new ManifestEntryWithDeletionFile(entry);
-            Map<Integer, List<ManifestEntryWithDeletionFile>> bucketMap = new HashMap<>();
+            ExternalManifestEntry wrapper = new ExternalManifestEntry(entry);
+            Map<Integer, List<ExternalManifestEntry>> bucketMap = new HashMap<>();
             bucketMap.put(0, Collections.singletonList(wrapper));
             grouped.put(partition, bucketMap);
         }

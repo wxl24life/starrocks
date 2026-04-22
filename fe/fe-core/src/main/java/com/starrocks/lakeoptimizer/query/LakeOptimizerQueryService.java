@@ -45,10 +45,10 @@ import org.apache.paimon.data.BinaryArray;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.manifest.ExternalManifestEntry;
 import org.apache.paimon.manifest.FileKind;
 import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.manifest.ManifestEntry;
-import org.apache.paimon.manifest.ManifestEntryWithDeletionFile;
 import org.apache.paimon.memory.MemorySegment;
 import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.source.DeletionFile;
@@ -58,6 +58,9 @@ import org.apache.thrift.TException;
 import org.apache.thrift.transport.TTransportException;
 
 import java.nio.ByteBuffer;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -164,12 +167,12 @@ public class LakeOptimizerQueryService {
     /**
      * Query manifest entries with deletion files for a single partition and bucket.
      */
-    public List<ManifestEntryWithDeletionFile> queryManifestSingleKey(long tableId, long snapshotId,
+    public List<ExternalManifestEntry> queryManifestSingleKey(long tableId, long snapshotId,
                                                        Partition partition, int bucket) {
         String partitionName = partition.getPartitionName();
         String sql = sqlBuilder.buildFileStatsQuery(tableId, partitionName, bucket, snapshotId);
         List<TResultBatch> resultBatch = executeQuery(sql, TPaimonMetadataType.FILE_METADATA);
-        List<ManifestEntryWithDeletionFile> entries = parseFileStatsResults(
+        List<ExternalManifestEntry> entries = parseFileStatsResults(
                 resultBatch, Map.of(partitionName, partition), false);
         LOG.debug("{} queryManifestSingleKey | tableId={} | partition={} | bucket={} | count={}",
                 LOG_PREFIX, tableId, partitionName, bucket, entries.size());
@@ -179,13 +182,13 @@ public class LakeOptimizerQueryService {
     /**
      * Query manifest entries with deletion files using partition/bucket predicates.
      */
-    public List<ManifestEntryWithDeletionFile> queryManifestFiltered(long tableId, long snapshotId,
+    public List<ExternalManifestEntry> queryManifestFiltered(long tableId, long snapshotId,
                                                       Map<String, Partition> partitionMap,
                                                       Map<String, Set<Integer>> partitionBuckets,
                                                       boolean isUnpartitioned) {
         String sql = sqlBuilder.buildFileStatsQueryWithPredicates(tableId, snapshotId, partitionBuckets);
         List<TResultBatch> resultBatch = executeQuery(sql, TPaimonMetadataType.FILE_METADATA);
-        List<ManifestEntryWithDeletionFile> entries = parseFileStatsResults(
+        List<ExternalManifestEntry> entries = parseFileStatsResults(
                 resultBatch, partitionMap, isUnpartitioned);
         LOG.debug("{} queryManifestFiltered | tableId={} | partitions={} | count={}",
                 LOG_PREFIX, tableId, partitionBuckets.size(), entries.size());
@@ -195,12 +198,12 @@ public class LakeOptimizerQueryService {
     /**
      * Query all manifest entries with deletion files for a table/snapshot without partition/bucket predicates.
      */
-    public List<ManifestEntryWithDeletionFile> queryManifestAll(long tableId, long snapshotId,
+    public List<ExternalManifestEntry> queryManifestAll(long tableId, long snapshotId,
                                                  Map<String, Partition> partitionMap,
                                                  boolean isUnpartitioned) {
         String sql = sqlBuilder.buildAllFileStatsQuery(tableId, snapshotId);
         List<TResultBatch> resultBatch = executeQuery(sql, TPaimonMetadataType.FILE_METADATA);
-        List<ManifestEntryWithDeletionFile> entries = parseFileStatsResults(
+        List<ExternalManifestEntry> entries = parseFileStatsResults(
                 resultBatch, partitionMap, isUnpartitioned);
         LOG.debug("{} queryManifestAll | tableId={} | snapshotId={} | count={}",
                 LOG_PREFIX, tableId, snapshotId, entries.size());
@@ -287,7 +290,7 @@ public class LakeOptimizerQueryService {
         return partition;
     }
 
-    private List<ManifestEntryWithDeletionFile> parseFileStatsResults(List<TResultBatch> resultBatches,
+    private List<ExternalManifestEntry> parseFileStatsResults(List<TResultBatch> resultBatches,
                                                       Map<String, Partition> partitionMap,
                                                       boolean isUnpartitionedTable) {
         if (resultBatches == null || resultBatches.isEmpty()) {
@@ -308,7 +311,7 @@ public class LakeOptimizerQueryService {
                     try {
                         TDeserializer deserializer = ConfigurableSerDesFactory.getTDeserializer();
                         TMetadataEntry metadataEntry = deserializeMetadataEntry(deserializer, rowBuffer);
-                        return parseManifestEntryWithDeletionFileFromThrift(
+                        return parseExternalManifestEntryFromThrift(
                                 metadataEntry, partitionMap, isUnpartitionedTable);
                     } catch (Exception e) {
                         LOG.error("{} Failed to parse manifest entry with deletion file", LOG_PREFIX, e);
@@ -332,10 +335,10 @@ public class LakeOptimizerQueryService {
     }
 
     /**
-     * Parse ManifestEntryWithDeletionFile from Thrift metadata entry.
+     * Parse ExternalManifestEntry from Thrift metadata entry.
      * Includes DeletionFile information if present.
      */
-    private ManifestEntryWithDeletionFile parseManifestEntryWithDeletionFileFromThrift(TMetadataEntry entry,
+    private ExternalManifestEntry parseExternalManifestEntryFromThrift(TMetadataEntry entry,
                                                        Map<String, Partition> partitionMap,
                                                        boolean isUnpartitionedTable) {
         if (!entry.isSetPaimon_file_metadata()) {
@@ -384,10 +387,16 @@ public class LakeOptimizerQueryService {
         Long firstRowId = thrift.isSetFirst_row_id() ? thrift.getFirst_row_id() : null;
         List<String> writeCols = thrift.isSetWrite_cols() ? thrift.getWrite_cols() : null;
 
+        // PaimonMetaWriter persists creationTimeEpochMillis() (UTC epoch millis), but Paimon's
+        // Timestamp stores a local-zone "wall clock" millis internally. Round-trip via
+        // fromEpochMillis() drops the zone correction and shifts the value by the system offset.
+        // Reconstruct via LocalDateTime so the symmetric creationTimeEpochMillis() returns the
+        // original UTC value.
         DataFileMeta fileMeta = DataFileMeta.create(
                 fileName, fileSize, rowCount, minKey, maxKey, keyStats, valueStats,
                 minSeqNum, maxSeqNum, schemaId, level, extraFiles,
-                Timestamp.fromEpochMillis(creationTime),
+                Timestamp.fromLocalDateTime(
+                        LocalDateTime.ofInstant(Instant.ofEpochMilli(creationTime), ZoneId.systemDefault())),
                 deleteRowCount, embeddedIndex, fileSource, valueStatsCols,
                 externalPath, firstRowId, writeCols);
 
@@ -415,7 +424,7 @@ public class LakeOptimizerQueryService {
                     thrift.getDeletion_length(),
                     thrift.getDeletion_cardinality());
         }
-        return new ManifestEntryWithDeletionFile(manifestEntry, deletionFile);
+        return new ExternalManifestEntry(manifestEntry, deletionFile);
     }
 
     /**

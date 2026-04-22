@@ -31,13 +31,12 @@ import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;
-import org.apache.paimon.manifest.ManifestEntryWithDeletionFile;
+import org.apache.paimon.manifest.ExternalManifestEntry;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
-import org.apache.paimon.table.source.DataTableBatchScan;
+import org.apache.paimon.table.source.ExternalEntriesBatchScan;
 import org.apache.paimon.table.source.InnerTableScan;
 import org.apache.paimon.table.source.Split;
-import org.apache.paimon.table.source.snapshot.SnapshotReader;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -86,9 +85,8 @@ public class CachingPaimonCatalog extends DefaultPaimonCatalog {
 
         PaimonTable table = (PaimonTable) super.getTable(dbName, tableName);
 
-        if (!(table.getNativeTable() instanceof FileStoreTable)) {
-            LOG.debug("{} {} is not FileStoreTable, using native mode", LOG_PREFIX, key);
-            // TODO: these tables should not be cached
+        if (!table.supportLakeOptimizer()) {
+            LOG.debug("{} {} does not support LakeOptimizer, using native mode", LOG_PREFIX, key);
             return table;
         }
 
@@ -135,8 +133,8 @@ public class CachingPaimonCatalog extends DefaultPaimonCatalog {
     @Override
     public void refreshTable(String srDbName, Table table, List<String> partitionNames) {
         PaimonTable paimonTable = (PaimonTable) table;
-        if (!(paimonTable.getNativeTable() instanceof FileStoreTable)) {
-            LOG.warn("{} Table {}.{} is not a FileStoreTable, skip refresh",
+        if (!paimonTable.supportLakeOptimizer()) {
+            LOG.warn("{} Table {}.{} does not support LakeOptimizer, skip refresh",
                     LOG_PREFIX, srDbName, table.getName());
             return;
         }
@@ -215,10 +213,10 @@ public class CachingPaimonCatalog extends DefaultPaimonCatalog {
         }
         // collect new metadata and flush to entity tables
         TableSchema schema = updateTable.schema();
-        Map<BinaryRow, Map<Integer, List<ManifestEntryWithDeletionFile>>> groupedManifests = new HashMap<>();
+        Map<BinaryRow, Map<Integer, List<ExternalManifestEntry>>> groupedManifests = new HashMap<>();
         // snapshot will be -1 for empty table
         if (snapshotId > 0) {
-            groupedManifests = updateTable.listManifestEntriesWithDeletionFiles(snapshotId);
+            groupedManifests = updateTable.listExternalManifestEntries(snapshotId);
         }
 
         writer.writeTableMetadata(context, paimonTable, snapshotId, schema, updateUuid, groupedManifests);
@@ -261,30 +259,32 @@ public class CachingPaimonCatalog extends DefaultPaimonCatalog {
             return Collections.emptyList();
         }
 
-        DataTableBatchScan batchScan = (DataTableBatchScan) scan;
-        SnapshotReader snapshotReader = batchScan.getSnapshotReader();
+        ExternalEntriesBatchScan externalScan = (ExternalEntriesBatchScan) scan;
 
-        // Bucket pruning is disabled:
+        // Per-partition bucket pruning
+        // Bucket pruning is disabled for:
         // - Dynamic bucket mode (bucket = -1)
         // - Postpone bucket mode (bucket = -2)
         // - Bucket number is different between partitions
-        Set<Integer> prunedBuckets = null;
+        Map<String, Set<Integer>> partitionBuckets = new HashMap<>();
+        // use bucket_num from table_schema instead of from latest options
+        // - if bucket number is changed, but rescale has not performed, use old bucket number
+        // - once rescale is performed, bucket number in table_schema will be updated to new value
         int bucketNum = paimonTable.getBucketNum();
         if (bucketNum > 0) {
-            // use bucket_num from table_schema instead of from latest options
-            // - if bucket number is changed, but rescale has not performed, use old bucket number
-            // - once rescale is performed, bucket number in table_schema will be updated to new value
-
-            // if no bucket key predicates provided, getPrunedBuckets returns null
-            prunedBuckets = snapshotReader.getPrunedBuckets(bucketNum);
+            for (Map.Entry<String, Partition> entry : partitions.entrySet()) {
+                BinaryRow partitionValue = entry.getValue().getPartitionValue();
+                Set<Integer> buckets = externalScan.getPrunedBuckets(partitionValue, bucketNum);
+                partitionBuckets.put(entry.getKey(), buckets);
+            }
         }
 
-        List<ManifestEntryWithDeletionFile> allManifestEntries = cacheManager.getManifestEntries(
-                table.getId(), snapshotId, partitions, prunedBuckets, table.getName(),
+        List<ExternalManifestEntry> allManifestEntries = cacheManager.getManifestEntries(
+                table.getId(), snapshotId, partitions, partitionBuckets, table.getName(),
                 totalPartitionCount, table.isUnPartitioned());
 
         try (Timer ignored = Tracers.watchScope(EXTERNAL, TRACE_PREFIX + table.getName() + ".getSplitTime")) {
-            return snapshotReader.readFromManifestEntriesWithDeletionFiles(snapshotId, allManifestEntries).splits();
+            return externalScan.withExternalEntries(snapshotId, allManifestEntries).plan().splits();
         }
     }
 

@@ -47,8 +47,8 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.BinaryArray;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.manifest.ExternalManifestEntry;
 import org.apache.paimon.manifest.ManifestEntry;
-import org.apache.paimon.manifest.ManifestEntryWithDeletionFile;
 import org.apache.paimon.manifest.PartitionEntry;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.TableSchema;
@@ -96,7 +96,7 @@ public class PaimonMetaWriter {
                                    long snapshotId,
                                    TableSchema schema,
                                    String tableUuid,
-                                   Map<BinaryRow, Map<Integer, List<ManifestEntryWithDeletionFile>>> groupedManifests) {
+                                   Map<BinaryRow, Map<Integer, List<ExternalManifestEntry>>> groupedManifests) {
         try {
             writeTableMetadataInternal(context, paimonTable, snapshotId, schema, tableUuid, groupedManifests);
         } catch (Exception e) {
@@ -115,7 +115,7 @@ public class PaimonMetaWriter {
                                             long snapshotId,
                                             TableSchema schema,
                                             String tableUuid,
-                                            Map<BinaryRow, Map<Integer, List<ManifestEntryWithDeletionFile>>> groupedManifests)
+                                            Map<BinaryRow, Map<Integer, List<ExternalManifestEntry>>> groupedManifests)
             throws Exception {
         bucketNumConsistent = true;
         int batchSize = Config.lake_optimizer_refresh_partition_batch_size;
@@ -133,7 +133,7 @@ public class PaimonMetaWriter {
             int endIdx = Math.min(startIdx + batchSize, totalPartitions);
             List<BinaryRow> batchPartitions = allPartitions.subList(startIdx, endIdx);
 
-            Map<BinaryRow, Map<Integer, List<ManifestEntryWithDeletionFile>>> batchManifests =
+            Map<BinaryRow, Map<Integer, List<ExternalManifestEntry>>> batchManifests =
                     filterManifestsByPartitions(groupedManifests, batchPartitions);
 
             // Process partition data for this batch
@@ -166,12 +166,12 @@ public class PaimonMetaWriter {
     /**
      * Filter groupedManifests to only include entries for the specified partitions.
      */
-    private Map<BinaryRow, Map<Integer, List<ManifestEntryWithDeletionFile>>> filterManifestsByPartitions(
-            Map<BinaryRow, Map<Integer, List<ManifestEntryWithDeletionFile>>> groupedManifests,
+    private Map<BinaryRow, Map<Integer, List<ExternalManifestEntry>>> filterManifestsByPartitions(
+            Map<BinaryRow, Map<Integer, List<ExternalManifestEntry>>> groupedManifests,
             List<BinaryRow> partitions) {
-        Map<BinaryRow, Map<Integer, List<ManifestEntryWithDeletionFile>>> filtered = new LinkedHashMap<>();
+        Map<BinaryRow, Map<Integer, List<ExternalManifestEntry>>> filtered = new LinkedHashMap<>();
         for (BinaryRow partition : partitions) {
-            Map<Integer, List<ManifestEntryWithDeletionFile>> bucketData = groupedManifests.get(partition);
+            Map<Integer, List<ExternalManifestEntry>> bucketData = groupedManifests.get(partition);
             if (bucketData != null) {
                 filtered.put(partition, bucketData);
             }
@@ -217,7 +217,7 @@ public class PaimonMetaWriter {
      */
     private Map<BinaryRow, String> preparePartitionData(PaimonTable paimonTable, long snapshotId,
                                                         Map<BinaryRow, Map<Integer,
-                                                                List<ManifestEntryWithDeletionFile>>> groupedManifests) {
+                                                                List<ExternalManifestEntry>>> groupedManifests) {
         org.apache.paimon.table.Table nativeTable = paimonTable.getNativeTable();
         Options options = Options.fromMap(nativeTable.options());
         InternalRowPartitionComputer computer =
@@ -229,14 +229,14 @@ public class PaimonMetaWriter {
 
         Map<BinaryRow, String> partitionNames = new HashMap<>();
 
-        for (Map.Entry<BinaryRow, Map<Integer, List<ManifestEntryWithDeletionFile>>> entry : groupedManifests.entrySet()) {
+        for (Map.Entry<BinaryRow, Map<Integer, List<ExternalManifestEntry>>> entry : groupedManifests.entrySet()) {
             BinaryRow partition = entry.getKey();
             // Merge all ManifestEntries to get partition entry
             Collection<PartitionEntry> partitionEntryMap =
                     PartitionEntry.merge(
                             entry.getValue().values().stream()
                                     .flatMap(List::stream)
-                                    .map(ManifestEntryWithDeletionFile::manifestEntry)
+                                    .map(ExternalManifestEntry::manifestEntry)
                                     .collect(Collectors.toList()));
 
             // There will be only 1 partition
@@ -288,15 +288,15 @@ public class PaimonMetaWriter {
                                 long snapshotId,
                                 int totalBuckets,
                                 Map<BinaryRow, String> partitionNames,
-                                Map<BinaryRow, Map<Integer, List<ManifestEntryWithDeletionFile>>> groupedManifests) {
-        for (Map.Entry<BinaryRow, Map<Integer, List<ManifestEntryWithDeletionFile>>> partitionEntry :
+                                Map<BinaryRow, Map<Integer, List<ExternalManifestEntry>>> groupedManifests) {
+        for (Map.Entry<BinaryRow, Map<Integer, List<ExternalManifestEntry>>> partitionEntry :
                 groupedManifests.entrySet()) {
             String partitionName = partitionNames.get(partitionEntry.getKey());
 
-            for (Map.Entry<Integer, List<ManifestEntryWithDeletionFile>> bucketEntry : partitionEntry.getValue().entrySet()) {
+            for (Map.Entry<Integer, List<ExternalManifestEntry>> bucketEntry : partitionEntry.getValue().entrySet()) {
                 int bucket = bucketEntry.getKey();
 
-                for (ManifestEntryWithDeletionFile entryWithDeletion : bucketEntry.getValue()) {
+                for (ExternalManifestEntry entryWithDeletion : bucketEntry.getValue()) {
                     ManifestEntry manifestEntry = entryWithDeletion.manifestEntry();
                     DeletionFile deletionFile = entryWithDeletion.deletionFile();
                     DataFileMeta fileMeta = manifestEntry.file();

@@ -24,10 +24,9 @@ import com.starrocks.connector.paimon.Partition;
 import com.starrocks.lakeoptimizer.query.LakeOptimizerQueryService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.paimon.manifest.ManifestEntryWithDeletionFile;
+import org.apache.paimon.manifest.ExternalManifestEntry;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -52,8 +51,8 @@ public class LakeOptimizerCacheManager {
     // Partition cache: key = (tableId, snapshotId), value = List<Partition>
     private final Cache<PartitionCacheKey, List<Partition>> partitionCache;
 
-    // Manifest cache: key = (tableId, snapshotId, partition, bucket), value = List<ManifestEntryWithDeletionFile>
-    private final Cache<ManifestCacheKey, List<ManifestEntryWithDeletionFile>> manifestCache;
+    // Manifest cache: key = (tableId, snapshotId, partition, bucket), value = List<ExternalManifestEntry>
+    private final Cache<ManifestCacheKey, List<ExternalManifestEntry>> manifestCache;
 
     public LakeOptimizerCacheManager() {
         this.queryService = new LakeOptimizerQueryService();
@@ -123,21 +122,21 @@ public class LakeOptimizerCacheManager {
      * @param tableName Table name for logging and tracing
      * @param totalPartitions Total partition count (used to decide if partition pruning is effective)
      * @param isUnpartitioned Whether the table is unpartitioned
-     * @return List of ManifestEntryWithDeletionFile for the queried partitions/buckets
+     * @return List of ExternalManifestEntry for the queried partitions/buckets
      */
-    public List<ManifestEntryWithDeletionFile> getManifestEntries(long tableId, long snapshotId,
+    public List<ExternalManifestEntry> getManifestEntries(long tableId, long snapshotId,
                                                                 Map<String, Partition> partitionMap,
-                                                   Set<Integer> prunedBuckets,
+                                                   Map<String, Set<Integer>> partitionBuckets,
                                                    String tableName,
                                                    int totalPartitions,
                                                    boolean isUnpartitioned) {
-        List<ManifestEntryWithDeletionFile> result;
+        List<ExternalManifestEntry> result;
         // Single partition + single bucket: use cache for point query optimization
-        if (isSingleKey(partitionMap, prunedBuckets)) {
-            result = getManifestEntriesSingle(tableId, snapshotId, partitionMap, prunedBuckets,
+        if (isSingleKey(partitionMap, partitionBuckets)) {
+            result = getManifestEntriesSingle(tableId, snapshotId, partitionMap, partitionBuckets,
                     tableName);
         } else {
-            result = getManifestEntriesInternal(tableId, snapshotId, partitionMap, prunedBuckets,
+            result = getManifestEntriesInternal(tableId, snapshotId, partitionMap, partitionBuckets,
                     tableName, totalPartitions, isUnpartitioned);
         }
         Tracers.record(EXTERNAL, TRACE_PREFIX + tableName + ".fileCount", String.valueOf(result.size()));
@@ -147,25 +146,31 @@ public class LakeOptimizerCacheManager {
     /**
      * Check if the request is for a single partition + single bucket.
      */
-    private boolean isSingleKey(Map<String, Partition> partitionMap, Set<Integer> prunedBuckets) {
-        return partitionMap.size() == 1 && prunedBuckets != null && prunedBuckets.size() == 1;
+    private boolean isSingleKey(Map<String, Partition> partitionMap,
+                                Map<String, Set<Integer>> partitionBuckets) {
+        if (partitionMap.size() != 1) {
+            return false;
+        }
+        String partitionName = partitionMap.keySet().iterator().next();
+        Set<Integer> buckets = partitionBuckets.get(partitionName);
+        return buckets != null && buckets.size() == 1;
     }
 
     /**
      * Get manifest entries with deletion files for single partition + single bucket.
      */
-    private List<ManifestEntryWithDeletionFile> getManifestEntriesSingle(long tableId, long snapshotId,
+    private List<ExternalManifestEntry> getManifestEntriesSingle(long tableId, long snapshotId,
                                                           Map<String, Partition> partitionMap,
-                                                          Set<Integer> prunedBuckets,
+                                                          Map<String, Set<Integer>> partitionBuckets,
                                                           String tableName) {
         Map.Entry<String, Partition> entry = partitionMap.entrySet().iterator().next();
         String partitionName = entry.getKey();
         Partition partition = entry.getValue();
-        int bucket = prunedBuckets.iterator().next();
+        int bucket = partitionBuckets.get(partitionName).iterator().next();
         ManifestCacheKey key = new ManifestCacheKey(tableId, snapshotId, partitionName, bucket);
         return manifestCache.get(key, k -> {
             try (Timer ignored = Tracers.watchScope(EXTERNAL, TRACE_PREFIX + tableName + ".fileQueryTime")) {
-                List<ManifestEntryWithDeletionFile> entries = queryService.queryManifestSingleKey(
+                List<ExternalManifestEntry> entries = queryService.queryManifestSingleKey(
                         tableId, snapshotId, partition, bucket);
                 entries = entries != null ? entries : new ArrayList<>();
                 LOG.debug("{} Manifest cache MISS: key={}, count={}", LOG_PREFIX, key, entries.size());
@@ -177,22 +182,19 @@ public class LakeOptimizerCacheManager {
     /**
      * Get manifest entries with deletion files by querying `file_statistics` table directly.
      */
-    private List<ManifestEntryWithDeletionFile> getManifestEntriesInternal(long tableId, long snapshotId,
+    private List<ExternalManifestEntry> getManifestEntriesInternal(long tableId, long snapshotId,
                                                             Map<String, Partition> partitionMap,
-                                                            Set<Integer> prunedBuckets,
+                                                            Map<String, Set<Integer>> partitionBuckets,
                                                             String tableName,
                                                             int totalPartitions,
                                                             boolean isUnpartitioned) {
         try (Timer ignored = Tracers.watchScope(EXTERNAL, TRACE_PREFIX + tableName + ".fileQueryTime")) {
             // If partition or bucket prune is effective, query partial
-            boolean queryPartial = (partitionMap.size() < totalPartitions) || (prunedBuckets != null);
+            boolean hasBucketPruning = partitionBuckets.values().stream().anyMatch(b -> b != null);
+            boolean queryPartial = (partitionMap.size() < totalPartitions) || hasBucketPruning;
 
-            List<ManifestEntryWithDeletionFile> entries;
+            List<ExternalManifestEntry> entries;
             if (queryPartial) {
-                Map<String, Set<Integer>> partitionBuckets = new HashMap<>();
-                for (String partitionName : partitionMap.keySet()) {
-                    partitionBuckets.put(partitionName, prunedBuckets);
-                }
                 entries = queryService.queryManifestFiltered(
                         tableId, snapshotId, partitionMap, partitionBuckets, isUnpartitioned);
             } else {

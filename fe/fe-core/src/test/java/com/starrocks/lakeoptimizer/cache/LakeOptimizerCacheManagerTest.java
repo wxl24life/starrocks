@@ -174,14 +174,15 @@ public class LakeOptimizerCacheManagerTest {
         };
         new ConnectContext().setThreadLocalInfo();
         Map<String, Partition> partitionMap = createPartitionMap("dt=2024-01-01");
-        Set<Integer> buckets = new HashSet<>(Collections.singletonList(0));
+        Map<String, Set<Integer>> partitionBuckets = new HashMap<>();
+        partitionBuckets.put("dt=2024-01-01", new HashSet<>(Collections.singletonList(0)));
 
         // First call - cache miss
-        cacheManager.getManifestEntries(100L, 5L, partitionMap, buckets, "test_table", 1, false);
+        cacheManager.getManifestEntries(100L, 5L, partitionMap, partitionBuckets, "test_table", 1, false);
         Assert.assertEquals(1, capturedSqls.size());
 
         // Second call - cache hit
-        cacheManager.getManifestEntries(100L, 5L, partitionMap, buckets, "test_table", 1, false);
+        cacheManager.getManifestEntries(100L, 5L, partitionMap, partitionBuckets, "test_table", 1, false);
         Assert.assertEquals(1, capturedSqls.size());
     }
 
@@ -204,9 +205,12 @@ public class LakeOptimizerCacheManagerTest {
         Set<Integer> buckets = new HashSet<>();
         buckets.add(0);
         buckets.add(2);
+        Map<String, Set<Integer>> partitionBuckets = new HashMap<>();
+        partitionBuckets.put("dt=2024-01-01", buckets);
+        partitionBuckets.put("dt=2024-01-02", buckets);
 
         // totalPartitions=10 > partitionMap.size()=2, triggers filtered query
-        cacheManager.getManifestEntries(100L, 5L, partitionMap, buckets, "test_table", 10, false);
+        cacheManager.getManifestEntries(100L, 5L, partitionMap, partitionBuckets, "test_table", 10, false);
 
         Assert.assertEquals(1, capturedSqls.size());
         String sql = capturedSqls.get(0);
@@ -239,9 +243,11 @@ public class LakeOptimizerCacheManagerTest {
         Set<Integer> buckets = new HashSet<>();
         buckets.add(1);
         buckets.add(3);
+        Map<String, Set<Integer>> partitionBuckets = new HashMap<>();
+        partitionBuckets.put("", buckets);
 
         // totalPartitions=1 (unpartitioned), but bucket pruning is effective
-        cacheManager.getManifestEntries(100L, 5L, partitionMap, buckets, "test_table", 1, true);
+        cacheManager.getManifestEntries(100L, 5L, partitionMap, partitionBuckets, "test_table", 1, true);
 
         Assert.assertEquals(1, capturedSqls.size());
         String sql = capturedSqls.get(0);
@@ -272,8 +278,11 @@ public class LakeOptimizerCacheManagerTest {
         partitionMap.putAll(createPartitionMap("dt=2024-01-02"));
 
         // totalPartitions=10 > partitionMap.size()=2, triggers filtered query
-        // prunedBuckets=null means no bucket pruning
-        cacheManager.getManifestEntries(100L, 5L, partitionMap, null, "test_table", 10, false);
+        // empty partitionBuckets means no bucket pruning
+        Map<String, Set<Integer>> partitionBuckets = new HashMap<>();
+        partitionBuckets.put("dt=2024-01-01", null);
+        partitionBuckets.put("dt=2024-01-02", null);
+        cacheManager.getManifestEntries(100L, 5L, partitionMap, partitionBuckets, "test_table", 10, false);
 
         Assert.assertEquals(1, capturedSqls.size());
         String sql = capturedSqls.get(0);
@@ -304,8 +313,10 @@ public class LakeOptimizerCacheManagerTest {
 
         Map<String, Partition> partitionMap = createPartitionMap("dt=2024-01-01");
 
-        // totalPartitions=1, prunedBuckets=null, triggers full query
-        cacheManager.getManifestEntries(100L, 5L, partitionMap, null, "test_table", 1, false);
+        // totalPartitions=1, no bucket pruning, triggers full query
+        Map<String, Set<Integer>> partitionBuckets = new HashMap<>();
+        partitionBuckets.put("dt=2024-01-01", null);
+        cacheManager.getManifestEntries(100L, 5L, partitionMap, partitionBuckets, "test_table", 1, false);
 
         Assert.assertEquals(1, capturedSqls.size());
         String sql = capturedSqls.get(0);

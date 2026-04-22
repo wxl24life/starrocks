@@ -151,6 +151,17 @@ public class PaimonTable extends Table {
         this.lakeOptimizerMode = lakeOptimizerMode;
     }
 
+    public boolean supportLakeOptimizer() {
+        if (!(paimonNativeTable instanceof DataTable)) {
+            return false;
+        }
+        DataTable dataTable = (DataTable) paimonNativeTable;
+        if (dataTable.coreOptions().dataEvolutionEnabled()) {
+            return false;
+        }
+        return true;
+    }
+
     public boolean isSystemTable() {
         Identifier identifier = new Identifier(databaseName, tableName);
         return identifier.isSystemTable();

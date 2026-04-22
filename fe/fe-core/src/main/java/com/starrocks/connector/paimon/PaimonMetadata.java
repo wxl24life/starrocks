@@ -213,13 +213,19 @@ public class PaimonMetadata implements ConnectorMetadata {
             if (pruneManifestsByLimit) {
                 readBuilder = readBuilder.withLimit((int) params.getLimit());
             }
-            InnerTableScan scan = (InnerTableScan) readBuilder.newScan();
+            InnerTableScan scan;
+            boolean useLakeOptimizer =
+                    paimonTable.getLakeOptimizerMode() == PaimonTable.LakeOptimizerMode.READY;
+            if (useLakeOptimizer) {
+                scan = readBuilder.newExternalEntriesScan();
+            } else {
+                scan = (InnerTableScan) readBuilder.newScan();
+            }
             PaimonMetricRegistry paimonMetricRegistry = new PaimonMetricRegistry();
             scan.withMetricRegistry(paimonMetricRegistry);
             Map<String, Partition> partitions = new HashMap<>();
             Integer totalPartitionCount = 1;
-            // Only use partition pruning for READY tables
-            if (paimonTable.getLakeOptimizerMode() == PaimonTable.LakeOptimizerMode.READY) {
+            if (useLakeOptimizer) {
                 Map<String, Partition> cachedPartitionInfo = getOrLoadPartitionInfo(identifier);
                 for (PartitionKey partitionKey : params.getPartitionKeys()) {
                     String name = partitionKey.getName();

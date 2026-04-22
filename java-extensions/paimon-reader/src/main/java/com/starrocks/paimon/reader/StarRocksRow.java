@@ -23,6 +23,7 @@ import org.apache.paimon.data.Decimal;
 import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.data.InternalVector;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.variant.Variant;
 import org.apache.paimon.types.RowKind;
@@ -141,6 +142,11 @@ public final class StarRocksRow implements InternalRow, DataSetters, Serializabl
 
     @Override
     public InternalArray getArray(int pos) {
+        return null;
+    }
+
+    @Override
+    public InternalVector getVector(int pos) {
         return null;
     }
 

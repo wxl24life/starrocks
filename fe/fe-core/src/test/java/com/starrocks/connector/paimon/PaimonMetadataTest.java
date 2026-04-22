@@ -264,9 +264,9 @@ public class PaimonMetadataTest {
                 ));
         Identifier tblIdentifier = new Identifier("db1", "tbl1");
         org.apache.paimon.partition.Partition partition1 = new Partition(Map.of("year", "2020", "month", "1"),
-                100L, 1L, 1L, 1741327322000L, true);
+                100L, 1L, 1L, 1741327322000L, 1, true);
         org.apache.paimon.partition.Partition partition2 = new Partition(Map.of("year", "2020", "month", "2"),
-                100L, 1L, 1L, 1741327322000L, true);
+                100L, 1L, 1L, 1741327322000L, 1, true);
 
         new Expectations() {
             {
