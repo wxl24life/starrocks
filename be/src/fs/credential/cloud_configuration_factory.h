@@ -54,6 +54,7 @@ static const std::string ALIYUN_OSS_ACCESS_KEY = "aliyun.oss.access_key";
 static const std::string ALIYUN_OSS_SECRET_KEY = "aliyun.oss.secret_key";
 static const std::string ALIYUN_OSS_ENDPOINT = "aliyun.oss.endpoint";
 static const std::string ALIYUN_OSS_SECURITY_TOKEN = "aliyun.oss.sts_token";
+static const std::string ALIYUN_OSS_USER_AGENT_EXTENDED = "aliyun.oss.user_agent_extended";
 
 // Configuration for Azure
 // Currently only supported for Azure Blob Storage
@@ -69,7 +70,7 @@ public:
 
     // This is a reserved interface for aliyun EMR starrocks, and cannot be deleted
     static const AliyunCloudConfiguration create_aliyun(const TCloudConfiguration& t_cloud_configuration);
-
+    
     static const AzureCloudConfiguration create_azure(const TCloudConfiguration& t_cloud_configuration);
 
 private:

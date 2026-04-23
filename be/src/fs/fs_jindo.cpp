@@ -38,6 +38,7 @@ using namespace fmt::literals;
 namespace starrocks {
 
 const static std::string JINDO_AGENT_FEATURE_OPTION = "fs.oss.user.agent.features";
+const static std::string JINDO_USER_AGENT_EXTENDED_OPTION = "fs.oss.user.agent.extended";
 const static std::string ENGINE_NAME = "StarRocks";
 const static std::string BACKUP_SECRET_PATH = "PRODUCE_OSS_AK_SECRET_PATH";
 const static std::string BACKUP_BUCKET_NAME = "SERVERLESS_STARROCKS_BACKUP_BUCKET";
@@ -97,10 +98,13 @@ bool JindoClientFactory::option_equals(const JdoOptions_t& left, const JdoOption
     std::string right_ak_secret(jdo_getOption(right, OSS_ACCESS_KEY_SECRET, ""));
     std::string left_bucket(jdo_getOption(left, OSS_HDFS_BUCKET, ""));
     std::string right_bucket(jdo_getOption(right, OSS_HDFS_BUCKET, ""));
+    std::string left_user_agent(jdo_getOption(left, JINDO_USER_AGENT_EXTENDED_OPTION.c_str(), ""));
+    std::string right_user_agent(jdo_getOption(right, JINDO_USER_AGENT_EXTENDED_OPTION.c_str(), ""));
     if (!left_bucket.empty() && !right_bucket.empty() && left_bucket != right_bucket) {
         return false;
     }
-    return left_endpoint == right_endpoint && left_ak_id == right_ak_id && left_ak_secret == right_ak_secret;
+    return left_endpoint == right_endpoint && left_ak_id == right_ak_id && left_ak_secret == right_ak_secret &&
+           left_user_agent == right_user_agent;
 }
 
 JindoClientFactory::JindoClientFactory() {
@@ -187,6 +191,9 @@ JdoOptions_t JindoClientFactory::get_or_create_jindo_opts(const S3URI& uri, cons
         }
         if (!aliyun_cloud_credential.security_token.empty()) {
             security_token = aliyun_cloud_credential.security_token;
+        }
+        if (!aliyun_cloud_credential.user_agent_extended.empty()) {
+            jdo_setOption(jdo_options, JINDO_USER_AGENT_EXTENDED_OPTION.c_str(), aliyun_cloud_credential.user_agent_extended.c_str());
         }
     } else if (hdfs_properties != nullptr) {
         if (hdfs_properties->__isset.end_point) {

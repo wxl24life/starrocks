@@ -15,9 +15,11 @@
 package com.starrocks.planner;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.starrocks.analysis.LiteralExpr;
 import com.starrocks.analysis.TupleDescriptor;
 import com.starrocks.catalog.PaimonTable;
+import com.starrocks.common.util.DlfUtil;
 import com.starrocks.connector.Connector;
 import com.starrocks.connector.share.credential.CloudConfigurationConstants;
 import com.starrocks.credential.CloudConfiguration;
@@ -136,6 +138,10 @@ public class PaimonTableSink extends DataSink {
                     token.token().get(AliyunCloudCredential.FS_OSS_SECURITY_TOKEN));
             properties.put(CloudConfigurationConstants.ALIYUN_OSS_ENDPOINT,
                     token.token().get(AliyunCloudCredential.FS_OSS_ENDPOINT));
+            String userAgentExtended = DlfUtil.getUserAgentExtended(paimonNativeTable.options(), token);
+            if (!Strings.isNullOrEmpty(userAgentExtended)) {
+                properties.put(CloudConfigurationConstants.ALIYUN_OSS_USER_AGENT_EXTENDED, userAgentExtended);
+            }
             cloudConfiguration = CloudConfigurationFactory.buildCloudConfigurationForStorage(properties);
         }
 

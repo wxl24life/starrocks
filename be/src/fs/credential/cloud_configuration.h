@@ -53,10 +53,11 @@ public:
     std::string secret_key;
     std::string endpoint;
     std::string security_token;
+    std::string user_agent_extended;
 
     bool operator==(const AliyunCloudCredential& rhs) const {
         return access_key == rhs.access_key && secret_key == rhs.secret_key && endpoint == rhs.endpoint &&
-               security_token == rhs.security_token;
+               security_token == rhs.security_token && user_agent_extended == rhs.user_agent_extended;
     }
 };
 

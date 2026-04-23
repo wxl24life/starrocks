@@ -18,7 +18,6 @@
 package com.starrocks.common.util;
 
 import com.aliyun.datalake.common.DlfDataToken;
-import com.aliyun.datalake.common.DlfMetaToken;
 import com.aliyun.datalake.common.impl.Base64Util;
 import com.aliyun.datalake.external.com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
@@ -30,6 +29,7 @@ import com.starrocks.sql.ast.UserIdentity;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.rest.RESTToken;
 import org.apache.paimon.utils.HadoopUtils;
 
 import java.io.File;
@@ -46,6 +46,8 @@ import static com.starrocks.StarRocksFE.STARROCKS_HOME_DIR;
 
 public class DlfUtil {
     private static final Logger LOG = LogManager.getLogger(DlfUtil.class);
+    private static final String DLF_ACCESS_TRACKING_EXTENDED_INFO = "dlf.access-tracking.extended-info";
+    private static final String OSS_USER_AGENT_KEY = "fs.oss.user.agent.extended";
     private static Configuration conf = null;
 
     public static ConnectContext getQueryContext() {
@@ -130,31 +132,15 @@ public class DlfUtil {
         }
     }
 
-    public static String getDataTokenPath(String location) {
-        // path can be like
-        // dlf://clg-461053f863744879b3fbecf0961cc138-1722246085707/database/db-53c9b442bb4e4954a685ee2a4b28275f/table/tbl-9db089197f7d4116baa16a00e80eebf5
-        // dls://clg-paimon-64bbd6353899424fb53eca8628f3a17b-1724206775256/database/db-53cf651ed66b4b12a00302dc9facb4d5/table/tbl-3123c2b0edf94e71b4b72f550f1d6b89/
-        String[] parts = location.split("/");
-        String clgPart;
-        if (parts[0].startsWith("dlf")) {
-            clgPart = parts[2].split("-")[0] + "-" + parts[2].split("-")[1];
-        } else if (parts[0].startsWith("dls")) {
-            clgPart = parts[2].split("-")[0] + "-" + parts[2].split("-")[1] + "-" + parts[2].split("-")[2];
-        } else {
-            return "";
+    public static String getUserAgentExtended(Map<String, String> options, RESTToken token) {
+        String baseAgent = options.get(OSS_USER_AGENT_KEY);
+        String trackingInfo = token.token().get(DLF_ACCESS_TRACKING_EXTENDED_INFO);
+        if (Strings.isNullOrEmpty(trackingInfo) || trackingInfo.trim().isEmpty()) {
+            return baseAgent;
         }
-        String dbPart = parts[4];
-        String tablePart = parts[6];
-        return DlfUtil.getRamUser() + ":" + clgPart + ":" + dbPart + ":" + tablePart;
-    }
-
-    public static DlfMetaToken getDlfToken(String path) {
-        try {
-            File dlfToken = new File(path);
-            ObjectMapper mapper = new ObjectMapper();
-            return mapper.readValue(dlfToken, DlfMetaToken.class);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+        if (Strings.isNullOrEmpty(baseAgent) || baseAgent.trim().isEmpty()) {
+            return trackingInfo;
         }
+        return baseAgent + " " + trackingInfo;
     }
 }

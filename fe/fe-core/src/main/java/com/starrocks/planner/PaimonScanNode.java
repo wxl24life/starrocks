@@ -16,7 +16,9 @@ package com.starrocks.planner;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import com.starrocks.common.util.DlfUtil;
 import com.starrocks.analysis.DescriptorTable;
 import com.starrocks.analysis.SlotDescriptor;
 import com.starrocks.analysis.TupleDescriptor;
@@ -25,6 +27,7 @@ import com.starrocks.catalog.PaimonTable;
 import com.starrocks.catalog.PartitionKey;
 import com.starrocks.catalog.TableSnapshotInfo;
 import com.starrocks.catalog.Type;
+import com.starrocks.common.util.DlfUtil;
 import com.starrocks.common.profile.Timer;
 import com.starrocks.common.profile.Tracers;
 import com.starrocks.connector.CatalogConnector;
@@ -618,6 +621,11 @@ public class PaimonScanNode extends ScanNode {
                             token.token().get(AliyunCloudCredential.FS_OSS_SECURITY_TOKEN));
                     properties.put(CloudConfigurationConstants.ALIYUN_OSS_ENDPOINT,
                             token.token().get(AliyunCloudCredential.FS_OSS_ENDPOINT));
+                    String userAgentExtended =
+                            DlfUtil.getUserAgentExtended(paimonTable.getNativeTable().options(), token);
+                    if (!Strings.isNullOrEmpty(userAgentExtended)) {
+                        properties.put(CloudConfigurationConstants.ALIYUN_OSS_USER_AGENT_EXTENDED, userAgentExtended);
+                    }
                     cloudConfiguration = CloudConfigurationFactory.buildCloudConfigurationForStorage(properties);
                 }
             } catch (Exception e) {

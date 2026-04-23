@@ -70,6 +70,8 @@ const AliyunCloudConfiguration CloudConfigurationFactory::create_aliyun(
     aliyun_cloud_credential.secret_key = get_or_default(properties, ALIYUN_OSS_SECRET_KEY, std::string());
     aliyun_cloud_credential.endpoint = get_or_default(properties, ALIYUN_OSS_ENDPOINT, std::string());
     aliyun_cloud_credential.security_token = get_or_default(properties, ALIYUN_OSS_SECURITY_TOKEN, std::string());
+    aliyun_cloud_credential.user_agent_extended =
+            get_or_default(properties, ALIYUN_OSS_USER_AGENT_EXTENDED, std::string());
 
     aliyun_cloud_configuration.aliyun_cloud_credential = aliyun_cloud_credential;
     return aliyun_cloud_configuration;
