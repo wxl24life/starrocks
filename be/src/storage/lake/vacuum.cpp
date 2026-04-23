@@ -17,6 +17,7 @@
 #include <butil/time.h>
 #include <bvar/bvar.h>
 
+#include <map>
 #include <set>
 #include <string_view>
 #include <unordered_map>
@@ -735,9 +736,22 @@ void delete_tablets(TabletManager* tablet_mgr, const DeleteTabletRequest& reques
     DCHECK(response != nullptr);
     std::vector<int64_t> tablet_ids(request.tablet_ids().begin(), request.tablet_ids().end());
     std::sort(tablet_ids.begin(), tablet_ids.end());
-    auto root_dir = tablet_mgr->tablet_root_location(tablet_ids[0]);
-    auto st = delete_tablets_impl(tablet_mgr, root_dir, tablet_ids);
-    st.to_protobuf(response->mutable_status());
+
+    // Group tablets by root location to handle cross-bucket scenarios
+    // (e.g., Composite SV where different partitions reside in different buckets).
+    std::map<std::string, std::vector<int64_t>> tablets_by_root;
+    for (auto tid : tablet_ids) {
+        tablets_by_root[tablet_mgr->tablet_root_location(tid)].push_back(tid);
+    }
+
+    Status overall_st;
+    for (auto& [root, ids] : tablets_by_root) {
+        auto st = delete_tablets_impl(tablet_mgr, root, ids);
+        if (!st.ok() && overall_st.ok()) {
+            overall_st = st;
+        }
+    }
+    overall_st.to_protobuf(response->mutable_status());
 }
 
 /*

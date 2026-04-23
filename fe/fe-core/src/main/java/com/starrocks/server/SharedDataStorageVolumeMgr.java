@@ -39,6 +39,7 @@ import com.starrocks.lake.StorageInfo;
 import com.starrocks.persist.TableStorageInfo;
 import com.starrocks.persist.TableStorageInfos;
 import com.starrocks.sql.analyzer.SemanticException;
+import com.starrocks.storagevolume.CompositeStorageVolume;
 import com.starrocks.storagevolume.StorageVolume;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -47,6 +48,7 @@ import org.apache.logging.log4j.Logger;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -69,9 +71,17 @@ public class SharedDataStorageVolumeMgr extends StorageVolumeMgr {
     public StorageVolume getStorageVolumeByName(String svName) {
         try (LockCloseable lock = new LockCloseable(rwLock.readLock())) {
             try {
-                FileStoreInfo fileStoreInfo = GlobalStateMgr.getCurrentState().getStarOSAgent().getFileStoreByName(svName);
+                FileStoreInfo fileStoreInfo =
+                        GlobalStateMgr.getCurrentState().getStarOSAgent().getFileStoreByName(svName);
                 if (fileStoreInfo == null) {
                     return null;
+                }
+                if (StorageVolume.isCompositeFileStoreInfo(fileStoreInfo)) {
+                    CompositeStorageVolume csv = new CompositeStorageVolume(fileStoreInfo.getFsKey(),
+                            fileStoreInfo.getFsName(), parseCompositeChildFsKeys(fileStoreInfo),
+                            fileStoreInfo.getEnabled(), fileStoreInfo.getComment());
+                    return StorageVolume.createCompositeWrapper(
+                            csv.getId(), csv.getName(), csv.isEnabled(), csv.getComment());
                 }
                 return StorageVolume.fromFileStoreInfo(fileStoreInfo);
             } catch (DdlException e) {
@@ -84,9 +94,17 @@ public class SharedDataStorageVolumeMgr extends StorageVolumeMgr {
     public StorageVolume getStorageVolume(String svId) {
         try (LockCloseable lock = new LockCloseable(rwLock.readLock())) {
             try {
-                FileStoreInfo fileStoreInfo = GlobalStateMgr.getCurrentState().getStarOSAgent().getFileStore(svId);
+                FileStoreInfo fileStoreInfo =
+                        GlobalStateMgr.getCurrentState().getStarOSAgent().getFileStore(svId);
                 if (fileStoreInfo == null) {
                     return null;
+                }
+                if (StorageVolume.isCompositeFileStoreInfo(fileStoreInfo)) {
+                    CompositeStorageVolume csv = new CompositeStorageVolume(fileStoreInfo.getFsKey(),
+                            fileStoreInfo.getFsName(), parseCompositeChildFsKeys(fileStoreInfo),
+                            fileStoreInfo.getEnabled(), fileStoreInfo.getComment());
+                    return StorageVolume.createCompositeWrapper(
+                            csv.getId(), csv.getName(), csv.isEnabled(), csv.getComment());
                 }
                 return StorageVolume.fromFileStoreInfo(fileStoreInfo);
             } catch (DdlException e) {
@@ -98,8 +116,10 @@ public class SharedDataStorageVolumeMgr extends StorageVolumeMgr {
     @Override
     public List<String> listStorageVolumeNames() throws DdlException {
         try (LockCloseable lock = new LockCloseable(rwLock.readLock())) {
-            return GlobalStateMgr.getCurrentState().getStarOSAgent().listFileStore()
-                    .stream().map(FileStoreInfo::getFsName).collect(Collectors.toList());
+            List<String> names = new ArrayList<>();
+            GlobalStateMgr.getCurrentState().getStarOSAgent().listFileStore()
+                    .stream().map(FileStoreInfo::getFsName).forEach(names::add);
+            return names;
         }
     }
 
@@ -721,6 +741,17 @@ public class SharedDataStorageVolumeMgr extends StorageVolumeMgr {
             default:
                 return "";
         }
+    }
+
+    private List<String> parseCompositeChildFsKeys(FileStoreInfo fsInfo) {
+        String csv = fsInfo.getPropertiesMap().getOrDefault(StorageVolume.COMPOSITE_CHILD_FS_KEYS, "");
+        if (csv.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return Arrays.stream(csv.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toList());
     }
 
     @Override

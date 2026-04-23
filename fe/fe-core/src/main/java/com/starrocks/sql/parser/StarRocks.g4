@@ -816,7 +816,7 @@ alterCatalogStatement
 // ---------------------------------------- Storage Volume Statement ---------------------------------------------------
 
 createStorageVolumeStatement
-    : CREATE STORAGE VOLUME (IF NOT EXISTS)? storageVolumeName=identifierOrString typeDesc locationsDesc
+    : CREATE STORAGE VOLUME (IF NOT EXISTS)? storageVolumeName=identifierOrString typeDesc locationsDesc?
           comment? properties?
     ;
 
@@ -843,6 +843,16 @@ alterStorageVolumeStatement
 alterStorageVolumeClause
     : modifyStorageVolumeCommentClause
     | modifyStorageVolumePropertiesClause
+    | addStorageVolumeChildClause
+    | removeStorageVolumeChildClause
+    ;
+
+addStorageVolumeChildClause
+    : ADD VOLUME identifierOrString
+    ;
+
+removeStorageVolumeChildClause
+    : REMOVE VOLUME identifierOrString
     ;
 
 modifyStorageVolumePropertiesClause

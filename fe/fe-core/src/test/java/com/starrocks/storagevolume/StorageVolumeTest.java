@@ -833,6 +833,41 @@ public class StorageVolumeTest {
     }
 
     @Test
+    public void testCompositeFileStoreProtocol() throws DdlException {
+        Map<String, String> compositeParams = new HashMap<>();
+        compositeParams.put(StorageVolume.COMPOSITE_CHILD_FS_KEYS, "child-a,child-b");
+        StorageVolume composite = new StorageVolume("comp-id", "comp", "composite",
+                Collections.emptyList(), compositeParams, true, "composite");
+
+        FileStoreInfo fsInfo = composite.toFileStoreInfo();
+        Assertions.assertEquals(StorageVolume.COMPOSITE_FS_TYPE_VALUE, fsInfo.getFsTypeValue());
+        Assertions.assertTrue(fsInfo.getPropertiesMap().containsKey(StorageVolume.COMPOSITE_CHILD_FS_KEYS));
+        Assertions.assertFalse(fsInfo.hasGsFsInfo());
+        Assertions.assertFalse(fsInfo.hasAdls2FsInfo());
+        Assertions.assertTrue(StorageVolume.isCompositeFileStoreInfo(fsInfo));
+    }
+
+    @Test
+    public void testCompositeFileStoreMustUseIndependentTypeValue() {
+        FileStoreInfo wrongTypeComposite = FileStoreInfo.newBuilder()
+                .setFsType(FileStoreType.GS)
+                .setFsKey("wrong-id")
+                .setFsName("wrong-comp")
+                .putProperties(StorageVolume.COMPOSITE_CHILD_FS_KEYS, "child-a,child-b")
+                .build();
+        Assertions.assertFalse(StorageVolume.isCompositeFileStoreInfo(wrongTypeComposite));
+
+        FileStoreInfo wrongTypeWithPayload = FileStoreInfo.newBuilder()
+                .setFsTypeValue(StorageVolume.COMPOSITE_FS_TYPE_VALUE)
+                .setFsKey("wrong-payload-id")
+                .setFsName("wrong-payload-comp")
+                .putProperties(StorageVolume.COMPOSITE_CHILD_FS_KEYS, "child-a,child-b")
+                .setAdls2FsInfo(ADLS2FileStoreInfo.newBuilder().setEndpoint("endpoint").setPath("/path").build())
+                .build();
+        Assertions.assertFalse(StorageVolume.isCompositeFileStoreInfo(wrongTypeWithPayload));
+    }
+
+    @Test
     public void testSerializationAndDeserialization() throws IOException, DdlException {
         Map<String, String> storageParams = new HashMap<>();
         storageParams.put(AWS_S3_REGION, "region");

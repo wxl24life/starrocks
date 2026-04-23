@@ -235,6 +235,7 @@ import com.starrocks.sql.optimizer.Utils;
 import com.starrocks.sql.optimizer.rule.transformation.materialization.MvUtils;
 import com.starrocks.sql.optimizer.statistics.IDictManager;
 import com.starrocks.sql.util.EitherOr;
+import com.starrocks.storagevolume.CompositeStorageVolume;
 import com.starrocks.system.Backend;
 import com.starrocks.system.SystemInfoService;
 import com.starrocks.task.TabletTaskExecutor;
@@ -267,6 +268,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import javax.validation.constraints.NotNull;
 
 import static com.starrocks.server.GlobalStateMgr.NEXT_ID_INIT_VALUE;
@@ -1581,6 +1583,10 @@ public class LocalMetastore implements ConnectorMetadata, MVRepairHandler, Memor
         physicalPartition.setShardGroupId(shardGroupId);
         physicalPartition.setBucketNum(distributionInfo.getBucketNum());
 
+        // For Composite SV tables, sub-partitions use the same child SV as their logical partition.
+        FilePathInfo compositeOverridePathInfo = resolveCompositePartitionPathInfo(
+                db, olapTable, partitionId, id);
+
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         short replicationNum = partitionInfo.getReplicationNum(partitionId);
         TStorageMedium storageMedium = partitionInfo.getDataProperty(partitionId).getStorageMedium();
@@ -1597,7 +1603,7 @@ public class LocalMetastore implements ConnectorMetadata, MVRepairHandler, Memor
 
             if (olapTable.isCloudNativeTableOrMaterializedView()) {
                 createLakeTablets(olapTable, id, index.getShardGroupId(), index, distributionInfo,
-                        tabletMeta, tabletIdSet, warehouseId);
+                        tabletMeta, tabletIdSet, warehouseId, compositeOverridePathInfo);
             } else {
                 createOlapTablets(olapTable, index, Replica.ReplicaState.NORMAL, distributionInfo,
                         physicalPartition.getVisibleVersion(), replicationNum, tabletMeta, tabletIdSet);
@@ -1862,6 +1868,10 @@ public class LocalMetastore implements ConnectorMetadata, MVRepairHandler, Memor
             physicalPartition.updateVisibleVersion(version);
         }
 
+        // For Composite SV tables, resolve which child SV this partition should use (round-robin).
+        FilePathInfo compositeOverridePathInfo = resolveCompositePartitionPathInfo(
+                db, table, partitionId, physicalPartitionId);
+
         short replicationNum = partitionInfo.getReplicationNum(partitionId);
         TStorageMedium storageMedium = partitionInfo.getDataProperty(partitionId).getStorageMedium();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
@@ -1876,7 +1886,7 @@ public class LocalMetastore implements ConnectorMetadata, MVRepairHandler, Memor
 
             if (table.isCloudNativeTableOrMaterializedView()) {
                 createLakeTablets(table, physicalPartitionId, index.getShardGroupId(), index, distributionInfo,
-                        tabletMeta, tabletIdSet, warehouseId);
+                        tabletMeta, tabletIdSet, warehouseId, compositeOverridePathInfo);
             } else {
                 createOlapTablets(table, index, Replica.ReplicaState.NORMAL, distributionInfo,
                         physicalPartition.getVisibleVersion(), replicationNum, tabletMeta, tabletIdSet);
@@ -1989,11 +1999,42 @@ public class LocalMetastore implements ConnectorMetadata, MVRepairHandler, Memor
             throw new DdlException(e.getMessage());
         }
 
+        // For Composite SV, use the first child SV for table-level FilePathInfo.
+        // Partition-level distribution across children is handled during partition creation.
+        String effectiveSvId = storageVolumeId;
+        if (!storageVolumeId.isEmpty()) {
+            StorageVolumeMgr svMgr = GlobalStateMgr.getCurrentState().getStorageVolumeMgr();
+            CompositeStorageVolume csv = svMgr.getCompositeStorageVolume(storageVolumeId);
+            if (csv != null) {
+                CompositeStorageVolume.ChildVolumesSnapshot snapshot = csv.resolveChildVolumesStrict(svMgr);
+                effectiveSvId = snapshot.childVolumes.get(0).getId();
+            }
+        }
+
         // get service shard storage info from StarMgr
-        FilePathInfo pathInfo = !storageVolumeId.isEmpty() ?
-                stateMgr.getStarOSAgent().allocateFilePath(storageVolumeId, db.getId(), table.getId()) :
+        FilePathInfo pathInfo = !effectiveSvId.isEmpty() ?
+                stateMgr.getStarOSAgent().allocateFilePath(effectiveSvId, db.getId(), table.getId()) :
                 stateMgr.getStarOSAgent().allocateFilePath(db.getId(), table.getId());
         table.setStorageInfo(pathInfo, dataCacheInfo);
+    }
+
+    /**
+     * If the table is bound to a Composite SV, resolve child SVs and pick one via round-robin
+     * based on {@code partitionId} (logical). Returns a partition-scoped {@link FilePathInfo} for
+     * the selected child SV, or {@code null} if the table uses a regular SV.
+     *
+     * @param partitionId         logical partition ID, used for round-robin child selection
+     * @param physicalPartitionId physical partition ID, used for file path construction
+     */
+    @Nullable
+    private FilePathInfo resolveCompositePartitionPathInfo(Database db, OlapTable table,
+                                                           long partitionId, long physicalPartitionId)
+            throws DdlException {
+        if (!table.isCloudNativeTableOrMaterializedView()) {
+            return null;
+        }
+        return GlobalStateMgr.getCurrentState().getStorageVolumeMgr()
+                .resolveCompositePartitionFilePathInfo(table, db.getId(), partitionId, physicalPartitionId);
     }
 
     public void onCreate(Database db, Table table, String storageVolumeId, boolean isSetIfNotExists)
@@ -2131,6 +2172,15 @@ public class LocalMetastore implements ConnectorMetadata, MVRepairHandler, Memor
                                    DistributionInfo distributionInfo, TabletMeta tabletMeta,
                                    Set<Long> tabletIdSet, long warehouseId)
             throws DdlException {
+        createLakeTablets(table, physicalPartitionId, shardGroupId, index, distributionInfo,
+                tabletMeta, tabletIdSet, warehouseId, null);
+    }
+
+    private void createLakeTablets(OlapTable table, long physicalPartitionId, long shardGroupId, MaterializedIndex index,
+                                   DistributionInfo distributionInfo, TabletMeta tabletMeta,
+                                   Set<Long> tabletIdSet, long warehouseId,
+                                   @Nullable FilePathInfo overridePathInfo)
+            throws DdlException {
         Preconditions.checkArgument(table.isCloudNativeTableOrMaterializedView());
 
         DistributionInfo.DistributionInfoType distributionInfoType = distributionInfo.getType();
@@ -2150,8 +2200,11 @@ public class LocalMetastore implements ConnectorMetadata, MVRepairHandler, Memor
             Warehouse warehouse = warehouseManager.getWarehouse(warehouseId);
             throw ErrorReportException.report(ErrorCode.ERR_NO_NODES_IN_WAREHOUSE, warehouse.getName());
         }
+        FilePathInfo pathInfo = (overridePathInfo != null)
+                ? overridePathInfo
+                : table.getPartitionFilePathInfo(physicalPartitionId);
         List<Long> shardIds = stateMgr.getStarOSAgent().createShards(bucketNum,
-                table.getPartitionFilePathInfo(physicalPartitionId),
+                pathInfo,
                 table.getPartitionFileCacheInfo(physicalPartitionId),
                 shardGroupId,
                 null, properties, workerGroupId.get());

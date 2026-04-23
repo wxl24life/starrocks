@@ -25,13 +25,28 @@ public class AlterStorageVolumeStmt extends DdlStmt {
 
     private Map<String, String> properties;
     private final String comment;
+    private final String addVolumeName;
+    private final String removeVolumeName;
 
-    public AlterStorageVolumeStmt(String storageVolumeName, Map<String, String> properties,
-                                  String comment, NodePosition pos) {
+    public AlterStorageVolumeStmt(String storageVolumeName,
+                                  Map<String, String> properties,
+                                  String comment,
+                                  NodePosition pos) {
+        this(storageVolumeName, properties, comment, null, null, pos);
+    }
+
+    public AlterStorageVolumeStmt(String storageVolumeName,
+                                  Map<String, String> properties,
+                                  String comment,
+                                  String addVolumeName,
+                                  String removeVolumeName,
+                                  NodePosition pos) {
         super(pos);
         this.storageVolumeName = storageVolumeName;
         this.properties = properties;
         this.comment = Strings.nullToEmpty(comment);
+        this.addVolumeName = addVolumeName;
+        this.removeVolumeName = removeVolumeName;
     }
 
     public String getName() {
@@ -44,6 +59,22 @@ public class AlterStorageVolumeStmt extends DdlStmt {
 
     public String getComment() {
         return comment;
+    }
+
+    public String getAddVolumeName() {
+        return addVolumeName;
+    }
+
+    public String getRemoveVolumeName() {
+        return removeVolumeName;
+    }
+
+    public boolean isAddVolume() {
+        return addVolumeName != null;
+    }
+
+    public boolean isRemoveVolume() {
+        return removeVolumeName != null;
     }
 
     @Override

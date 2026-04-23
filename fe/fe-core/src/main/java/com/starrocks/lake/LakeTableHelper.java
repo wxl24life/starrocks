@@ -295,6 +295,11 @@ public class LakeTableHelper {
         }
     }
 
+    /**
+     * Check if this partition uses a shared directory layout by sampling the first tablet.
+     * Under Composite SV, all tablets within the same partition share the same physical root
+     * (partition-level distribution), so sampling one tablet is sufficient.
+     */
     public static boolean isSharedPartitionDirectory(PhysicalPartition physicalPartition, long warehouseId)
             throws StarClientException {
         ShardInfo shardInfo = getAssociatedShardInfo(physicalPartition, warehouseId).orElse(null);

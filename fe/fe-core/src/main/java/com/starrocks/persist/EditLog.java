@@ -2146,6 +2146,9 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_TABLE_STORAGE_INFOS, tableStorageInfos);
     }
 
+    // Composite SV log methods removed: composite SV definitions are persisted in StarOS only.
+    // The OP_CREATE/UPDATE/DROP_COMPOSITE_STORAGE_VOLUME opcodes are retained in OperationType
+    // for backward compatibility (old EditLog entries), but replay is a no-op.
     public void logReplicationJob(ReplicationJob replicationJob) {
         ReplicationJobLog replicationJobLog = new ReplicationJobLog(replicationJob);
         logEdit(OperationType.OP_REPLICATION_JOB, replicationJobLog);

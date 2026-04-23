@@ -84,10 +84,12 @@ public class LakeTableAlterJobV2Builder extends AlterJobV2Builder {
                 properties.put(LakeTablet.PROPERTY_KEY_TABLE_ID, Long.toString(table.getId()));
                 properties.put(LakeTablet.PROPERTY_KEY_PARTITION_ID, Long.toString(physicalPartitionId));
                 properties.put(LakeTablet.PROPERTY_KEY_INDEX_ID, Long.toString(shadowIndexId));
-                List<Long> shadowTabletIds =
-                        createShards(originTablets.size(), table.getPartitionFilePathInfo(physicalPartitionId),
-                                table.getPartitionFileCacheInfo(physicalPartitionId), shardGroupId,
-                                originTabletIds, properties, warehouseId);
+                FilePathInfo partitionPathInfo = resolvePartitionFilePathInfo(
+                        table, partitionId, physicalPartitionId);
+                List<Long> shadowTabletIds = createShards(originTablets.size(),
+                        partitionPathInfo,
+                        table.getPartitionFileCacheInfo(physicalPartitionId), shardGroupId,
+                        originTabletIds, properties, warehouseId);
                 Preconditions.checkState(originTablets.size() == shadowTabletIds.size());
 
                 TStorageMedium medium = table.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
@@ -108,6 +110,16 @@ public class LakeTableAlterJobV2Builder extends AlterJobV2Builder {
                     entry.getValue());
         } // end for index
         return schemaChangeJob;
+    }
+
+    /**
+     * For Composite SV tables, resolve the partition's actual child SV path via round-robin.
+     * For regular SV tables, returns the default table-level partition path.
+     */
+    private FilePathInfo resolvePartitionFilePathInfo(OlapTable table, long partitionId, long physicalPartitionId)
+            throws DdlException {
+        return GlobalStateMgr.getCurrentState().getStorageVolumeMgr()
+                .getPartitionFilePathInfo(table, dbId, partitionId, physicalPartitionId);
     }
 
     @VisibleForTesting
