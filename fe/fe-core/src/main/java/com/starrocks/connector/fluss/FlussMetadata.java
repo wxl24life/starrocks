@@ -22,6 +22,7 @@ import com.starrocks.catalog.FlussTable;
 import com.starrocks.catalog.PartitionKey;
 import com.starrocks.catalog.Table;
 import com.starrocks.catalog.Type;
+import com.starrocks.common.util.TimeUtils;
 import com.starrocks.connector.ColumnTypeConverter;
 import com.starrocks.connector.ConnectorMetadatRequestContext;
 import com.starrocks.connector.ConnectorMetadata;
@@ -61,6 +62,7 @@ import org.apache.fluss.utils.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -257,7 +259,8 @@ public class FlussMetadata implements ConnectorMetadata {
     private void applyLakeSourceFilters(LakeSource<LakeSplit> lakeSource, FlussTable flussTable,
                                         ScalarOperator predicate) {
         RowType flussRowType = flussTable.getTableInfo().getRowType();
-        FlussPredicateConverter lakeConverter = new FlussPredicateConverter(flussRowType);
+        ZoneId sessionZoneId = ZoneId.of(TimeUtils.getSessionTimeZone());
+        FlussPredicateConverter lakeConverter = new FlussPredicateConverter(flussRowType, sessionZoneId);
         List<Predicate> lakePredicates = new ArrayList<>();
 
         List<ScalarOperator> scalarOperators = Utils.extractConjuncts(predicate);
@@ -288,7 +291,12 @@ public class FlussMetadata implements ConnectorMetadata {
             properties.putAll(this.tableProperties);
             LakeSource<LakeSplit> lakeSource = createLakeSource(flussTable.getTableInfo().getTablePath(), properties);
             if (lakeSource != null) {
-                applyLakeSourceFilters(lakeSource, flussTable, params.getPredicate());
+                try {
+                    applyLakeSourceFilters(lakeSource, flussTable, params.getPredicate());
+                } catch (Exception e) {
+                    LOG.warn("Failed to push down predicates to lake source for table {}, " +
+                            "falling back to scan without filter pushdown", identifier, e);
+                }
             }
 
             // Filter partitions using pruned partition keys (key=value/key=value format).
