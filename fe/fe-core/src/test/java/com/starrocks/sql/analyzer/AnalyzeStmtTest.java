@@ -920,5 +920,4 @@ public class AnalyzeStmtTest {
         Assertions.assertEquals("VERSION", tableSnapshotInfo3.getType().name());
         Assertions.assertEquals("139384", tableSnapshotInfo3.getValue());
     }
->>>>>>> 71c6ab1bca2 ([Stella][Feature] support paimon query with version/timestamp)
 }

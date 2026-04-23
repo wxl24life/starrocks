@@ -2879,7 +2879,9 @@ public class LocalMetastore implements ConnectorMetadata, MVRepairHandler, Memor
                                             partition.getId(),
                                             hdd,
                                             (short) -1,
-                                            partitionInfo.getIsInMemory(partition.getId()));
+                                            partitionInfo.getIsInMemory(partition.getId()),
+                                            partitionInfo.getDataCacheInfo(partition.getId()) != null &&
+                                                    partitionInfo.getDataCacheInfo(partition.getId()).isEnabled());
                             GlobalStateMgr.getCurrentState().getEditLog().logModifyPartition(info);
                         }
                     } // end for partitions

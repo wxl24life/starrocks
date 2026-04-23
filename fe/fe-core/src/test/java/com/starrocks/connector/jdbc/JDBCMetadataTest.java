@@ -349,13 +349,14 @@ public class JDBCMetadataTest {
     }
 
     @Test
-    public void testGetJdbcUrl() {
+    public void testMysqlDriverUsesMysqlSchemaResolver() {
         properties.put(JDBCResource.URI, "jdbc:mysql://127.0.0.1:3306");
-        JDBCMetadata jdbcMetadata = new JDBCMetadata(properties, "catalog");
-        Assertions.assertEquals("jdbc:mariadb://127.0.0.1:3306", jdbcMetadata.getJdbcUrl());
+        JDBCMetadata jdbcMetadata = new JDBCMetadata(properties, "catalog", dataSource);
+        Assertions.assertTrue(jdbcMetadata.schemaResolver instanceof MysqlSchemaResolver);
+
         properties.put(JDBCResource.URI, "jdbc:mysql://abc.mysql.com:3306");
-        jdbcMetadata = new JDBCMetadata(properties, "catalog");
-        Assertions.assertEquals("jdbc:mariadb://abc.mysql.com:3306", jdbcMetadata.getJdbcUrl());
+        jdbcMetadata = new JDBCMetadata(properties, "catalog", dataSource);
+        Assertions.assertTrue(jdbcMetadata.schemaResolver instanceof MysqlSchemaResolver);
     }
 
     @Test

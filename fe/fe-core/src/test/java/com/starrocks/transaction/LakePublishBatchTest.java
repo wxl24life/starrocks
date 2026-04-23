@@ -369,7 +369,8 @@ public class LakePublishBatchTest {
                         transactionSource,
                         TransactionState.LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         // commit a transaction
-        globalTransactionMgr.commitTransaction(db.getId(), transactionId7, transTablets, Lists.newArrayList(), null);
+        VisibleStateWaiter waiter1 =
+                globalTransactionMgr.commitTransaction(db.getId(), transactionId7, transTablets, Lists.newArrayList(), null);
 
         long transactionId8 = globalTransactionMgr.
                 beginTransaction(db.getId(), Lists.newArrayList(table.getId()),
@@ -377,7 +378,8 @@ public class LakePublishBatchTest {
                         transactionSource,
                         TransactionState.LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         // commit a transaction
-        globalTransactionMgr.commitTransaction(db.getId(), transactionId8, transTablets, Lists.newArrayList(), null);
+        VisibleStateWaiter waiter2 =
+                globalTransactionMgr.commitTransaction(db.getId(), transactionId8, transTablets, Lists.newArrayList(), null);
 
         new MockUp<Database>() {
             @Mock

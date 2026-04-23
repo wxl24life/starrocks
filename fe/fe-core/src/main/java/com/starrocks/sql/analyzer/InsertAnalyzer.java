@@ -170,7 +170,7 @@ public class InsertAnalyzer {
             insertStmt.setTargetPartitionIds(targetPartitionIds);
         }
 
-        if (table.isIcebergTable() || table.isHiveTable() || table.isPaimonTable())) {
+        if (table.isIcebergTable() || table.isHiveTable() || table.isPaimonTable()) {
             if (table.isHiveTable() && ((HiveTable) table).getHiveTableType()
                     != HiveTable.HiveTableType.MANAGED_TABLE &&
                     !session.getSessionVariable().enableWriteHiveExternalTable()) {

@@ -497,7 +497,9 @@ public class ConnectProcessor {
                 ctx.getQualifiedUser(),
                 Optional.ofNullable(ctx.getResourceGroup()).map(TWorkGroup::getName).orElse(""),
                 ctx.getCurrentWarehouseName(),
-                ctx.getCurrentCatalog());
+                ctx.getCurrentCatalog(),
+                ctx.getCommandStr(),
+                executor == null ? null : executor.getPreparedStmtId());
         ctx.setQueryDetail(queryDetail);
         // copy queryDetail, cause some properties can be changed in future
         QueryDetailQueue.addQueryDetail(queryDetail.copy());

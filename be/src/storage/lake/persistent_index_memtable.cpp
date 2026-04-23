@@ -12,8 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "storage/lake/persistent_index_memtable.h"
+#include "common/compiler_util.h"
 
+#if defined(__GNUC__) || defined(__clang__)
+DIAGNOSTIC_PUSH
+DIAGNOSTIC_IGNORE("-Warray-bounds")
+#endif
+
+#include "storage/lake/persistent_index_memtable.h"
 #include "storage/lake/persistent_index_sstable.h"
 #include "util/string_util.h"
 #include "util/trace.h"
@@ -194,3 +200,7 @@ void PersistentIndexMemtable::clear() {
 }
 
 } // namespace starrocks::lake
+
+#if defined(__GNUC__) || defined(__clang__)
+DIAGNOSTIC_POP
+#endif

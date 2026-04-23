@@ -1060,5 +1060,4 @@ public class HiveMetadataTest {
         // Restore config
         Config.enable_filter_hive_var_partitions = true;
     }
->>>>>>> 81db78b16dd ([Stella][Feature] Support filter invalid partition)
 }

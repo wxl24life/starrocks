@@ -84,7 +84,6 @@ public class JDBCMetadata implements ConnectorMetadata {
             schemaResolver = new MysqlSchemaResolver();
         } else if (properties.get(JDBCResource.DRIVER_CLASS).toLowerCase().contains("postgresql")) {
             schemaResolver = new PostgresSchemaResolver();
-<<<<<<< HEAD
         } else if (properties.get(JDBCResource.DRIVER_CLASS).toLowerCase().contains("mariadb")) {
             schemaResolver = new MysqlSchemaResolver();
         } else if (properties.get(JDBCResource.DRIVER_CLASS).toLowerCase().contains("clickhouse")) {
@@ -93,8 +92,6 @@ public class JDBCMetadata implements ConnectorMetadata {
             schemaResolver = new OracleSchemaResolver();
         } else if (properties.get(JDBCResource.DRIVER_CLASS).toLowerCase().contains("sqlserver")) {
             schemaResolver = new SqlServerSchemaResolver();
-=======
->>>>>>> parent of 4c636cacd4a ([BugFix] mysql-connector must be excluded in release package (#40012) (#40027))
         } else {
             LOG.warn("{} not support yet", properties.get(JDBCResource.DRIVER_CLASS));
             throw new StarRocksConnectorException(properties.get(JDBCResource.DRIVER_CLASS) + " not support yet");

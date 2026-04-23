@@ -162,7 +162,7 @@ public class ShortCircuitTest extends PlanTestBase {
         scanNode.setSelectedPartitionIds(selectPartitionIds);
 
         DefaultCoordinator coord = new DefaultCoordinator.Factory().createQueryScheduler(connectContext,
-                execPlan.getFragments(), ImmutableList.of(scanNode), execPlan.getDescTbl().toThrift());
+                execPlan.getFragments(), ImmutableList.of(scanNode), execPlan.getDescTbl().toThrift(), execPlan);
         assertThatThrownBy(coord::exec)
                 .isInstanceOf(NonRecoverableException.class)
                 .hasMessageContaining("No alive backend for short-circuit query. " +
