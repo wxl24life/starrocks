@@ -377,6 +377,10 @@ public:
     METRICS_DEFINE_THREAD_POOL(exec_state_report);
     METRICS_DEFINE_THREAD_POOL(priority_exec_state_report);
 
+    // pipeline scan executor thread pools
+    METRICS_DEFINE_THREAD_POOL(scan);
+    METRICS_DEFINE_THREAD_POOL(connector_scan);
+
     METRIC_DEFINE_UINT_GAUGE(load_rpc_threadpool_size, MetricUnit::NOUNIT);
 
     // agent server thread pools

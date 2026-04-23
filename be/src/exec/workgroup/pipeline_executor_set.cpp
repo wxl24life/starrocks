@@ -20,6 +20,7 @@
 #include "exec/pipeline/pipeline_metrics.h"
 #include "exec/workgroup/scan_executor.h"
 #include "exec/workgroup/scan_task_queue.h"
+#include "util/starrocks_metrics.h"
 #include "util/threadpool.h"
 
 namespace starrocks::workgroup {
@@ -131,6 +132,14 @@ Status PipelineExecutorSet::start() {
                                            std::make_unique<WorkGroupScanTaskQueue>(ScanSchedEntityType::CONNECTOR),
                                            _conf.metrics->get_connector_scan_executor_metrics());
     _connector_scan_executor->initialize(num_connector_scan_threads());
+
+    // Register thread pool metrics for the shared executor set only.
+    // The shared executor set (name "com") lives for the process lifetime,
+    // so the thread pool pointers remain valid.
+    if (_name == "com") {
+        REGISTER_THREAD_POOL_METRICS(scan, _scan_executor->thread_pool());
+        REGISTER_THREAD_POOL_METRICS(connector_scan, _connector_scan_executor->thread_pool());
+    }
 
     LOG(INFO) << "[WORKGROUP] start executors " << to_string();
 

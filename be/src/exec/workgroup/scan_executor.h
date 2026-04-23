@@ -48,6 +48,8 @@ public:
 
     int64_t num_tasks() const;
 
+    ThreadPool* thread_pool() const { return _thread_pool.get(); }
+
 private:
     void worker_thread();
 
