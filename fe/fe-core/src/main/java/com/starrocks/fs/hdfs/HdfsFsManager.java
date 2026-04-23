@@ -413,7 +413,7 @@ public class HdfsFsManager {
                 // Entry was removed by checker between putIfAbsent and get — retry.
                 continue;
             }
-            fileSystem.getLock().lock();
+            acquireFileSystemLock(fileSystem);
             if (cachedFileSystem.containsKey(identity)) {
                 return fileSystem; // lock held
             }
@@ -422,6 +422,20 @@ public class HdfsFsManager {
         }
         throw new StarRocksException(
                 "Failed to acquire cached file system for " + identity + " after " + MAX_CACHE_ACQUIRE_RETRIES + " retries");
+    }
+
+    private static void acquireFileSystemLock(HdfsFs fileSystem) throws StarRocksException {
+        try {
+            if (!fileSystem.getLock().tryLock(Config.hdfs_file_system_lock_timeout_seconds, TimeUnit.SECONDS)) {
+                throw new StarRocksException("Timeout acquiring file system lock after " +
+                        Config.hdfs_file_system_lock_timeout_seconds + " seconds. " +
+                        "This may indicate a blocked file system close operation. " +
+                        "FileSystem: " + fileSystem);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new StarRocksException("Interrupted while acquiring file system lock", e);
+        }
     }
 
     private static void convertHDFSConfToProperties(Configuration conf, THdfsProperties tProperties) {

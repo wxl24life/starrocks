@@ -605,6 +605,14 @@ public class Config extends ConfigBase {
     public static int hdfs_file_system_expire_seconds = 300;
 
     /**
+     * timeout seconds for acquiring hdfs file system lock.
+     * If the lock cannot be acquired within this time, the operation will fail fast
+     * instead of blocking indefinitely, which prevents cascading lock issues.
+     */
+    @ConfField(mutable = true)
+    public static int hdfs_file_system_lock_timeout_seconds = 30;
+
+    /**
      * Non-master FE will stop offering service
      * if metadata delay gap exceeds *meta_delay_toleration_second*
      */

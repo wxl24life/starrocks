@@ -23,6 +23,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class HdfsFs {
@@ -67,19 +70,25 @@ public class HdfsFs {
     }
 
     public void closeFileSystem() {
-        lock.lock();
-        try {
-            if (this.dfsFileSystem != null) {
-                try {
-                    this.dfsFileSystem.close();
-                } catch (Exception e) {
-                    LOG.error("errors while close file system", e);
-                } finally {
-                    this.dfsFileSystem = null;
-                }
+        if (this.dfsFileSystem != null) {
+            FileSystem fsToClose = this.dfsFileSystem;
+            this.dfsFileSystem = null;
+            try {
+                CompletableFuture<Void> closeFuture = CompletableFuture.runAsync(() -> {
+                    try {
+                        fsToClose.close();
+                    } catch (Exception e) {
+                        LOG.error("errors while close file system", e);
+                    }
+                });
+                closeFuture.get(com.starrocks.common.Config.hdfs_file_system_lock_timeout_seconds, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                LOG.warn("close file system timed out after {} seconds, " +
+                        "the close operation will continue in background",
+                        com.starrocks.common.Config.hdfs_file_system_lock_timeout_seconds);
+            } catch (Exception e) {
+                LOG.error("errors while close file system", e);
             }
-        } finally {
-            lock.unlock();
         }
     }
 
