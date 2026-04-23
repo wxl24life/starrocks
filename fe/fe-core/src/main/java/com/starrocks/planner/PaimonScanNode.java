@@ -272,12 +272,13 @@ public class PaimonScanNode extends ScanNode {
                         List<RawFile> rawFiles = optionalRawFiles.get();
                         DataSplit dataSplit = (DataSplit) split;
                         Optional<List<DeletionFile>> deletionFiles = dataSplit.deletionFiles();
-                        // If row count is not available, count(1) optimization will not take effect
+                        // mergedRowCount is the total for the entire split (all files).
+                        // Only set it on the first file's scan range; rest get 0
                         Long recordCount = dataSplit.mergedRowCountAvailable() ? dataSplit.mergedRowCount() : null;
                         for (int i = 0; i < rawFiles.size(); i++) {
+                            Long fileRecordCount = recordCount != null ? (i == 0 ? recordCount : 0L) : null;
                             DeletionFile deletionFile = deletionFiles.isPresent() ? deletionFiles.get().get(i) : null;
-                            splitRawFileScanRangeLocations(rawFiles.get(i), deletionFile,
-                                    partitionId, recordCount, scanRangeLocationsList);
+                            splitRawFileScanRangeLocations(rawFiles.get(i), deletionFile, partitionId, fileRecordCount, scanRangeLocationsList);
                         }
                     } else {
                         FormatDataSplit formatDataSplit = (FormatDataSplit) split;

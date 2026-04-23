@@ -198,14 +198,13 @@ public class PaimonMetadata implements ConnectorMetadata {
                 paimonTable.getCatalogTableName(), snapshotId, params.getPredicate());
         if (!paimonSplits.containsKey(filter)) {
             ReadBuilder readBuilder = paimonTable.getNativeTable().newReadBuilder();
-            int[] projected =
-                    params.getFieldNames().stream().mapToInt(name -> (paimonTable.getFieldNames().indexOf(name))).toArray();
+            int[] projected = params.getFieldNames().stream()
+                    .filter(name -> !name.equalsIgnoreCase("___COUNT___"))
+                    .mapToInt(name -> (paimonTable.getFieldNames().indexOf(name))).toArray();
             List<ScalarOperator> originalConjuncts = Utils.extractConjuncts(params.getPredicate());
             List<Predicate> pushedPredicates = convertPredicates(paimonTable, originalConjuncts);
             readBuilder = readBuilder.withFilter(pushedPredicates);
-            boolean countOptimize = params.getFieldNames().size() == 1 &&
-                    params.getFieldNames().get(0).equalsIgnoreCase("___COUNT___");
-            if (!countOptimize) {
+            if (projected.length > 0) {
                 readBuilder = readBuilder.withProjection(projected);
             }
             boolean pruneManifestsByLimit = params.getLimit() != -1 && params.getLimit() < Integer.MAX_VALUE
