@@ -21,6 +21,7 @@ import com.starrocks.catalog.Database;
 import com.starrocks.catalog.PaimonTable;
 import com.starrocks.catalog.PartitionKey;
 import com.starrocks.catalog.Table;
+import com.starrocks.common.AlreadyExistsException;
 import com.starrocks.common.DdlException;
 import com.starrocks.common.profile.Timer;
 import com.starrocks.common.profile.Tracers;
@@ -119,7 +120,10 @@ public class PaimonMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public void createDb(String dbName, Map<String, String> properties) throws DdlException {
+    public void createDb(String dbName, Map<String, String> properties) throws DdlException, AlreadyExistsException {
+        if (dbExists(new ConnectContext(), dbName)) {
+            throw new AlreadyExistsException("Database Already Exists");
+        }
         paimonCatalog.createDb(dbName, properties);
     }
 
