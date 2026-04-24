@@ -139,16 +139,28 @@ public class SparkLauncherMonitor {
                     // parse state and appId
                     if (line.contains(STATE)) {
                         // 1. state
-                        String state = regexGetState(line);
-                        if (state != null) {
-                            YarnApplicationState yarnState = YarnApplicationState.valueOf(state);
-                            newState = fromYarnState(yarnState);
-                            if (newState != oldState) {
-                                handle.setState(newState);
+                        if (handle.isEmrServerless()) {
+                            // EMR Serverless mode: use EmrState enum
+                            ServerlessSparkState emrState = ServerlessSparkState.fromLauncherLog(line);
+                            if (emrState != null) {
+                                newState = emrState.getSparkState();
+                                if (newState != oldState) {
+                                    handle.setState(newState);
+                                }
+                            }
+                        } else {
+                            // YARN mode
+                            String state = regexGetState(line);
+                            if (state != null) {
+                                YarnApplicationState yarnState = YarnApplicationState.valueOf(state);
+                                newState = fromYarnState(yarnState);
+                                if (newState != oldState) {
+                                    handle.setState(newState);
+                                }
                             }
                         }
                         // 2. appId
-                        String appId = regexGetAppId(line);
+                        String appId = handle.isEmrServerless() ? regexGetEmrAppId(line) : regexGetAppId(line);
                         if (appId != null) {
                             if (!appId.equals(handle.getAppId())) {
                                 handle.setAppId(appId);
@@ -255,6 +267,18 @@ public class SparkLauncherMonitor {
         private static String regexGetAppId(String line) {
             String result = null;
             Matcher appIdMatcher = Pattern.compile("application_[0-9]+_[0-9]+").matcher(line);
+            if (appIdMatcher.find()) {
+                result = appIdMatcher.group();
+            }
+            return result;
+        }
+
+        // e.g.
+        // input: "job run id is : jr-05daac08beabdf40, state is: Submitted"
+        // output: "jr-05daac08beabdf40"
+        private static String regexGetEmrAppId(String line) {
+            String result = null;
+            Matcher appIdMatcher = Pattern.compile("jr-[a-zA-Z0-9]+").matcher(line);
             if (appIdMatcher.find()) {
                 result = appIdMatcher.group();
             }

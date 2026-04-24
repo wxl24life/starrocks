@@ -53,6 +53,8 @@ public class SparkLoadAppHandle implements Writable {
 
     private transient Process process;
 
+    private transient boolean isEmrServerless = false;
+
     @SerializedName("appId")
     private String appId;
     @SerializedName("state")
@@ -147,6 +149,14 @@ public class SparkLoadAppHandle implements Writable {
 
     public long getStartTime() {
         return this.startTime;
+    }
+
+    public void setEmrServerless(boolean emrServerless) {
+        this.isEmrServerless = emrServerless;
+    }
+
+    public boolean isEmrServerless() {
+        return this.isEmrServerless;
     }
 
     public FinalApplicationStatus getFinalStatus() {

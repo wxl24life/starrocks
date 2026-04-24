@@ -37,6 +37,7 @@ package com.starrocks.catalog;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import com.starrocks.analysis.BrokerDesc;
 import com.starrocks.common.Config;
@@ -117,6 +118,14 @@ public class SparkResource extends Resource {
     private static final String YARN_RESOURCE_MANAGER_ADDRESS_FOMART = "spark.hadoop.yarn.resourcemanager.address.%s";
     private static final String YARN_RESOURCE_MANAGER_HOSTNAME_FORMAT = "spark.hadoop.yarn.resourcemanager.hostname.%s";
 
+    // EMR connection properties keys
+    private static final String EMR_ACCESS_KEY_ID = "accessKeyId";
+    private static final String EMR_ACCESS_KEY_SECRET = "accessKeySecret";
+    private static final String EMR_REGION_ID = "regionId";
+    private static final String EMR_ENDPOINT = "endpoint";
+    private static final String EMR_WORKSPACE_ID = "workspaceId";
+    private static final String IS_EMR_SERVERLESS = "isServerless";
+
     public enum DeployMode {
         CLUSTER,
         CLIENT;
@@ -142,19 +151,27 @@ public class SparkResource extends Resource {
     private Map<String, String> brokerProperties;
     @SerializedName(value = "hasBroker")
     private boolean hasBroker;
+    // EMR Serverless configuration JSON
+    @SerializedName(value = "emrServerlessConfig")
+    private String emrServerlessConfig;
+    @SerializedName(value = "isEmrServerless")
+    private boolean isEmrServerless;
 
     public SparkResource(String name) {
-        this(name, Maps.newHashMap(), null, null, Maps.newHashMap(), false);
+        this(name, Maps.newHashMap(), null, null, Maps.newHashMap(), false, null, false);
     }
 
     private SparkResource(String name, Map<String, String> sparkConfigs, String workingDir, String broker,
-                          Map<String, String> brokerProperties, boolean hasBroker) {
+                          Map<String, String> brokerProperties, boolean hasBroker,
+                          String emrServerlessConfig, boolean isEmrServerless) {
         super(name, ResourceType.SPARK);
         this.sparkConfigs = sparkConfigs;
         this.workingDir = workingDir;
         this.broker = broker;
         this.brokerProperties = brokerProperties;
         this.hasBroker = hasBroker;
+        this.emrServerlessConfig = emrServerlessConfig;
+        this.isEmrServerless = isEmrServerless;
     }
 
     public String getMaster() {
@@ -197,7 +214,8 @@ public class SparkResource extends Resource {
     }
 
     public SparkResource getCopiedResource() {
-        return new SparkResource(name, Maps.newHashMap(sparkConfigs), workingDir, broker, brokerProperties, hasBroker);
+        return new SparkResource(name, Maps.newHashMap(sparkConfigs), workingDir, broker,
+                brokerProperties, hasBroker, emrServerlessConfig, isEmrServerless);
     }
 
     // Each SparkResource has and only has one SparkRepository.
@@ -211,7 +229,7 @@ public class SparkResource extends Resource {
         } else {
             brokerDesc = new BrokerDesc(getBrokerPropertiesWithoutPrefix());
         }
-        SparkRepository repository = new SparkRepository(remoteRepositoryPath, brokerDesc);
+        SparkRepository repository = new SparkRepository(remoteRepositoryPath, brokerDesc, isEmrServerless);
         // This checks and uploads the remote archive.
         repository.prepare();
         SparkRepository.SparkArchive archive = repository.getCurrentArchive();
@@ -244,6 +262,14 @@ public class SparkResource extends Resource {
 
     public boolean isYarnMaster() {
         return getMaster().equalsIgnoreCase(YARN_MASTER);
+    }
+
+    public boolean isEmrServerless() {
+        return this.isEmrServerless;
+    }
+
+    public String getEmrServerlessConfig() {
+        return emrServerlessConfig;
     }
 
     public void update(ResourceDesc resourceDesc) throws DdlException {
@@ -323,6 +349,22 @@ public class SparkResource extends Resource {
                 throw new DdlException("Missing " + SPARK_YARN_RESOURCE_MANAGER_ADDRESS +
                         " or resource manager HA configs in yarn master");
             }
+        }
+        if ("true".equals(properties.get(IS_EMR_SERVERLESS))) {
+            if (!properties.containsKey(EMR_ACCESS_KEY_ID) || !properties.containsKey(EMR_ACCESS_KEY_SECRET)
+                    || !properties.containsKey(EMR_REGION_ID) || !properties.containsKey(EMR_ENDPOINT)
+                    || !properties.containsKey(EMR_WORKSPACE_ID)) {
+                throw new DdlException("Missing required EMR Serverless properties");
+            }
+            this.isEmrServerless = true;
+            // Extract EMR Serverless configuration from properties
+            Map<String, String> emrProps = Maps.newHashMap();
+            emrProps.put(EMR_ACCESS_KEY_ID, properties.get(EMR_ACCESS_KEY_ID));
+            emrProps.put(EMR_ACCESS_KEY_SECRET, properties.get(EMR_ACCESS_KEY_SECRET));
+            emrProps.put(EMR_REGION_ID, properties.get(EMR_REGION_ID));
+            emrProps.put(EMR_ENDPOINT, properties.get(EMR_ENDPOINT));
+            emrProps.put(EMR_WORKSPACE_ID, properties.get(EMR_WORKSPACE_ID));
+            emrServerlessConfig = new Gson().toJson(emrProps);
         }
 
         // check working dir and broker

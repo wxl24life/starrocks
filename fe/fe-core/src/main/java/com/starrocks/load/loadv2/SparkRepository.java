@@ -57,6 +57,8 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 
+import static com.starrocks.load.loadv2.SparkEtlJobHandler.SERVERLESS_LIB_PATH;
+
 /*
  * SparkRepository represents the remote repository for spark archives uploaded by spark
  * The organization in repository is:
@@ -97,7 +99,7 @@ public class SparkRepository {
     // Archive that current dpp version pointed to
     private SparkArchive currentArchive;
 
-    public SparkRepository(String remoteRepositoryPath, BrokerDesc brokerDesc) {
+    public SparkRepository(String remoteRepositoryPath, BrokerDesc brokerDesc, boolean isEmrServerless) {
         this.remoteRepositoryPath = remoteRepositoryPath;
         this.brokerDesc = brokerDesc;
         this.currentDppVersion = Config.spark_dpp_version;
@@ -105,6 +107,8 @@ public class SparkRepository {
         this.localDppPath = StarRocksFE.STARROCKS_HOME_DIR + DPP_RESOURCE_DIR + SPARK_DPP_JAR;
         if (!Strings.isNullOrEmpty(Config.spark_resource_path)) {
             this.localSpark2xPath = Config.spark_resource_path;
+        } else if (isEmrServerless) {
+            this.localSpark2xPath = StarRocksFE.STARROCKS_HOME_DIR + SERVERLESS_LIB_PATH + SPARK_RESOURCE;
         } else {
             this.localSpark2xPath = Config.spark_home_default_dir + SPARK_RESOURCE;
         }

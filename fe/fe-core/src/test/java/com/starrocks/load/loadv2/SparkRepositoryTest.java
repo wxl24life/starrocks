@@ -90,7 +90,7 @@ public class SparkRepositoryTest {
         };
 
         BrokerDesc brokerDesc = new BrokerDesc("broker", Maps.newHashMap());
-        SparkRepository repository = new SparkRepository(remoteRepoPath, brokerDesc);
+        SparkRepository repository = new SparkRepository(remoteRepoPath, brokerDesc, false);
         try {
             new Expectations(repository) {
                 {
@@ -152,7 +152,7 @@ public class SparkRepositoryTest {
         };
 
         BrokerDesc brokerDesc = new BrokerDesc("broker", Maps.newHashMap());
-        SparkRepository repository = new SparkRepository(remoteRepoPath, brokerDesc);
+        SparkRepository repository = new SparkRepository(remoteRepoPath, brokerDesc, false);
         try {
             new Expectations(repository) {
                 {
@@ -191,6 +191,127 @@ public class SparkRepositoryTest {
             }
         } catch (LoadException e) {
             Assertions.fail();
+        }
+    }
+
+    @Test
+    public void testEmrServerlessNormal() {
+        new MockUp<BrokerUtil>() {
+            @Mock
+            boolean checkPathExist(String remotePath, BrokerDesc brokerDesc)
+                    throws StarRocksException {
+                return true;
+            }
+
+            @Mock
+            void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
+                    throws StarRocksException {
+                fileStatuses.addAll(files);
+            }
+        };
+
+        BrokerDesc brokerDesc = new BrokerDesc("broker", Maps.newHashMap());
+        SparkRepository repository = new SparkRepository(remoteRepoPath, brokerDesc, true);
+        try {
+            new Expectations(repository) {
+                {
+                    repository.getMd5String(anyString);
+                    returns(DPP_LOCAL_MD5SUM, SPARK_LOCAL_MD5SUM);
+                }
+            };
+
+            // prepare repository
+            repository.prepare();
+
+            // get archive
+            SparkRepository.SparkArchive archive = repository.getCurrentArchive();
+            Assertions.assertEquals(2, archive.libraries.size());
+
+            // check libraries
+            List<SparkRepository.SparkLibrary> libraries = archive.libraries;
+            for (SparkRepository.SparkLibrary library : libraries) {
+                switch (library.libType) {
+                    case DPP:
+                        Assertions.assertEquals(remoteDppLibraryPath, library.remotePath);
+                        Assertions.assertEquals(DPP_LOCAL_MD5SUM, library.md5sum);
+                        Assertions.assertEquals(1024, library.size);
+                        break;
+                    case SPARK2X:
+                        Assertions.assertEquals(remoteSparkLibraryPath, library.remotePath);
+                        Assertions.assertEquals(SPARK_LOCAL_MD5SUM, library.md5sum);
+                        Assertions.assertEquals(10240, library.size);
+                        break;
+                    default:
+                        Assertions.fail("wrong library type: " + library.libType);
+                }
+            }
+        } catch (Exception e) {
+            Assertions.fail(e.getMessage());
+        }
+    }
+
+    @Test
+    public void testEmrServerlessArchiveNotExists() {
+        new MockUp<BrokerUtil>() {
+            @Mock
+            boolean checkPathExist(String remotePath, BrokerDesc brokerDesc)
+                    throws StarRocksException {
+                return false;
+            }
+
+            @Mock
+            void writeFile(String srcFilePath, String destFilePath, BrokerDesc brokerDesc)
+                    throws StarRocksException {
+                return;
+            }
+
+            @Mock
+            void rename(String origFilePath, String destFilePath, BrokerDesc brokerDesc)
+                    throws StarRocksException {
+                return;
+            }
+        };
+
+        BrokerDesc brokerDesc = new BrokerDesc("broker", Maps.newHashMap());
+        SparkRepository repository = new SparkRepository(remoteRepoPath, brokerDesc, true);
+        try {
+            new Expectations(repository) {
+                {
+                    repository.getMd5String(anyString);
+                    returns(DPP_LOCAL_MD5SUM, SPARK_LOCAL_MD5SUM);
+
+                    repository.getFileSize(anyString);
+                    returns(1024L, 10240L);
+                }
+            };
+
+            // prepare repository
+            repository.prepare();
+
+            // get archive
+            SparkRepository.SparkArchive archive = repository.getCurrentArchive();
+            Assertions.assertEquals(2, archive.libraries.size());
+
+            // check libraries
+            List<SparkRepository.SparkLibrary> libraries = archive.libraries;
+            for (SparkRepository.SparkLibrary library : libraries) {
+                switch (library.libType) {
+                    case DPP:
+                        Assertions.assertEquals(remoteDppLibraryPath, library.remotePath);
+                        Assertions.assertEquals(DPP_LOCAL_MD5SUM, library.md5sum);
+                        Assertions.assertEquals(1024, library.size);
+                        break;
+                    case SPARK2X:
+                        Assertions.assertEquals(remoteSparkLibraryPath, library.remotePath);
+                        Assertions.assertEquals(SPARK_LOCAL_MD5SUM, library.md5sum);
+                        Assertions.assertEquals(10240, library.size);
+                        break;
+                    default:
+                        Assertions.fail("wrong library type: " + library.libType);
+                }
+            }
+        } catch (LoadException e) {
+            Assertions.fail(e.getMessage());
         }
     }
 
@@ -235,7 +356,7 @@ public class SparkRepositoryTest {
         String newRemoteSparkPath = remoteArchivePath + "/" + SparkRepository.PREFIX_LIB + newMd5sum + "_" + SPARK_NAME;
 
         BrokerDesc brokerDesc = new BrokerDesc("broker", Maps.newHashMap());
-        SparkRepository repository = new SparkRepository(remoteRepoPath, brokerDesc);
+        SparkRepository repository = new SparkRepository(remoteRepoPath, brokerDesc, false);
         try {
             new Expectations(repository) {
                 {

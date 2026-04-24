@@ -250,4 +250,227 @@ public class SparkResourceTest {
             Resource.fromStmt(stmt);
         });
     }
+
+    @Test
+    public void testEmrServerlessResource(@Mocked GlobalStateMgr globalStateMgr)
+            throws StarRocksException {
+        // Setup EMR Serverless properties
+        Map<String, String> emrProperties = Maps.newHashMap();
+        emrProperties.put("type", "spark");
+        emrProperties.put("spark.master", "yarn");
+        emrProperties.put("spark.submit.deployMode", "cluster");
+        emrProperties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
+        emrProperties.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
+        emrProperties.put("isServerless", "true");
+        emrProperties.put("accessKeyId", "testAccessKeyId");
+        emrProperties.put("accessKeySecret", "testAccessKeySecret");
+        emrProperties.put("regionId", "cn-hangzhou");
+        emrProperties.put("endpoint", "emr-serverless.cn-hangzhou.aliyuncs.com");
+        emrProperties.put("workspaceId", "test-workspace-id");
+
+        Analyzer analyzer = new Analyzer(Analyzer.AnalyzerVisitor.getInstance());
+        new Expectations() {
+            {
+                globalStateMgr.getAnalyzer();
+                result = analyzer;
+            }
+        };
+
+        CreateResourceStmt stmt = new CreateResourceStmt(true, "emr_spark0", emrProperties);
+        com.starrocks.sql.analyzer.Analyzer.analyze(stmt, connectContext);
+        SparkResource resource = (SparkResource) Resource.fromStmt(stmt);
+
+        // Verify EMR Serverless flag
+        Assertions.assertTrue(resource.isEmrServerless());
+        Assertions.assertEquals("yarn", resource.getMaster());
+        Assertions.assertEquals("cluster", resource.getDeployMode().name().toLowerCase());
+
+        // Verify EMR Serverless config JSON
+        String emrConfig = resource.getEmrServerlessConfig();
+        Assertions.assertNotNull(emrConfig);
+        Assertions.assertTrue(emrConfig.contains("testAccessKeyId"));
+        Assertions.assertTrue(emrConfig.contains("testAccessKeySecret"));
+        Assertions.assertTrue(emrConfig.contains("cn-hangzhou"));
+        Assertions.assertTrue(emrConfig.contains("emr-serverless.cn-hangzhou.aliyuncs.com"));
+        Assertions.assertTrue(emrConfig.contains("test-workspace-id"));
+    }
+
+    @Test
+    public void testEmrServerlessResourceWithPartialConfig(@Mocked GlobalStateMgr globalStateMgr) {
+        // Setup EMR Serverless properties with partial config (missing accessKeySecret, endpoint, workspaceId)
+        Map<String, String> emrProperties = Maps.newHashMap();
+        emrProperties.put("type", "spark");
+        emrProperties.put("spark.master", "yarn");
+        emrProperties.put("spark.submit.deployMode", "cluster");
+        emrProperties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
+        emrProperties.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
+        emrProperties.put("isServerless", "true");
+        emrProperties.put("accessKeyId", "testAccessKeyId");
+        emrProperties.put("regionId", "cn-shanghai");
+
+        Analyzer analyzer = new Analyzer(Analyzer.AnalyzerVisitor.getInstance());
+        new Expectations() {
+            {
+                globalStateMgr.getAnalyzer();
+                result = analyzer;
+            }
+        };
+
+        CreateResourceStmt stmt = new CreateResourceStmt(true, "emr_spark1", emrProperties);
+        com.starrocks.sql.analyzer.Analyzer.analyze(stmt, connectContext);
+        Assertions.assertThrows(DdlException.class, () -> Resource.fromStmt(stmt),
+                "Missing required EMR Serverless properties");
+    }
+
+    @Test
+    public void testEmrServerlessResourceMissingAccessKeySecret(@Mocked GlobalStateMgr globalStateMgr) {
+        // Missing only accessKeySecret
+        Map<String, String> emrProperties = Maps.newHashMap();
+        emrProperties.put("type", "spark");
+        emrProperties.put("spark.master", "yarn");
+        emrProperties.put("spark.submit.deployMode", "cluster");
+        emrProperties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
+        emrProperties.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
+        emrProperties.put("isServerless", "true");
+        emrProperties.put("accessKeyId", "testAccessKeyId");
+        emrProperties.put("regionId", "cn-shanghai");
+        emrProperties.put("endpoint", "emr-serverless.cn-shanghai.aliyuncs.com");
+        emrProperties.put("workspaceId", "test-workspace-id");
+
+        Analyzer analyzer = new Analyzer(Analyzer.AnalyzerVisitor.getInstance());
+        new Expectations() {
+            {
+                globalStateMgr.getAnalyzer();
+                result = analyzer;
+            }
+        };
+
+        CreateResourceStmt stmt = new CreateResourceStmt(true, "emr_spark_no_secret", emrProperties);
+        com.starrocks.sql.analyzer.Analyzer.analyze(stmt, connectContext);
+        Assertions.assertThrows(DdlException.class, () -> Resource.fromStmt(stmt),
+                "Missing required EMR Serverless properties");
+    }
+
+    @Test
+    public void testEmrServerlessResourceMissingEndpoint(@Mocked GlobalStateMgr globalStateMgr) {
+        // Missing only endpoint
+        Map<String, String> emrProperties = Maps.newHashMap();
+        emrProperties.put("type", "spark");
+        emrProperties.put("spark.master", "yarn");
+        emrProperties.put("spark.submit.deployMode", "cluster");
+        emrProperties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
+        emrProperties.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
+        emrProperties.put("isServerless", "true");
+        emrProperties.put("accessKeyId", "testAccessKeyId");
+        emrProperties.put("accessKeySecret", "testAccessKeySecret");
+        emrProperties.put("regionId", "cn-shanghai");
+        emrProperties.put("workspaceId", "test-workspace-id");
+
+        Analyzer analyzer = new Analyzer(Analyzer.AnalyzerVisitor.getInstance());
+        new Expectations() {
+            {
+                globalStateMgr.getAnalyzer();
+                result = analyzer;
+            }
+        };
+
+        CreateResourceStmt stmt = new CreateResourceStmt(true, "emr_spark_no_endpoint", emrProperties);
+        com.starrocks.sql.analyzer.Analyzer.analyze(stmt, connectContext);
+        Assertions.assertThrows(DdlException.class, () -> Resource.fromStmt(stmt),
+                "Missing required EMR Serverless properties");
+    }
+
+    @Test
+    public void testEmrServerlessResourceMissingWorkspaceId(@Mocked GlobalStateMgr globalStateMgr) {
+        // Missing only workspaceId
+        Map<String, String> emrProperties = Maps.newHashMap();
+        emrProperties.put("type", "spark");
+        emrProperties.put("spark.master", "yarn");
+        emrProperties.put("spark.submit.deployMode", "cluster");
+        emrProperties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
+        emrProperties.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
+        emrProperties.put("isServerless", "true");
+        emrProperties.put("accessKeyId", "testAccessKeyId");
+        emrProperties.put("accessKeySecret", "testAccessKeySecret");
+        emrProperties.put("regionId", "cn-shanghai");
+        emrProperties.put("endpoint", "emr-serverless.cn-shanghai.aliyuncs.com");
+
+        Analyzer analyzer = new Analyzer(Analyzer.AnalyzerVisitor.getInstance());
+        new Expectations() {
+            {
+                globalStateMgr.getAnalyzer();
+                result = analyzer;
+            }
+        };
+
+        CreateResourceStmt stmt = new CreateResourceStmt(true, "emr_spark_no_workspace", emrProperties);
+        com.starrocks.sql.analyzer.Analyzer.analyze(stmt, connectContext);
+        Assertions.assertThrows(DdlException.class, () -> Resource.fromStmt(stmt),
+                "Missing required EMR Serverless properties");
+    }
+
+    @Test
+    public void testNonEmrServerlessResource(@Injectable BrokerMgr brokerMgr, @Mocked GlobalStateMgr globalStateMgr)
+            throws StarRocksException {
+        new Expectations() {
+            {
+                globalStateMgr.getBrokerMgr();
+                result = brokerMgr;
+                brokerMgr.containsBroker(broker);
+                result = true;
+            }
+        };
+
+        Analyzer analyzer = new Analyzer(Analyzer.AnalyzerVisitor.getInstance());
+        new Expectations() {
+            {
+                globalStateMgr.getAnalyzer();
+                result = analyzer;
+            }
+        };
+
+        // Regular yarn resource without EMR Serverless
+        CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
+        com.starrocks.sql.analyzer.Analyzer.analyze(stmt, connectContext);
+        SparkResource resource = (SparkResource) Resource.fromStmt(stmt);
+
+        Assertions.assertFalse(resource.isEmrServerless());
+        Assertions.assertNull(resource.getEmrServerlessConfig());
+    }
+
+    @Test
+    public void testEmrServerlessCopyResource(@Mocked GlobalStateMgr globalStateMgr)
+            throws StarRocksException {
+        // Setup EMR Serverless properties
+        Map<String, String> emrProperties = Maps.newHashMap();
+        emrProperties.put("type", "spark");
+        emrProperties.put("spark.master", "yarn");
+        emrProperties.put("spark.submit.deployMode", "cluster");
+        emrProperties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
+        emrProperties.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
+        emrProperties.put("isServerless", "true");
+        emrProperties.put("accessKeyId", "testAccessKeyId");
+        emrProperties.put("accessKeySecret", "testAccessKeySecret");
+        emrProperties.put("regionId", "cn-hangzhou");
+        emrProperties.put("endpoint", "emr-serverless.cn-hangzhou.aliyuncs.com");
+        emrProperties.put("workspaceId", "test-workspace-id");
+
+        Analyzer analyzer = new Analyzer(Analyzer.AnalyzerVisitor.getInstance());
+        new Expectations() {
+            {
+                globalStateMgr.getAnalyzer();
+                result = analyzer;
+            }
+        };
+
+        CreateResourceStmt stmt = new CreateResourceStmt(true, "emr_spark2", emrProperties);
+        com.starrocks.sql.analyzer.Analyzer.analyze(stmt, connectContext);
+        SparkResource resource = (SparkResource) Resource.fromStmt(stmt);
+
+        // Test getCopiedResource preserves EMR Serverless config
+        SparkResource copiedResource = resource.getCopiedResource();
+        Assertions.assertTrue(copiedResource.isEmrServerless());
+        Assertions.assertEquals(resource.getEmrServerlessConfig(), copiedResource.getEmrServerlessConfig());
+        Assertions.assertEquals("yarn", copiedResource.getMaster());
+    }
 }

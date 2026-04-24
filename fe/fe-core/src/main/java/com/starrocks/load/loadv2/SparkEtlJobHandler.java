@@ -40,6 +40,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
+import com.starrocks.StarRocksFE;
 import com.starrocks.analysis.BrokerDesc;
 import com.starrocks.catalog.SparkResource;
 import com.starrocks.common.Config;
@@ -67,6 +68,7 @@ import org.apache.spark.launcher.SparkLauncher;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -92,6 +94,12 @@ public class SparkEtlJobHandler {
     // yarn command
     private static final String YARN_STATUS_CMD = "%s --config %s application -status %s";
     private static final String YARN_KILL_CMD = "%s --config %s application -kill %s";
+    // EMR Serverless Spark command
+    private static final String EMR_STATUS_CMD = "%s --status %s";
+    private static final String EMR_KILL_CMD = "%s --kill %s";
+    // EMR Serverless connection environment variable name
+    public static final String EMR_CACL_CONNECTION = "EMR_CACL_CONNECTION";
+    public static final String SERVERLESS_LIB_PATH = "/lib/serverless";
 
     public void submitEtlJob(long loadJobId, String loadLabel, EtlJobConfig etlJobConfig, SparkResource resource,
                              BrokerDesc brokerDesc, SparkLoadAppHandle handle, SparkPendingTaskAttachment attachment,
@@ -145,7 +153,16 @@ public class SparkEtlJobHandler {
             throw new LoadException(e.getMessage());
         }
 
-        SparkLauncher launcher = new SparkLauncher();
+        SparkLauncher launcher;
+        if (resource.isEmrServerless()) {
+            Map<String, String> envMap = new HashMap<>();
+            handle.setEmrServerless(true);
+            envMap.put(EMR_CACL_CONNECTION, resource.getEmrServerlessConfig());
+            launcher = new SparkLauncher(envMap);
+            sparkHome = StarRocksFE.STARROCKS_HOME_DIR + SERVERLESS_LIB_PATH;
+        } else {
+            launcher = new SparkLauncher();
+        }
         // master      |  deployMode
         // ------------|-------------
         // yarn        |  cluster
@@ -195,7 +212,11 @@ public class SparkEtlJobHandler {
         if (fromSparkState(state) == TEtlState.CANCELLED) {
             if (state == State.KILLED) {
                 try {
-                    killYarnApplication(appId, loadJobId, resource);
+                    if (resource.isEmrServerless()) {
+                        killEmrApplication(appId, loadJobId, resource);
+                    } else {
+                        killYarnApplication(appId, loadJobId, resource);
+                    }
                 } catch (StarRocksException e) {
                     LOG.warn(errMsg, e);
                 }
@@ -237,6 +258,25 @@ public class SparkEtlJobHandler {
         if (result.getReturnCode() != 0) {
             String stderr = result.getStderr();
             LOG.warn("yarn application kill failed. app id: {}, load job id: {}, msg: {}", appId, loadJobId,
+                    stderr);
+        }
+    }
+
+    public void killEmrApplication(String appId, long loadJobId, SparkResource resource)
+            throws StarRocksException {
+        if (Strings.isNullOrEmpty(appId)) {
+            LOG.warn("app id is null, kill emr-serverless application fail");
+            return;
+        }
+        String emrSparkSubmit = StarRocksFE.STARROCKS_HOME_DIR + "/lib/serverless/bin/spark-submit";
+        String emrKillCmd = String.format(EMR_KILL_CMD, emrSparkSubmit, appId);
+        LOG.info("kill application cmd: {}", emrKillCmd);
+
+        String[] envp = {EMR_CACL_CONNECTION + "=" + resource.getEmrServerlessConfig()};
+        CommandResult result = Util.executeCommand(emrKillCmd, envp, EXEC_CMD_TIMEOUT_MS);
+        if (result.getReturnCode() != 0) {
+            String stderr = result.getStderr();
+            LOG.warn("emr-serverless application kill failed. app id: {}, load job id: {}, msg: {}", appId, loadJobId,
                     stderr);
         }
     }
@@ -287,6 +327,32 @@ public class SparkEtlJobHandler {
             }
             status.setTrackingUrl(handle.getUrl() != null ? handle.getUrl() : report.getTrackingUrl());
             status.setProgress((int) (report.getProgress() * 100));
+        } else if (resource.isEmrServerless()) {
+            // EMR Serverless mode: use spark-submit --status
+            String emrSparkSubmit = StarRocksFE.STARROCKS_HOME_DIR + "/lib/serverless/bin/spark-submit";
+            String emrStatusCmd = String.format(EMR_STATUS_CMD, emrSparkSubmit, appId);
+            LOG.info("get application status cmd: {}", emrStatusCmd);
+
+            String[] envp = {EMR_CACL_CONNECTION + "=" + resource.getEmrServerlessConfig()};
+            CommandResult result = Util.executeCommand(emrStatusCmd, envp, EXEC_CMD_TIMEOUT_MS);
+
+            if (result.getReturnCode() != 0) {
+                String stderr = result.getStderr();
+                LOG.warn("emr-serverless application status failed. app id: {}, load job id: {}, timeout: {}" +
+                                ", return code: {}, stderr: {}, stdout: {}",
+                        appId, loadJobId, EXEC_CMD_TIMEOUT_MS, result.getReturnCode(), stderr, result.getStdout());
+                throw new LoadException("emr-serverless application status failed. error: " + stderr);
+            }
+
+            String outputStr = result.getStdout();
+            LOG.info("get application status. app id: {}, load job id: {}, output: {}", appId, loadJobId, outputStr);
+
+            // Parse EMR state using EmrState enum
+            ServerlessSparkState emrState = ServerlessSparkState.fromOutput(outputStr);
+            status.setState(emrState.getEtlState());
+            if (status.getState() == TEtlState.CANCELLED) {
+                status.setFailMsg("EMR spark job failed or cancelled, state: " + emrState.getValue());
+            }
         } else {
             // state from handle
             if (handle == null) {
@@ -344,6 +410,15 @@ public class SparkEtlJobHandler {
                 }
             }
             killYarnApplication(appId, loadJobId, resource);
+        } else if (resource.isEmrServerless()) {
+            if (Strings.isNullOrEmpty(appId)) {
+                appId = handle.getAppId();
+                if (Strings.isNullOrEmpty(appId)) {
+                    handle.kill();
+                    return;
+                }
+            }
+            killEmrApplication(appId, loadJobId, resource);
         } else {
             if (handle != null) {
                 handle.stop();

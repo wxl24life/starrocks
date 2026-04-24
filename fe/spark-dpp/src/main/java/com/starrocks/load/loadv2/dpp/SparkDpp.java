@@ -317,6 +317,8 @@ public final class SparkDpp implements java.io.Serializable {
                                 conf.setBoolean("spark.sql.parquet.int96AsTimestamp", true);
                                 conf.setBoolean("spark.sql.parquet.binaryAsString", false);
                                 conf.set("spark.sql.parquet.outputTimestampType", "INT96");
+                                // Spark 3.5+ requires this config to be set properly
+                                conf.setBoolean("spark.sql.parquet.fieldId.write.enabled", false);
                                 ParquetWriteSupport.setSchema(dstSchema, conf);
                                 ParquetWriteSupport parquetWriteSupport = new ParquetWriteSupport();
                                 parquetWriter = new ParquetWriter<InternalRow>(new Path(tmpPath), parquetWriteSupport,
