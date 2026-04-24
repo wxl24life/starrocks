@@ -903,7 +903,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
     }
 
     public int getPartitionRefreshNumber() {
-        return partitionRefreshNumber;
+        return partitionRefreshNumber == INVALID ? Config.default_mv_partition_refresh_number : partitionRefreshNumber;
     }
 
     public void setPartitionRefreshNumber(int partitionRefreshNumber) {
