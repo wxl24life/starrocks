@@ -35,6 +35,7 @@ import com.starrocks.common.Config;
 import com.starrocks.common.ExceptionChecker;
 import com.starrocks.common.StarRocksException;
 import com.starrocks.common.jmockit.Deencapsulation;
+import com.starrocks.epack.warehouse.WarehouseManagerEPack;
 import com.starrocks.lake.TabletRepairHelper.PhysicalPartitionInfo;
 import com.starrocks.proto.GetTabletMetadatasRequest;
 import com.starrocks.proto.GetTabletMetadatasResponse;
@@ -159,7 +160,7 @@ public class TabletRepairHelperTest {
     @Test
     public void testGetPhysicalPartitionInfo() {
         // mock warehouse manager
-        new MockUp<WarehouseManager>() {
+        new MockUp<WarehouseManagerEPack>() {
             @Mock
             public ComputeNode getComputeNodeAssignedToTablet(Long warehouseId, LakeTablet tablet) {
                 return node;
@@ -832,7 +833,7 @@ public class TabletRepairHelperTest {
     @Test
     public void testRepair() {
         // mock warehouse manager
-        new MockUp<WarehouseManager>() {
+        new MockUp<WarehouseManagerEPack>() {
             @Mock
             public ComputeNode getComputeNodeAssignedToTablet(Long warehouseId, LakeTablet tablet) {
                 return node;
@@ -917,7 +918,7 @@ public class TabletRepairHelperTest {
     @Test
     public void testRepairFail() {
         // mock warehouse manager
-        new MockUp<WarehouseManager>() {
+        new MockUp<WarehouseManagerEPack>() {
             @Mock
             public ComputeNode getComputeNodeAssignedToTablet(Long warehouseId, LakeTablet tablet) {
                 return node;
@@ -946,7 +947,7 @@ public class TabletRepairHelperTest {
 
     @Test
     public void testDryRunRepairRecoverable() throws Exception {
-        new MockUp<WarehouseManager>() {
+        new MockUp<WarehouseManagerEPack>() {
             @Mock
             public ComputeNode getComputeNodeAssignedToTablet(Long warehouseId, LakeTablet tablet) {
                 return node;
@@ -1012,7 +1013,7 @@ public class TabletRepairHelperTest {
 
     @Test
     public void testDryRunRepairUnrecoverable() throws Exception {
-        new MockUp<WarehouseManager>() {
+        new MockUp<WarehouseManagerEPack>() {
             @Mock
             public ComputeNode getComputeNodeAssignedToTablet(Long warehouseId, LakeTablet tablet) {
                 return node;
@@ -1073,7 +1074,7 @@ public class TabletRepairHelperTest {
 
     @Test
     public void testDryRunRepairNormal() throws Exception {
-        new MockUp<WarehouseManager>() {
+        new MockUp<WarehouseManagerEPack>() {
             @Mock
             public ComputeNode getComputeNodeAssignedToTablet(Long warehouseId, LakeTablet tablet) {
                 return node;
@@ -1135,7 +1136,7 @@ public class TabletRepairHelperTest {
 
     @Test
     public void testDryRunRepairException() throws Exception {
-        new MockUp<WarehouseManager>() {
+        new MockUp<WarehouseManagerEPack>() {
             @Mock
             public ComputeNode getComputeNodeAssignedToTablet(Long warehouseId, LakeTablet tablet) {
                 return node;
@@ -1174,7 +1175,7 @@ public class TabletRepairHelperTest {
     }
     @Test
     public void testGetTabletStatus() throws Exception {
-        new MockUp<WarehouseManager>() {
+        new MockUp<WarehouseManagerEPack>() {
             @Mock
             public ComputeNode getComputeNodeAssignedToTablet(Long warehouseId, LakeTablet tablet) {
                 return node;
