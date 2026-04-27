@@ -29,6 +29,7 @@ import com.starrocks.common.MetaNotFoundException;
 import com.starrocks.common.io.Text;
 import com.starrocks.common.io.Writable;
 import com.starrocks.connector.share.credential.CloudConfigurationConstants;
+import com.starrocks.lake.StarOSAgent;
 import com.starrocks.persist.DropStorageVolumeLog;
 import com.starrocks.persist.ImageWriter;
 import com.starrocks.persist.SetDefaultStorageVolumeLog;
@@ -46,6 +47,8 @@ import com.starrocks.sql.ast.DropStorageVolumeStmt;
 import com.starrocks.sql.ast.SetDefaultStorageVolumeStmt;
 import com.starrocks.storagevolume.CompositeStorageVolume;
 import com.starrocks.storagevolume.StorageVolume;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
@@ -97,6 +100,8 @@ import javax.annotation.Nullable;
 // - Simplifies code: no cache invalidation, no replay methods, no rebuild logic
 //
 public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable {
+    private static final Logger LOG = LogManager.getLogger(StorageVolumeMgr.class);
+
     private static final String ENABLED = "enabled";
 
     public static final String DEFAULT = "default";
@@ -341,9 +346,15 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
      * Composite SV definitions, so there is no local reverse index to consult.
      */
     public void checkNotReferencedAsChildSv(String svId, String svName) throws DdlException {
+        // Composite SVs are only available in shared-data mode. In shared-nothing mode the
+        // StarOSAgent is not initialized, so there is nothing to check.
+        StarOSAgent agent = GlobalStateMgr.getCurrentState().getStarOSAgent();
+        if (agent == null) {
+            return;
+        }
         // Query all FileStores from StarOS, filter for COMPOSITE type, check child references
         List<String> referencingCompositeNames = new ArrayList<>();
-        for (FileStoreInfo fsInfo : GlobalStateMgr.getCurrentState().getStarOSAgent().listFileStore()) {
+        for (FileStoreInfo fsInfo : agent.listFileStore()) {
             if (!StorageVolume.isCompositeFileStoreInfo(fsInfo)) {
                 continue;
             }
@@ -363,32 +374,44 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
 
     /**
      * Query StarOS by name. Returns null if not found or not a COMPOSITE type.
+     * Returns null if StarOSAgent is not available (e.g. shared-nothing mode).
      */
     private CompositeStorageVolume getCompositeStorageVolumeByNameNoLock(String name) {
+        StarOSAgent agent = GlobalStateMgr.getCurrentState().getStarOSAgent();
+        if (agent == null) {
+            return null;
+        }
         try {
-            FileStoreInfo fsInfo = GlobalStateMgr.getCurrentState().getStarOSAgent().getFileStoreByName(name);
-            if (!StorageVolume.isCompositeFileStoreInfo(fsInfo)) {
+            FileStoreInfo fsInfo = agent.getFileStoreByName(name);
+            if (fsInfo == null || !StorageVolume.isCompositeFileStoreInfo(fsInfo)) {
                 return null;
             }
             return new CompositeStorageVolume(fsInfo.getFsKey(), fsInfo.getFsName(),
                     parseCompositeChildFsKeysFromFsInfo(fsInfo), fsInfo.getEnabled(), fsInfo.getComment());
-        } catch (DdlException e) {
+        } catch (Exception e) {
+            LOG.debug("Failed to get composite storage volume by name: {}", name, e);
             return null;
         }
     }
 
     /**
      * Query StarOS by id. Returns null if not found or not a COMPOSITE type.
+     * Returns null if StarOSAgent is not available (e.g. shared-nothing mode).
      */
     protected CompositeStorageVolume getCompositeStorageVolumeByIdNoLock(String id) {
+        StarOSAgent agent = GlobalStateMgr.getCurrentState().getStarOSAgent();
+        if (agent == null) {
+            return null;
+        }
         try {
-            FileStoreInfo fsInfo = GlobalStateMgr.getCurrentState().getStarOSAgent().getFileStore(id);
-            if (!StorageVolume.isCompositeFileStoreInfo(fsInfo)) {
+            FileStoreInfo fsInfo = agent.getFileStore(id);
+            if (fsInfo == null || !StorageVolume.isCompositeFileStoreInfo(fsInfo)) {
                 return null;
             }
             return new CompositeStorageVolume(fsInfo.getFsKey(), fsInfo.getFsName(),
                     parseCompositeChildFsKeysFromFsInfo(fsInfo), fsInfo.getEnabled(), fsInfo.getComment());
-        } catch (DdlException e) {
+        } catch (Exception e) {
+            LOG.debug("Failed to get composite storage volume by id: {}", id, e);
             return null;
         }
     }

@@ -168,7 +168,8 @@ public class StarOSAgentTest {
         Config.cloud_native_storage_type = "s3";
         Deencapsulation.setField(starosAgent, "serviceId", "2");
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Failed to allocate file path from StarMgr, error: INVALID_ARGUMENT:mocked exception",
+                "Failed to allocate file path from StarMgr, request=default fsType=S3"
+                        + " suffix=db1000/123, error: INVALID_ARGUMENT:mocked exception",
                 () -> starosAgent.allocateFilePath(dbId, tableId));
 
         new Expectations(client) {
@@ -185,7 +186,8 @@ public class StarOSAgentTest {
 
         Deencapsulation.setField(starosAgent, "serviceId", "2");
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Failed to allocate file path from StarMgr, error: INVALID_ARGUMENT:mocked exception",
+                "Failed to allocate file path from StarMgr, request=svId=test-fskey"
+                        + " suffix=db1000/123, error: INVALID_ARGUMENT:mocked exception",
                 () -> starosAgent.allocateFilePath("test-fskey", dbId, tableId));
     }
 

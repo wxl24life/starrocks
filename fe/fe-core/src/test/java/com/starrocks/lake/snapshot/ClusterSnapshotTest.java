@@ -113,9 +113,7 @@ public class ClusterSnapshotTest {
                 long id = nextId.incrementAndGet();
                 return id;
             }
-        };
 
-        new MockUp<GlobalStateMgr>() {
             @Mock
             public StarOSAgent getStarOSAgent() {
                 return starOSAgent;

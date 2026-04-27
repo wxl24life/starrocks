@@ -119,11 +119,32 @@ public class StorageVolume implements Writable, GsonPostProcessable {
 
     /**
      * Detect whether a FileStoreInfo is a Composite SV definition.
+     *
+     * <p>A Composite SV must:
+     *   <ul>
+     *     <li>use the dedicated {@link #COMPOSITE_FS_TYPE_VALUE} type value;</li>
+     *     <li>contain the {@link #COMPOSITE_CHILD_FS_KEYS} property;</li>
+     *     <li>NOT carry any concrete backing FsInfo (S3/OSS/HDFS/Azblob/Adls2/GS).
+     *         The composite type is logical only and must not overlap with any concrete fs payload.</li>
+     *   </ul>
      */
     public static boolean isCompositeFileStoreInfo(FileStoreInfo fsInfo) {
-        return fsInfo != null
-                && fsInfo.getFsTypeValue() == COMPOSITE_FS_TYPE_VALUE
-                && fsInfo.getPropertiesMap().containsKey(COMPOSITE_CHILD_FS_KEYS);
+        if (fsInfo == null) {
+            return false;
+        }
+        if (fsInfo.getFsTypeValue() != COMPOSITE_FS_TYPE_VALUE) {
+            return false;
+        }
+        if (!fsInfo.getPropertiesMap().containsKey(COMPOSITE_CHILD_FS_KEYS)) {
+            return false;
+        }
+        // Reject any FileStoreInfo carrying a concrete fs payload — composite must be a pure
+        // logical wrapper without its own bucket / endpoint / credentials.
+        if (fsInfo.hasS3FsInfo() || fsInfo.hasHdfsFsInfo() || fsInfo.hasAzblobFsInfo()
+                || fsInfo.hasAdls2FsInfo() || fsInfo.hasGsFsInfo() || fsInfo.hasOssFsInfo()) {
+            return false;
+        }
+        return true;
     }
 
     private String dumpMaskedParams(Map<String, String> params) {

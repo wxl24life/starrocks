@@ -265,6 +265,11 @@ public class PseudoClusterTest {
             }
 
             @Mock
+            public FilePathInfo allocateFilePath(long dbId, long tableId) throws DdlException {
+                return pathInfo;
+            }
+
+            @Mock
             public List<Long> getWorkersByWorkerGroup(long workerGroupId) throws StarRocksException {
                 // the worker id is a random number
                 return new ArrayList<>(Arrays.asList(10001L));
