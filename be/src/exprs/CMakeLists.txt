@@ -105,6 +105,8 @@ set(EXPR_FILES
   ngram.cpp
   match_expr.cpp
   gin_functions.cpp
+  ai_functions.cpp
+  ai_function_call_expr.cpp
 )
 
 if(STARROCKS_JIT_ENABLE)
@@ -116,3 +118,5 @@ if(STARROCKS_JIT_ENABLE)
 endif()
 
 add_library(Exprs ${EXPR_FILES})
+
+add_subdirectory(ai)

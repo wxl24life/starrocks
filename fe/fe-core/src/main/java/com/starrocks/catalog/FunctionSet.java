@@ -48,6 +48,8 @@ import com.starrocks.catalog.combinator.AggStateMergeCombinator;
 import com.starrocks.catalog.combinator.AggStateUnionCombinator;
 import com.starrocks.catalog.combinator.AggStateUtils;
 import com.starrocks.sql.analyzer.PolymorphicFunctionAnalyzer;
+import com.starrocks.thrift.TAIModelSource;
+import com.starrocks.thrift.TFunctionBinaryType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -508,6 +510,11 @@ public class FunctionSet {
     // dict query function
     public static final String DICT_MAPPING = "dict_mapping";
 
+    // AI functions
+    public static final String AI_CLASSIFY = "ai_classify";
+    public static final String AI_EXTRACT = "ai_extract";
+    public static final String AI_REDACT = "ai_redact";
+
     //user and role function
     public static final String IS_ROLE_IN_SESSION = "is_role_in_session";
 
@@ -660,6 +667,7 @@ public class FunctionSet {
                     .add(RANDOM)
                     .add(UUID)
                     .add(SLEEP)
+                    .addAll(VectorizedBuiltinFunctions.AI_FUNCTION_NAMES)
                     .build();
 
     public static final Set<String> VECTOR_COMPUTE_FUNCTIONS =
@@ -964,6 +972,14 @@ public class FunctionSet {
         return null;
     }
 
+    public boolean isAIResourceFunction(String fnName) {
+        List<Function> fns = vectorizedFunctions.get(fnName);
+        if (fns == null) {
+            return false;
+        }
+        return fns.stream().anyMatch(f -> TAIModelSource.RESOURCE == f.getAiModelSource());
+    }
+
     public Function getFunction(Function desc, Function.CompareMode mode) {
         List<Function> fns = vectorizedFunctions.get(desc.functionName());
         if (desc.hasNamedArg() && fns != null && !fns.isEmpty()) {
@@ -1012,6 +1028,24 @@ public class FunctionSet {
 
         List<Type> argsType = Arrays.stream(args).collect(Collectors.toList());
         addVectorizedBuiltin(ScalarFunction.createVectorizedBuiltin(fid, fnName, argsType, varArgs, retType));
+    }
+
+    public void addVectorizedAIScalarBuiltin(long fid, String fnName, boolean varArgs,
+                                              TAIModelSource modelSource, Type retType, Type... args) {
+        Preconditions.checkState(nonDeterministicFunctions.contains(fnName),
+                "AI function %s must be in nonDeterministicFunctions (check functions.py)", fnName);
+        List<Function> existing = vectorizedFunctions.get(fnName);
+        if (existing != null && !existing.isEmpty()) {
+            TAIModelSource existingSource = existing.get(0).getAiModelSource();
+            Preconditions.checkState(existingSource == null || existingSource == modelSource,
+                    "AI function %s cannot mix SYSTEM and RESOURCE model sources", fnName);
+        }
+        List<Type> argsType = Arrays.stream(args).collect(Collectors.toList());
+        ScalarFunction fn = ScalarFunction.createVectorizedBuiltin(fid, fnName, argsType, varArgs, retType);
+        fn.setBinaryType(TFunctionBinaryType.AI);
+        fn.setAiModelSource(modelSource);
+        fn.setUseNonDetUniqueId(false);
+        addVectorizedBuiltin(fn);
     }
 
     private void addVectorizedBuiltin(Function fn) {

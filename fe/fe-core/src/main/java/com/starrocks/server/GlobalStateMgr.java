@@ -2514,6 +2514,10 @@ public class GlobalStateMgr {
         return functionSet.isNotAlwaysNullResultWithNullParamFunctions(funcName);
     }
 
+    public boolean isAIResourceFunction(String fnName) {
+        return functionSet.isAIResourceFunction(fnName);
+    }
+
     public void refreshExternalTable(ConnectContext context, RefreshTableStmt stmt) throws DdlException {
         TableName tableName = stmt.getTableName();
         List<String> partitionNames = stmt.getPartitions();

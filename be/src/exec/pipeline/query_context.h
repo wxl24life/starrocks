@@ -18,6 +18,7 @@
 #include <chrono>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <unordered_map>
 
 #include "exec/pipeline/fragment_context.h"
@@ -199,6 +200,31 @@ public:
         _total_scan_bytes += scan_bytes;
         _delta_scan_bytes += scan_bytes;
     }
+    void add_ai_function_total_token_usage(int64_t token_usage) {
+        _ai_function_total_token_usage.fetch_add(token_usage, std::memory_order_relaxed);
+    }
+    void add_ai_function_prompt_token_usage(int64_t token_usage) {
+        _ai_function_prompt_token_usage.fetch_add(token_usage, std::memory_order_relaxed);
+    }
+    void add_ai_function_completion_token_usage(int64_t token_usage) {
+        _ai_function_completion_token_usage.fetch_add(token_usage, std::memory_order_relaxed);
+    }
+    void add_ai_function_cached_token_usage(int64_t token_usage) {
+        _ai_function_cached_token_usage.fetch_add(token_usage, std::memory_order_relaxed);
+    }
+    void add_ai_cache_hits(int64_t count) { _ai_cache_hit_count.fetch_add(count, std::memory_order_relaxed); }
+    void add_ai_http_calls(int64_t count) { _ai_http_call_count.fetch_add(count, std::memory_order_relaxed); }
+    void add_ai_error_rows(int64_t count, const std::string& first_error) {
+        _ai_error_rows.fetch_add(count, std::memory_order_relaxed);
+        if (!first_error.empty()) {
+            std::lock_guard<std::mutex> lock(_ai_error_mutex);
+            if (_ai_first_error.empty()) {
+                _ai_first_error = first_error.substr(0, 256);
+            }
+        }
+    }
+    void add_ai_token_usage_by_key(const std::string& function_name, const std::string& model, int64_t total,
+                                   int64_t prompt, int64_t completion, int64_t cached);
 
     void incr_transmitted_bytes(int64_t transmitted_bytes) { _total_transmitted_bytes += transmitted_bytes; }
 
@@ -257,6 +283,17 @@ public:
     std::atomic_int64_t* mutable_total_spill_bytes() { return &_total_spill_bytes; }
     int64_t get_spill_bytes() { return _total_spill_bytes; }
     int64_t get_transmitted_bytes() { return _total_transmitted_bytes; }
+    int64_t ai_function_total_token_usage() const { return _ai_function_total_token_usage; }
+    int64_t ai_function_prompt_token_usage() const { return _ai_function_prompt_token_usage; }
+    int64_t ai_function_completion_token_usage() const { return _ai_function_completion_token_usage; }
+    int64_t ai_cache_hit_count() const { return _ai_cache_hit_count; }
+    int64_t ai_http_call_count() const { return _ai_http_call_count; }
+    int64_t ai_function_cached_token_usage() const { return _ai_function_cached_token_usage; }
+    int64_t ai_error_rows() const { return _ai_error_rows; }
+    std::string ai_first_error() const {
+        std::lock_guard<std::mutex> lock(_ai_error_mutex);
+        return _ai_first_error;
+    }
 
     // Query start time, used to check how long the query has been running
     // To ensure that the minimum run time of the query will not be killed by the big query checking mechanism
@@ -339,6 +376,24 @@ private:
     std::atomic<int64_t> _delta_cpu_cost_ns = 0;
     std::atomic<int64_t> _delta_scan_rows_num = 0;
     std::atomic<int64_t> _delta_scan_bytes = 0;
+    std::atomic<int64_t> _ai_function_total_token_usage = 0;
+    std::atomic<int64_t> _ai_function_prompt_token_usage = 0;
+    std::atomic<int64_t> _ai_function_completion_token_usage = 0;
+    std::atomic<int64_t> _ai_cache_hit_count = 0;
+    std::atomic<int64_t> _ai_http_call_count = 0;
+    std::atomic<int64_t> _ai_function_cached_token_usage = 0;
+    std::atomic<int64_t> _ai_error_rows = 0;
+    mutable std::mutex _ai_error_mutex;
+    std::string _ai_first_error;
+
+    struct AITokenUsage {
+        int64_t total = 0;
+        int64_t prompt = 0;
+        int64_t completion = 0;
+        int64_t cached = 0;
+    };
+    std::mutex _ai_token_usage_mutex;
+    std::unordered_map<std::string, AITokenUsage> _ai_token_usage_by_key;
 
     struct ScanStats {
         std::atomic<int64_t> total_scan_rows_num = 0;

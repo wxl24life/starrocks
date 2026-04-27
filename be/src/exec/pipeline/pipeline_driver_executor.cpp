@@ -328,6 +328,38 @@ void GlobalDriverExecutor::report_exec_state(QueryContext* query_ctx, FragmentCo
                 "QuerySpillBytes", TUnit::BYTES,
                 RuntimeProfile::Counter::create_strategy(TUnit::BYTES, TCounterMergeType::SKIP_FIRST_MERGE));
         query_spill_bytes->set(query_ctx->get_spill_bytes());
+        if (query_ctx->ai_function_total_token_usage() > 0) {
+            auto* ai_tokens = profile->add_counter(
+                    "QueryAiTokenUsage", TUnit::UNIT,
+                    RuntimeProfile::Counter::create_strategy(TUnit::UNIT, TCounterMergeType::SKIP_FIRST_MERGE));
+            ai_tokens->set(query_ctx->ai_function_total_token_usage());
+            auto* ai_prompt = profile->add_counter(
+                    "QueryAiPromptTokens", TUnit::UNIT,
+                    RuntimeProfile::Counter::create_strategy(TUnit::UNIT, TCounterMergeType::SKIP_FIRST_MERGE));
+            ai_prompt->set(query_ctx->ai_function_prompt_token_usage());
+            auto* ai_completion = profile->add_counter(
+                    "QueryAiCompletionTokens", TUnit::UNIT,
+                    RuntimeProfile::Counter::create_strategy(TUnit::UNIT, TCounterMergeType::SKIP_FIRST_MERGE));
+            ai_completion->set(query_ctx->ai_function_completion_token_usage());
+            auto* ai_cached = profile->add_counter(
+                    "QueryAiCachedTokens", TUnit::UNIT,
+                    RuntimeProfile::Counter::create_strategy(TUnit::UNIT, TCounterMergeType::SKIP_FIRST_MERGE));
+            ai_cached->set(query_ctx->ai_function_cached_token_usage());
+            auto* ai_http_calls = profile->add_counter(
+                    "QueryAiHttpCalls", TUnit::UNIT,
+                    RuntimeProfile::Counter::create_strategy(TUnit::UNIT, TCounterMergeType::SKIP_FIRST_MERGE));
+            ai_http_calls->set(query_ctx->ai_http_call_count());
+            auto* ai_cache_hits = profile->add_counter(
+                    "QueryAiCacheHits", TUnit::UNIT,
+                    RuntimeProfile::Counter::create_strategy(TUnit::UNIT, TCounterMergeType::SKIP_FIRST_MERGE));
+            ai_cache_hits->set(query_ctx->ai_cache_hit_count());
+        }
+        if (query_ctx->ai_error_rows() > 0) {
+            auto* ai_errors = profile->add_counter(
+                    "QueryAiErrorRows", TUnit::UNIT,
+                    RuntimeProfile::Counter::create_strategy(TUnit::UNIT, TCounterMergeType::SKIP_FIRST_MERGE));
+            ai_errors->set(query_ctx->ai_error_rows());
+        }
         // Add execution wall time
         auto* query_exec_wall_time = profile->add_counter(
                 "QueryExecutionWallTime", TUnit::TIME_NS,

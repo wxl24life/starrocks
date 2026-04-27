@@ -578,6 +578,9 @@ public class ScalarOperatorToExpr {
             }
             callExpr.setType(call.getType());
             hackTypeNull(callExpr);
+            if (callExpr instanceof FunctionCallExpr && call.getAiModelConfigId() != null) {
+                ((FunctionCallExpr) callExpr).setAiModelConfigId(call.getAiModelConfigId());
+            }
             return callExpr;
         }
 

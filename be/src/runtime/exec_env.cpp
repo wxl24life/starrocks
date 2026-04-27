@@ -50,6 +50,9 @@
 #include "exec/pipeline/pipeline_driver_executor.h"
 #include "exec/pipeline/query_context.h"
 #include "exec/pipeline/schedule/pipeline_timer.h"
+#include "exprs/ai/ai_channel_pool.h"
+#include "exprs/ai/ai_rate_limiter.h"
+#include "exprs/ai/ai_result_cache.h"
 #include "exec/spill/dir_manager.h"
 #include "exec/workgroup/pipeline_executor_set.h"
 #include "exec/workgroup/scan_executor.h"
@@ -927,6 +930,10 @@ void ExecEnv::stop() {
         _profile_report_worker->close();
         component_times.emplace_back("profile_report_worker", MonotonicMillis() - start);
     }
+
+    AIRateLimiter::instance()->shutdown();
+    AIResultCache::instance()->shutdown();
+    AIChannelPool::instance()->shutdown();
 
     if (_automatic_partition_pool) {
         start = MonotonicMillis();

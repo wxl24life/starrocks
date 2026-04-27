@@ -121,6 +121,9 @@ public class CurrentQueryInfoProvider {
                     if (queryStatistics.spillBytes != null) {
                         statistics.updateSpillBytes(queryStatistics.spillBytes);
                     }
+                    if (queryStatistics.aiTokenUsage != null) {
+                        statistics.updateAiTokenUsage(queryStatistics.aiTokenUsage);
+                    }
                     final Request request = pair.first;
                     String host = String.format("%s:%d",
                             request.getAddress().getHostname(), request.getAddress().getPort());
@@ -216,6 +219,9 @@ public class CurrentQueryInfoProvider {
                         if (queryStatistics.spillBytes != null) {
                             statistics.updateSpillBytes(queryStatistics.spillBytes);
                         }
+                        if (queryStatistics.aiTokenUsage != null) {
+                            statistics.updateAiTokenUsage(queryStatistics.aiTokenUsage);
+                        }
                     }
                 }
             } catch (InterruptedException e) {
@@ -238,6 +244,7 @@ public class CurrentQueryInfoProvider {
         long scanRows = 0;
         long memUsageBytes = 0;
         long spillBytes = 0;
+        long aiTokenUsage = 0;
 
         public QueryStatistics() {
 
@@ -281,6 +288,14 @@ public class CurrentQueryInfoProvider {
 
         public long getSpillBytes() {
             return spillBytes;
+        }
+
+        public void updateAiTokenUsage(long value) {
+            aiTokenUsage += value;
+        }
+
+        public long getAiTokenUsage() {
+            return aiTokenUsage;
         }
     }
 

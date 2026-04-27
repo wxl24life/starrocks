@@ -65,6 +65,7 @@
 #include "exec/olap_scan_node.h"
 #include "exec/pipeline/chunk_accumulate_operator.h"
 #include "exec/pipeline/pipeline_builder.h"
+#include "exec/ai_project_node.h"
 #include "exec/project_node.h"
 #include "exec/raw_values_node.h"
 #include "exec/repeat_node.h"
@@ -499,6 +500,9 @@ Status ExecNode::create_vectorized_node(starrocks::RuntimeState* state, starrock
         return Status::OK();
     case TPlanNodeType::PROJECT_NODE:
         *node = pool->add(new ProjectNode(pool, tnode, descs));
+        return Status::OK();
+    case TPlanNodeType::AI_PROJECT_NODE:
+        *node = pool->add(new AIProjectNode(pool, tnode, descs));
         return Status::OK();
     case TPlanNodeType::TABLE_FUNCTION_NODE:
         *node = pool->add(new TableFunctionNode(pool, tnode, descs));

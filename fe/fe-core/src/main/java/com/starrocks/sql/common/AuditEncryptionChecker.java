@@ -17,6 +17,7 @@ import com.google.common.base.Strings;
 import com.starrocks.analysis.BrokerDesc;
 import com.starrocks.analysis.ParseNode;
 import com.starrocks.connector.share.credential.CloudConfigurationConstants;
+import com.starrocks.sql.ast.AlterResourceStmt;
 import com.starrocks.sql.ast.AlterStorageVolumeStmt;
 import com.starrocks.sql.ast.AstVisitor;
 import com.starrocks.sql.ast.BaseCreateAlterUserStmt;
@@ -169,6 +170,11 @@ public class AuditEncryptionChecker implements AstVisitor<Boolean, Void> {
 
     @Override
     public Boolean visitCreateResourceStatement(CreateResourceStmt statement, Void context) {
+        return true;
+    }
+
+    @Override
+    public Boolean visitAlterResourceStatement(AlterResourceStmt statement, Void context) {
         return true;
     }
 

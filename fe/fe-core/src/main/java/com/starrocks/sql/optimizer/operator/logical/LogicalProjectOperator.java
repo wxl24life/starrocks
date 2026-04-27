@@ -34,8 +34,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-public final class LogicalProjectOperator extends LogicalOperator {
-    private Map<ColumnRefOperator, ScalarOperator> columnRefMap;
+public class LogicalProjectOperator extends LogicalOperator {
+    protected Map<ColumnRefOperator, ScalarOperator> columnRefMap;
 
     public LogicalProjectOperator(Map<ColumnRefOperator, ScalarOperator> columnRefMap) {
         super(OperatorType.LOGICAL_PROJECT);
@@ -46,6 +46,15 @@ public final class LogicalProjectOperator extends LogicalOperator {
         super(OperatorType.LOGICAL_PROJECT);
         this.columnRefMap = columnRefMap;
         this.limit = limit;
+    }
+
+    protected LogicalProjectOperator(OperatorType opType, Map<ColumnRefOperator, ScalarOperator> columnRefMap) {
+        super(opType);
+        this.columnRefMap = columnRefMap;
+    }
+
+    protected LogicalProjectOperator(OperatorType opType) {
+        super(opType);
     }
 
     private LogicalProjectOperator() {

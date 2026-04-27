@@ -16,6 +16,7 @@
 #include <utility>
 
 #include "exec/pipeline/pipeline.h"
+#include "common/config.h"
 #include "exec/pipeline/pipeline_driver_executor.h"
 #include "exec/pipeline/pipeline_metrics.h"
 #include "exec/workgroup/scan_executor.h"
@@ -79,10 +80,10 @@ PipelineExecutorSet::~PipelineExecutorSet() {
 
 std::string PipelineExecutorSet::to_string() const {
     return fmt::format(
-            "([name={}] [num_driver_threads={}] [num_scan_threads={}] [num_connector_scan_threads={}] [cpuids={}] "
-            "[conf={}])",
-            _name, num_driver_threads(), num_scan_threads(), num_connector_scan_threads(), CpuUtil::to_string(_cpuids),
-            _conf.to_string());
+            "([name={}] [num_driver_threads={}] [num_scan_threads={}] [num_connector_scan_threads={}] "
+            "[num_ai_scan_threads={}] [cpuids={}] [conf={}])",
+            _name, num_driver_threads(), num_scan_threads(), num_connector_scan_threads(),
+            std::max<uint32_t>(1, config::ai_function_scan_thread_num), CpuUtil::to_string(_cpuids), _conf.to_string());
 }
 
 Status PipelineExecutorSet::start() {
@@ -133,12 +134,26 @@ Status PipelineExecutorSet::start() {
                                            _conf.metrics->get_connector_scan_executor_metrics());
     _connector_scan_executor->initialize(num_connector_scan_threads());
 
+    uint32_t ai_threads = std::max<uint32_t>(1, config::ai_function_scan_thread_num);
+    std::unique_ptr<ThreadPool> ai_scan_thread_pool;
+    RETURN_IF_ERROR(ThreadPoolBuilder("pip_ai_scan_" + _name)
+                            .set_min_threads(0)
+                            .set_max_threads(ai_threads)
+                            .set_max_queue_size(1000)
+                            .set_idle_timeout(MonoDelta::FromMilliseconds(2000))
+                            .build(&ai_scan_thread_pool));
+    _ai_scan_executor = std::make_unique<ScanExecutor>(std::move(ai_scan_thread_pool),
+                                                       std::make_unique<WorkGroupScanTaskQueue>(ScanSchedEntityType::AI),
+                                                       _conf.metrics->get_ai_scan_executor_metrics());
+    _ai_scan_executor->initialize(ai_threads);
+
     // Register thread pool metrics for the shared executor set only.
     // The shared executor set (name "com") lives for the process lifetime,
     // so the thread pool pointers remain valid.
     if (_name == "com") {
         REGISTER_THREAD_POOL_METRICS(scan, _scan_executor->thread_pool());
         REGISTER_THREAD_POOL_METRICS(connector_scan, _connector_scan_executor->thread_pool());
+        REGISTER_THREAD_POOL_METRICS(ai_scan, _ai_scan_executor->thread_pool());
     }
 
     LOG(INFO) << "[WORKGROUP] start executors " << to_string();
@@ -162,6 +177,10 @@ void PipelineExecutorSet::close() {
 
     if (_connector_scan_executor) {
         _connector_scan_executor->close();
+    }
+
+    if (_ai_scan_executor) {
+        _ai_scan_executor->close();
     }
 
     LOG(INFO) << "[WORKGROUP] close executors " << to_string();
@@ -192,6 +211,8 @@ void PipelineExecutorSet::notify_config_changed() const {
 
     _connector_scan_executor->bind_cpus(_cpuids, _borrowed_cpu_ids);
     _connector_scan_executor->change_num_threads(num_connector_scan_threads());
+
+    _ai_scan_executor->change_num_threads(std::max<uint32_t>(1, config::ai_function_scan_thread_num));
 
     LOG(INFO) << "[WORKGROUP] change cpus and threads of executors " << to_string();
 }

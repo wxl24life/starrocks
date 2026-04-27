@@ -63,6 +63,40 @@ QueryContext::~QueryContext() noexcept {
                     print_id(query_id()), lifetime(), cpu_cost(), mem_cost_bytes(), get_scan_bytes(),
                     get_spill_bytes());
         }
+        if (ai_function_total_token_usage() > 0) {
+            std::string detail;
+            {
+                std::lock_guard lock(_ai_token_usage_mutex);
+                std::vector<std::string> sorted_keys;
+                sorted_keys.reserve(_ai_token_usage_by_key.size());
+                for (const auto& [key, _] : _ai_token_usage_by_key) {
+                    sorted_keys.emplace_back(key);
+                }
+                std::sort(sorted_keys.begin(), sorted_keys.end());
+                for (const auto& key : sorted_keys) {
+                    const auto& usage = _ai_token_usage_by_key[key];
+                    std::string label = key;
+                    auto sep = key.find('|');
+                    std::string func_name = sep != std::string::npos ? key.substr(0, sep) : key;
+                    std::string model_name = sep != std::string::npos ? key.substr(sep + 1) : "unknown";
+                    if (sep != std::string::npos) {
+                        label = func_name + "(" + model_name + ")";
+                    }
+                    if (!detail.empty()) detail += " | ";
+                    detail += fmt::format("{} total={} prompt={} completion={} cached={}", label, usage.total,
+                                         usage.prompt, usage.completion, usage.cached);
+                    LOG(INFO) << fmt::format(
+                            "ai_query_detail query_id:{} func:{} model:{} total={} prompt={} completion={} cached={}",
+                            print_id(query_id()), func_name, model_name, usage.total, usage.prompt, usage.completion,
+                            usage.cached);
+                }
+            }
+            LOG(INFO) << fmt::format(
+                    "finished ai function query_id:{} token usage total={} prompt={} completion={} cached={} {}",
+                    print_id(query_id()), ai_function_total_token_usage(), ai_function_prompt_token_usage(),
+                    ai_function_completion_token_usage(), ai_function_cached_token_usage(),
+                    detail.empty() ? "" : "[ " + detail + " ]");
+        }
     }
 
     {
@@ -83,6 +117,17 @@ QueryContext::~QueryContext() noexcept {
     if (_connector_scan_mem_tracker != nullptr) {
         _connector_scan_mem_tracker->release_without_root();
     }
+}
+
+void QueryContext::add_ai_token_usage_by_key(const std::string& function_name, const std::string& model,
+                                             int64_t total, int64_t prompt, int64_t completion, int64_t cached) {
+    std::string key = function_name + "|" + (model.empty() ? "unknown" : model);
+    std::lock_guard lock(_ai_token_usage_mutex);
+    auto& u = _ai_token_usage_by_key[key];
+    u.total += total;
+    u.prompt += prompt;
+    u.completion += completion;
+    u.cached += cached;
 }
 
 void QueryContext::count_down_fragments(QueryContextManager* query_context_mgr) {
@@ -270,6 +315,14 @@ std::shared_ptr<QueryStatistics> QueryContext::final_query_statistic() {
     res->add_mem_costs(mem_cost_bytes());
     res->add_spill_bytes(get_spill_bytes());
     res->add_transmitted_bytes(get_transmitted_bytes());
+    if (ai_function_total_token_usage() > 0) {
+        res->add_ai_token_usage(ai_function_total_token_usage(), ai_function_prompt_token_usage(),
+                                ai_function_completion_token_usage(), ai_function_cached_token_usage());
+    }
+    if (ai_error_rows() > 0) {
+        res->add_ai_error_rows(ai_error_rows());
+        res->set_ai_first_error(ai_first_error());
+    }
 
     {
         std::lock_guard l(_scan_stats_lock);
@@ -620,6 +673,9 @@ void QueryContextManager::collect_query_statistics(const PCollectQueryStatistics
             query_statistics->set_scan_bytes(scan_bytes);
             query_statistics->set_mem_usage_bytes(mem_usage_bytes);
             query_statistics->set_spill_bytes(query_ctx->get_spill_bytes());
+            if (query_ctx->ai_function_total_token_usage() > 0) {
+                query_statistics->set_ai_token_usage(query_ctx->ai_function_total_token_usage());
+            }
         }
     }
 }

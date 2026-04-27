@@ -97,6 +97,7 @@ public class QueryDetail implements Serializable {
     private long cpuCostNs = -1;
     private long memCostBytes = -1;
     private long spillBytes = -1;
+    private long aiTokenUsage = -1;
     private String warehouse = WarehouseManager.DEFAULT_WAREHOUSE_NAME;
     private String digest;
     private String catalog;
@@ -172,6 +173,7 @@ public class QueryDetail implements Serializable {
         queryDetail.cpuCostNs = this.cpuCostNs;
         queryDetail.memCostBytes = this.memCostBytes;
         queryDetail.spillBytes = this.spillBytes;
+        queryDetail.aiTokenUsage = this.aiTokenUsage;
         queryDetail.warehouse = this.warehouse;
         queryDetail.digest = this.digest;
         queryDetail.resourceGroupName = this.resourceGroupName;
@@ -377,6 +379,14 @@ public class QueryDetail implements Serializable {
 
     public void setSpillBytes(long spillBytes) {
         this.spillBytes = spillBytes;
+    }
+
+    public long getAiTokenUsage() {
+        return aiTokenUsage;
+    }
+
+    public void setAiTokenUsage(long aiTokenUsage) {
+        this.aiTokenUsage = aiTokenUsage;
     }
 
     public void setWarehouse(String warehouse) {

@@ -171,6 +171,8 @@ public class ScalarOperatorsReuse {
                     call.getChildren().stream().map(argument -> argument.accept(this, null)).collect(toImmutableList()),
                     call.getFunction(),
                     call.isDistinct(), call.isRemovedDistinct());
+            operator.setIgnoreNulls(call.getIgnoreNulls());
+            operator.setAiModelConfigId(call.getAiModelConfigId());
             return tryRewrite(operator);
         }
 

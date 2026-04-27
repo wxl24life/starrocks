@@ -69,8 +69,10 @@ import com.starrocks.common.LocalExchangerType;
 import com.starrocks.common.Pair;
 import com.starrocks.common.PatternMatcher;
 import com.starrocks.common.StarRocksException;
+import com.starrocks.common.util.DebugUtil;
 import com.starrocks.connector.metadata.MetadataTable;
 import com.starrocks.load.BrokerFileGroup;
+import com.starrocks.planner.AIProjectNode;
 import com.starrocks.planner.AggregationNode;
 import com.starrocks.planner.AnalyticEvalNode;
 import com.starrocks.planner.AssertNumRowsNode;
@@ -110,6 +112,7 @@ import com.starrocks.planner.PaimonScanNode;
 import com.starrocks.planner.PartitionIdGenerator;
 import com.starrocks.planner.PlanFragment;
 import com.starrocks.planner.PlanNode;
+import com.starrocks.planner.PlanNodeId;
 import com.starrocks.planner.ProjectNode;
 import com.starrocks.planner.RawValuesNode;
 import com.starrocks.planner.RepeatNode;
@@ -621,8 +624,42 @@ public class PlanFragmentBuilder {
             scanNode.setUnUsedOutputStringColumns(unUsedOutputColumnIds);
         }
 
+        @FunctionalInterface
+        private interface ProjectNodeFactory {
+            PlanNode create(PlanNodeId id, TupleDescriptor td, PlanNode child,
+                            Map<SlotId, Expr> slotMap, Map<SlotId, Expr> commonSlotMap);
+        }
+
         @Override
         public PlanFragment visitPhysicalProject(OptExpression optExpr, ExecPlan context) {
+            return buildProjectFragment(optExpr, context, ProjectNode::new);
+        }
+
+        @Override
+        public PlanFragment visitPhysicalAIProject(OptExpression optExpr, ExecPlan context) {
+            PlanFragment fragment = buildProjectFragment(optExpr, context, AIProjectNode::new);
+            PhysicalProjectOperator node = (PhysicalProjectOperator) optExpr.getOp();
+            PlanNode root = fragment.getPlanRoot();
+            String qid = "n/a";
+            if (context.getConnectContext() != null && context.getConnectContext().getQueryId() != null) {
+                qid = DebugUtil.printId(context.getConnectContext().getQueryId());
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(
+                        "[AI] phase=fe_build_ai_project query_id={} plan_node_id={} fragment_id={} "
+                                + "output_slots={} common_slots={} limit={}",
+                        qid,
+                        root.getId().asInt(),
+                        fragment.getFragmentId().asInt(),
+                        node.getColumnRefMap().size(),
+                        node.getCommonSubOperatorMap().size(),
+                        root.getLimit());
+            }
+            return fragment;
+        }
+
+        private PlanFragment buildProjectFragment(OptExpression optExpr, ExecPlan context,
+                                                   ProjectNodeFactory factory) {
             PhysicalProjectOperator node = (PhysicalProjectOperator) optExpr.getOp();
             PlanFragment inputFragment = visit(optExpr.inputAt(0), context);
 
@@ -662,12 +699,8 @@ public class PlanFragmentBuilder {
                 context.getColRefToExpr().put(entry.getKey(), new SlotRef(entry.getKey().toString(), slotDescriptor));
             }
 
-            ProjectNode projectNode =
-                    new ProjectNode(context.getNextNodeId(),
-                            tupleDescriptor,
-                            inputFragment.getPlanRoot(),
-                            projectMap,
-                            commonSubOperatorMap);
+            PlanNode projectNode = factory.create(context.getNextNodeId(),
+                    tupleDescriptor, inputFragment.getPlanRoot(), projectMap, commonSubOperatorMap);
 
             projectNode.setHasNullableGenerateChild();
             projectNode.computeStatistics(optExpr.getStatistics());
@@ -726,12 +759,8 @@ public class PlanFragmentBuilder {
                 context.getColRefToExpr().put(entry.getKey(), new SlotRef(entry.getKey().toString(), slotDescriptor));
             }
 
-            ProjectNode projectNode =
-                    new ProjectNode(context.getNextNodeId(),
-                            tupleDescriptor,
-                            inputFragment.getPlanRoot(),
-                            projectMap,
-                            commonSubOperatorMap);
+            PlanNode projectNode = new ProjectNode(context.getNextNodeId(),
+                    tupleDescriptor, inputFragment.getPlanRoot(), projectMap, commonSubOperatorMap);
 
             projectNode.setHasNullableGenerateChild();
 

@@ -106,14 +106,16 @@ WorkGroup::WorkGroup(std::string name, int64_t id, int64_t version, size_t cpu_l
           _spill_mem_limit_threshold(spill_mem_limit_threshold),
           _driver_sched_entity(this),
           _scan_sched_entity(this),
-          _connector_scan_sched_entity(this) {}
+          _connector_scan_sched_entity(this),
+          _ai_scan_sched_entity(this) {}
 
 WorkGroup::WorkGroup(const TWorkGroup& twg)
         : _name(twg.name),
           _id(twg.id),
           _driver_sched_entity(this),
           _scan_sched_entity(this),
-          _connector_scan_sched_entity(this) {
+          _connector_scan_sched_entity(this),
+          _ai_scan_sched_entity(this) {
     if (twg.__isset.cpu_core_limit && twg.cpu_core_limit > 0) {
         _cpu_weight = twg.cpu_core_limit;
     }
@@ -194,6 +196,7 @@ void WorkGroup::init() {
             StarRocksMetrics::instance()->get_pipeline_executor_metrics()->get_driver_queue_metrics()));
     _scan_sched_entity.set_queue(workgroup::create_scan_task_queue());
     _connector_scan_sched_entity.set_queue(workgroup::create_scan_task_queue());
+    _ai_scan_sched_entity.set_queue(workgroup::create_scan_task_queue());
 
     _connector_scan_mem_tracker =
             std::make_shared<MemTracker>(MemTrackerType::RESOURCE_GROUP, _memory_limit_bytes, _name + "/connector_scan",

@@ -148,6 +148,19 @@ public class AuditEvent {
     public String features;
     @AuditField(value = "PredictMemBytes", ignore_zero = true)
     public long predictMemBytes = 0;
+    // AI function token usage
+    @AuditField(value = "AiTokenUsage", ignore_zero = true)
+    public long aiTokenUsage = 0;
+    @AuditField(value = "AiPromptTokens", ignore_zero = true)
+    public long aiPromptTokens = 0;
+    @AuditField(value = "AiCompletionTokens", ignore_zero = true)
+    public long aiCompletionTokens = 0;
+    @AuditField(value = "AiCachedTokens", ignore_zero = true)
+    public long aiCachedTokens = 0;
+    @AuditField(value = "AiErrorRows", ignore_zero = true)
+    public long aiErrorRows = 0;
+    @AuditField(value = "AiFirstError", ignore_zero = true)
+    public String aiFirstError = "";
 
     @AuditField(value = "IsForwardToLeader")
     public boolean isForwardToLeader = false;
@@ -311,6 +324,22 @@ public class AuditEvent {
             return this;
         }
 
+        public AuditEventBuilder addAiTokenUsage(long total, long prompt, long completion, long cached) {
+            auditEvent.aiTokenUsage += total;
+            auditEvent.aiPromptTokens += prompt;
+            auditEvent.aiCompletionTokens += completion;
+            auditEvent.aiCachedTokens += cached;
+            return this;
+        }
+
+        public AuditEventBuilder setAiError(long errorRows, String firstError) {
+            auditEvent.aiErrorRows += errorRows;
+            if (firstError != null && !firstError.isEmpty() && auditEvent.aiFirstError.isEmpty()) {
+                auditEvent.aiFirstError = firstError;
+            }
+            return this;
+        }
+
         public AuditEventBuilder setWarehouse(String warehouse) {
             auditEvent.warehouse = warehouse;
             return this;
@@ -452,6 +481,12 @@ public class AuditEvent {
             this.auditEvent.spilledBytes = event.spilledBytes;
             this.auditEvent.returnRows = event.returnRows;
             this.auditEvent.transmittedBytes = event.transmittedBytes;
+            this.auditEvent.aiTokenUsage = event.aiTokenUsage;
+            this.auditEvent.aiPromptTokens = event.aiPromptTokens;
+            this.auditEvent.aiCompletionTokens = event.aiCompletionTokens;
+            this.auditEvent.aiCachedTokens = event.aiCachedTokens;
+            this.auditEvent.aiErrorRows = event.aiErrorRows;
+            this.auditEvent.aiFirstError = event.aiFirstError;
         }
     }
 }

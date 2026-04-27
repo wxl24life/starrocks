@@ -39,6 +39,10 @@ public abstract class OptExpressionVisitor<R, C> {
         return visit(optExpression, context);
     }
 
+    public R visitLogicalAIProject(OptExpression optExpression, C context) {
+        return visitLogicalProject(optExpression, context);
+    }
+
     public R visitLogicalFilter(OptExpression optExpression, C context) {
         return visit(optExpression, context);
     }
@@ -192,6 +196,10 @@ public abstract class OptExpressionVisitor<R, C> {
 
     public R visitPhysicalProject(OptExpression optExpression, C context) {
         return visit(optExpression, context);
+    }
+
+    public R visitPhysicalAIProject(OptExpression optExpression, C context) {
+        return visitPhysicalProject(optExpression, context);
     }
 
     public R visitPhysicalHashAggregate(OptExpression optExpression, C context) {

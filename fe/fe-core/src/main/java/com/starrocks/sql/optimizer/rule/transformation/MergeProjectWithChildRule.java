@@ -42,9 +42,12 @@ public class MergeProjectWithChildRule extends TransformationRule {
         if (!input.getInputs().isEmpty() &&
                 input.getInputs().get(0).getOp().getOpType() == OperatorType.LOGICAL_META_SCAN) {
             return false;
-        } else {
-            return true;
         }
+        // This rule merges a Project into its child's Projection.
+        // LogicalProjectOperator.Builder.setProjection() rejects projection assignment,
+        // so skip when the child is a Project (handled by MergeTwoProjectRule instead).
+        // This also naturally prevents merging into LogicalAIProjectOperator children.
+        return !(input.inputAt(0).getOp() instanceof LogicalProjectOperator);
     }
 
     @Override

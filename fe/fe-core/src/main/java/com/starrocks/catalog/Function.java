@@ -47,6 +47,7 @@ import com.starrocks.common.Pair;
 import com.starrocks.common.io.Text;
 import com.starrocks.common.io.Writable;
 import com.starrocks.sql.ast.HdfsURI;
+import com.starrocks.thrift.TAIModelSource;
 import com.starrocks.thrift.TFunction;
 import com.starrocks.thrift.TFunctionBinaryType;
 import org.apache.commons.lang.ArrayUtils;
@@ -144,6 +145,7 @@ public class Function implements Writable {
     // aggStateDesc is used for combinator to generate the nested aggregated function.
     @SerializedName(value = "aggStateDesc")
     protected AggStateDesc aggStateDesc;
+    private TAIModelSource aiModelSource;
 
     // Function id, every function has a unique id. Now all built-in functions' id is 0
     private long id = 0;
@@ -156,6 +158,13 @@ public class Function implements Writable {
     private boolean couldApplyDictOptimize = false;
 
     private boolean isNullable = true;
+
+    // Whether the optimizer should inject a hidden unique-ID argument so that
+    // identical non-deterministic calls are not merged by CSE.  Defaults to true
+    // for all nonDeterministicFunctions.  Set to false for function types (e.g.
+    // AI functions) that manage deduplication externally and whose BE
+    // implementations are sensitive to extra trailing arguments.
+    private boolean useNonDetUniqueId = true;
 
     private Vector<Pair<String, Expr>> defaultArgExprs;
 
@@ -238,6 +247,8 @@ public class Function implements Writable {
         isNullable = other.isNullable;
         isMetaFunction = other.isMetaFunction;
         aggStateDesc = other.aggStateDesc;
+        aiModelSource = other.aiModelSource;
+        useNonDetUniqueId = other.useNonDetUniqueId;
     }
 
     public FunctionName getFunctionName() {
@@ -287,6 +298,22 @@ public class Function implements Writable {
 
     public void setBinaryType(TFunctionBinaryType type) {
         binaryType = type;
+    }
+
+    public TAIModelSource getAiModelSource() {
+        return aiModelSource;
+    }
+
+    public void setAiModelSource(TAIModelSource source) {
+        this.aiModelSource = source;
+    }
+
+    public boolean isUseNonDetUniqueId() {
+        return useNonDetUniqueId;
+    }
+
+    public void setUseNonDetUniqueId(boolean useNonDetUniqueId) {
+        this.useNonDetUniqueId = useNonDetUniqueId;
     }
 
     public void setArgNames(List<String> names) {
@@ -754,6 +781,10 @@ public class Function implements Writable {
             fn.setAgg_state_desc(aggStateDesc.toThrift());
         }
         fn.setCould_apply_dict_optimize(couldApplyDictOptimize);
+        if (aiModelSource != null) {
+            fn.setAi_model_source(aiModelSource);
+        }
+
         return fn;
     }
 

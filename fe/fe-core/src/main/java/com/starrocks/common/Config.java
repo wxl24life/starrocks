@@ -4359,4 +4359,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, comment = "The threshold to flatten compound predicate from deep tree to a balanced tree to " +
             "avoid stack over flow")
     public static int compound_predicate_flatten_threshold = 512;
+
+    // ---- AI function default model config (managed by FE, passed to BE via TAIProjectNode) ----
+
+    @ConfField(mutable = true)
+    public static String ai_default_model_endpoint = "";
+
+    @ConfField(mutable = true)
+    public static String ai_default_model_name = "";
 }

@@ -86,6 +86,8 @@ enum TPlanNodeType {
   LAKE_META_SCAN_NODE,
   CAPTURE_VERSION_NODE,
   RAW_VALUES_NODE
+
+  AI_PROJECT_NODE,
 }
 
 // phases of an execution node
@@ -1271,6 +1273,27 @@ struct TProjectNode {
     2: optional map<Types.TSlotId, Exprs.TExpr> common_slot_map
 }
 
+// Unified AI model configuration for both SYSTEM and RESOURCE AI functions.
+// SYSTEM functions use a single entry keyed by "__system__".
+// RESOURCE functions use the resource name as key.
+// Fields marked SENSITIVE must not be logged or dumped.
+struct TAIModelConfiguration {
+    1: optional string endpoint
+    // SENSITIVE: Do not log or dump.
+    2: optional string api_key
+    3: optional string model
+    4: optional string extra_params
+    5: optional string provider
+}
+
+// AI Project node: async execution of AI scalar functions via AIProjectOperator.
+struct TAIProjectNode {
+    1: optional map<Types.TSlotId, Exprs.TExpr> slot_map
+    2: optional map<Types.TSlotId, Exprs.TExpr> common_slot_map
+    // key: "__system__" for SYSTEM functions, resource name for RESOURCE functions
+    3: optional map<string, TAIModelConfiguration> ai_model_configs
+}
+
 struct TSelectNode {
      // used for common expressions compute result reuse
     1: optional map<Types.TSlotId, Exprs.TExpr> common_slot_map
@@ -1444,6 +1467,7 @@ struct TPlanNode {
   72: optional TStreamAggregationNode stream_agg_node;
 
   81: optional TSelectNode select_node;
+  82: optional TAIProjectNode ai_project_node;
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

@@ -14,6 +14,7 @@
 
 package com.starrocks.sql.optimizer.operator;
 
+import com.starrocks.sql.optimizer.operator.logical.LogicalAIProjectOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalAggregationOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalAssertOneRowOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalCTEAnchorOperator;
@@ -54,6 +55,7 @@ import com.starrocks.sql.optimizer.operator.logical.LogicalValuesOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalViewScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalWindowOperator;
 import com.starrocks.sql.optimizer.operator.logical.MockOperator;
+import com.starrocks.sql.optimizer.operator.physical.PhysicalAIProjectOperator;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalAssertOneRowOperator;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalCTEAnchorOperator;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalCTEConsumeOperator;
@@ -200,6 +202,10 @@ public abstract class OperatorVisitor<R, C> {
         return visitOperator(node, context);
     }
 
+    public R visitLogicalAIProject(LogicalAIProjectOperator node, C context) {
+        return visitLogicalProject(node, context);
+    }
+
     public R visitLogicalJoin(LogicalJoinOperator node, C context) {
         return visitOperator(node, context);
     }
@@ -285,6 +291,10 @@ public abstract class OperatorVisitor<R, C> {
 
     public R visitPhysicalProject(PhysicalProjectOperator node, C context) {
         return visitOperator(node, context);
+    }
+
+    public R visitPhysicalAIProject(PhysicalAIProjectOperator node, C context) {
+        return visitPhysicalProject(node, context);
     }
 
     public R visitPhysicalHashAggregate(PhysicalHashAggregateOperator node, C context) {

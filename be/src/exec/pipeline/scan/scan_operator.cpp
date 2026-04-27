@@ -499,6 +499,10 @@ Status ScanOperator::_trigger_next_scan(RuntimeState* state, int chunk_source_in
 
     task.set_query_type(state->query_options().query_type);
 
+    return _submit_scan_task(std::move(task), chunk_source_index);
+}
+
+Status ScanOperator::_submit_scan_task(workgroup::ScanTask task, int chunk_source_index) {
     bool submit_success;
     {
         SCOPED_TIMER(_submit_io_task_timer);

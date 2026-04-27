@@ -16,6 +16,8 @@ package com.starrocks.sql.optimizer.rule;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.starrocks.sql.optimizer.operator.OperatorType;
+import com.starrocks.sql.optimizer.rule.implementation.AIProjectImplementationRule;
 import com.starrocks.sql.optimizer.rule.implementation.AssertOneRowImplementationRule;
 import com.starrocks.sql.optimizer.rule.implementation.CTEAnchorImplementationRule;
 import com.starrocks.sql.optimizer.rule.implementation.CTEAnchorToNoCTEImplementationRule;
@@ -70,6 +72,8 @@ import com.starrocks.sql.optimizer.rule.transformation.EliminateLimitZeroRule;
 import com.starrocks.sql.optimizer.rule.transformation.ExistentialApply2JoinRule;
 import com.starrocks.sql.optimizer.rule.transformation.ExistentialApply2OuterJoinRule;
 import com.starrocks.sql.optimizer.rule.transformation.ExternalScanPartitionPruneRule;
+import com.starrocks.sql.optimizer.rule.transformation.ExtractAiFunctionFromFilterRule;
+import com.starrocks.sql.optimizer.rule.transformation.ExtractNestedAiFunctionFromProjectRule;
 import com.starrocks.sql.optimizer.rule.transformation.FineGrainedRangePredicateRule;
 import com.starrocks.sql.optimizer.rule.transformation.GroupByCountDistinctDataSkewEliminateRule;
 import com.starrocks.sql.optimizer.rule.transformation.InlineOneCTEConsumeRule;
@@ -193,6 +197,7 @@ public class RuleSet {
             new TableFunctionTableScanImplementationRule(),
             new HashAggImplementationRule(),
             new ProjectImplementationRule(),
+            new AIProjectImplementationRule(),
             new TopNImplementationRule(),
             new AssertOneRowImplementationRule(),
             new WindowImplementationRule(),
@@ -218,6 +223,8 @@ public class RuleSet {
 
     public static final Rule MERGE_LIMIT_RULES = new CombinationRule(RuleType.GP_MERGE_LIMIT, ImmutableList.of(
             new PushDownProjectLimitRule(),
+            new PushDownProjectLimitRule(RuleType.TF_PUSH_DOWN_AI_PROJECT_LIMIT,
+                    OperatorType.LOGICAL_AI_PROJECT),
             new EliminateLimitZeroRule(), // should before MergeLimitWithSortRule
             new MergeLimitWithSortRule(),
             new SplitLimitRule(),
@@ -244,6 +251,8 @@ public class RuleSet {
             new PruneScanColumnRule(),
             new PruneHDFSScanColumnRule(),
             new PruneProjectColumnsRule(),
+            new PruneProjectColumnsRule(RuleType.TF_PRUNE_AI_PROJECT_COLUMNS,
+                    OperatorType.LOGICAL_AI_PROJECT),
             new PruneFilterColumnsRule(),
             new PruneUKFKGroupByKeysRule(), // Put this before PruneAggregateColumnsRule
             new PruneAggregateColumnsRule(),
@@ -262,6 +271,8 @@ public class RuleSet {
 
     public static final Rule PUSH_DOWN_PREDICATE_RULES =
             new CombinationRule(RuleType.GP_PUSH_DOWN_PREDICATE, ImmutableList.of(
+                    new ExtractAiFunctionFromFilterRule(),
+                    new ExtractNestedAiFunctionFromProjectRule(),
                     new CastToEmptyRule(),
                     new PruneTrueFilterRule(),
                     new PushDownPredicateCTEAnchor(),
@@ -390,6 +401,8 @@ public class RuleSet {
                     new PushDownPredicateScanRule(),
                     new CastToEmptyRule(),
                     new PruneProjectColumnsRule(),
+                    new PruneProjectColumnsRule(RuleType.TF_PRUNE_AI_PROJECT_COLUMNS,
+                            OperatorType.LOGICAL_AI_PROJECT),
                     new PruneScanColumnRule(),
                     new PruneProjectEmptyRule(),
                     new MergeTwoProjectRule(),

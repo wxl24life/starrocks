@@ -125,6 +125,7 @@ void PipelineExecutorMetrics::register_all_metrics(MetricRegistry* registry) {
     driver_executor_metrics.register_all_metrics(registry);
     scan_executor_metrics.register_all_metrics(registry, "scan");
     connector_scan_executor_metrics.register_all_metrics(registry, "connector_scan");
+    ai_scan_executor_metrics.register_all_metrics(registry, "ai_scan");
     exec_state_reporter_metrics.register_all_metrics();
 }
 

@@ -1037,6 +1037,16 @@ public class StmtExecutor {
         context.getAuditEventBuilder().addSpilledBytes(execStats.spillBytes != null ? execStats.spillBytes : 0);
         context.getAuditEventBuilder().setReturnRows(execStats.returnedRows == null ? 0 : execStats.returnedRows);
         context.getAuditEventBuilder().addTransmittedBytes(execStats.transmittedBytes != null ? execStats.transmittedBytes : 0);
+        context.getAuditEventBuilder().addAiTokenUsage(
+                execStats.aiTokenUsage != null ? execStats.aiTokenUsage : 0,
+                execStats.aiPromptTokens != null ? execStats.aiPromptTokens : 0,
+                execStats.aiCompletionTokens != null ? execStats.aiCompletionTokens : 0,
+                execStats.aiCachedTokens != null ? execStats.aiCachedTokens : 0);
+        if (execStats.aiErrorRows != null && execStats.aiErrorRows > 0) {
+            context.getAuditEventBuilder().setAiError(
+                    execStats.aiErrorRows,
+                    execStats.aiFirstError != null ? execStats.aiFirstError : "");
+        }
     }
 
     private void postStmtEvent(StatementBase statementBase) {
@@ -2510,6 +2520,18 @@ public class StmtExecutor {
         if (statisticsForAuditLog.spillBytes == null) {
             statisticsForAuditLog.spillBytes = 0L;
         }
+        if (statisticsForAuditLog.aiTokenUsage == null) {
+            statisticsForAuditLog.aiTokenUsage = 0L;
+        }
+        if (statisticsForAuditLog.aiPromptTokens == null) {
+            statisticsForAuditLog.aiPromptTokens = 0L;
+        }
+        if (statisticsForAuditLog.aiCompletionTokens == null) {
+            statisticsForAuditLog.aiCompletionTokens = 0L;
+        }
+        if (statisticsForAuditLog.aiCachedTokens == null) {
+            statisticsForAuditLog.aiCachedTokens = 0L;
+        }
         return statisticsForAuditLog;
     }
 
@@ -3313,6 +3335,7 @@ public class StmtExecutor {
             queryDetail.setCpuCostNs(statistics.cpuCostNs == null ? -1 : statistics.cpuCostNs);
             queryDetail.setMemCostBytes(statistics.memCostBytes == null ? -1 : statistics.memCostBytes);
             queryDetail.setSpillBytes(statistics.spillBytes == null ? -1 : statistics.spillBytes);
+            queryDetail.setAiTokenUsage(statistics.aiTokenUsage == null ? -1 : statistics.aiTokenUsage);
         }
         queryDetail.setCatalog(ctx.getCurrentCatalog());
 

@@ -59,6 +59,7 @@
 #include "exprs/dict_query_expr.h"
 #include "exprs/dictionary_get_expr.h"
 #include "exprs/dictmapping_expr.h"
+#include "exprs/ai_function_call_expr.h"
 #include "exprs/function_call_expr.h"
 #include "exprs/in_predicate.h"
 #include "exprs/info_func.h"
@@ -390,6 +391,8 @@ Status Expr::create_vectorized_expr(starrocks::ObjectPool* pool, const starrocks
             *expr = pool->add(new JavaFunctionCallExpr(texpr_node));
         } else if (texpr_node.fn.binary_type == TFunctionBinaryType::PYTHON) {
             *expr = pool->add(new ArrowFunctionCallExpr(texpr_node));
+        } else if (texpr_node.fn.binary_type == TFunctionBinaryType::AI) {
+            *expr = pool->add(new AIFunctionCallExpr(texpr_node));
         } else if (texpr_node.fn.name.function_name == "if") {
             *expr = pool->add(VectorizedConditionExprFactory::create_if_expr(texpr_node));
         } else if (texpr_node.fn.name.function_name == "nullif") {

@@ -29,10 +29,14 @@ import com.starrocks.analysis.NullLiteral;
 import com.starrocks.analysis.OrderByElement;
 import com.starrocks.analysis.StringLiteral;
 import com.starrocks.analysis.UserVariableExpr;
+import com.starrocks.authorization.AccessDeniedException;
+import com.starrocks.authorization.PrivilegeType;
+import com.starrocks.catalog.AIModelResource;
 import com.starrocks.catalog.AggregateFunction;
 import com.starrocks.catalog.ArrayType;
 import com.starrocks.catalog.Function;
 import com.starrocks.catalog.FunctionSet;
+import com.starrocks.catalog.Resource;
 import com.starrocks.catalog.ScalarFunction;
 import com.starrocks.catalog.StructField;
 import com.starrocks.catalog.StructType;
@@ -42,10 +46,13 @@ import com.starrocks.catalog.combinator.AggStateCombinator;
 import com.starrocks.catalog.combinator.AggStateMergeCombinator;
 import com.starrocks.catalog.combinator.AggStateUnionCombinator;
 import com.starrocks.catalog.combinator.AggStateUtils;
+import com.starrocks.common.Config;
 import com.starrocks.common.FeConstants;
 import com.starrocks.common.Pair;
+import com.starrocks.planner.AIProjectNode;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.SessionVariableConstants;
+import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.ast.ArrayExpr;
 import com.starrocks.sql.common.TypeManager;
 import com.starrocks.sql.optimizer.base.ColumnRefFactory;
@@ -178,6 +185,18 @@ public class FunctionAnalyzer {
                 throw new SemanticException(String.format("Resolved function %s has no wildcard decimal as return type",
                         fn.functionName()), functionCallExpr.getPos());
             }
+        }
+
+        if (functionCallExpr.getFn().getBinaryType() == com.starrocks.thrift.TFunctionBinaryType.AI
+                && functionCallExpr.getAiModelConfigId() == null) {
+            if (Config.ai_default_model_endpoint.isEmpty()) {
+                throw new SemanticException("AI function '" + functionCallExpr.getFnName().getFunction() +
+                        "' requires 'ai_default_model_endpoint' to be configured. " +
+                        "Set it via: ADMIN SET FRONTEND CONFIG " +
+                        "('ai_default_model_endpoint' = '<endpoint_url>')",
+                        functionCallExpr.getPos());
+            }
+            functionCallExpr.setAiModelConfigId(AIProjectNode.SYSTEM_CONFIG_ID);
         }
     }
 
@@ -904,6 +923,8 @@ public class FunctionAnalyzer {
                 argumentTypes[1] = Type.BOOLEAN;
                 fn = Expr.getBuiltinFunction(fnName, argumentTypes, Function.CompareMode.IS_IDENTICAL);
             }
+        } else if (GlobalStateMgr.getCurrentState().isAIResourceFunction(fnName)) {
+            expandAiResourceArgs(session, node, argumentTypes);
         }
         // add new argument types
         Arrays.stream(argumentTypes).forEach(newArgumentTypes::add);
@@ -985,6 +1006,46 @@ public class FunctionAnalyzer {
             return ((LargeIntLiteral) expr).getValue();
         }
         return null;
+    }
+
+    private static void expandAiResourceArgs(ConnectContext session, FunctionCallExpr node,
+                                             Type[] argumentTypes) {
+        if (node.getAiModelConfigId() != null) {
+            return;
+        }
+
+        Expr firstArg = node.getChild(0);
+        if (!(firstArg instanceof StringLiteral)) {
+            throw new SemanticException(
+                    "AI RESOURCE function's first argument (resource_name) must be a string literal");
+        }
+        String resourceName = ((StringLiteral) firstArg).getStringValue();
+
+        Resource resource = GlobalStateMgr.getCurrentState().getResourceMgr().getResource(resourceName);
+        if (resource == null) {
+            throw new SemanticException("AI model resource '" + resourceName + "' not found. " +
+                    "Please create it first via: CREATE EXTERNAL RESOURCE \"" + resourceName +
+                    "\" PROPERTIES (\"type\"=\"ai_model\", ...)");
+        }
+        if (!(resource instanceof AIModelResource)) {
+            throw new SemanticException("Resource '" + resourceName + "' is not an AI_MODEL resource, " +
+                    "actual type: " + resource.getType());
+        }
+        AIModelResource aiResource = (AIModelResource) resource;
+
+        try {
+            Authorizer.checkResourceAction(session, resourceName, PrivilegeType.USAGE);
+        } catch (AccessDeniedException e) {
+            throw new SemanticException("Access denied: you need USAGE privilege on RESOURCE '" +
+                    resourceName + "' to use it in AI functions");
+        }
+
+        StringLiteral modelLiteral = new StringLiteral(aiResource.getModel());
+        node.setChild(0, modelLiteral);
+        node.getParams().exprs().set(0, modelLiteral);
+        argumentTypes[0] = Type.VARCHAR;
+
+        node.setAiModelConfigId(resourceName);
     }
 
     public static Pair<Type[], Type> getArrayAggGroupConcatIntermediateType(String fnName,

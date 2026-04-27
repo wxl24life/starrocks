@@ -64,6 +64,7 @@ public:
     pipeline::DriverExecutor* driver_executor() const { return _driver_executor.get(); }
     ScanExecutor* scan_executor() const { return _scan_executor.get(); }
     ScanExecutor* connector_scan_executor() const { return _connector_scan_executor.get(); }
+    ScanExecutor* ai_scan_executor() const { return _ai_scan_executor.get(); }
 
     std::string to_string() const;
 
@@ -85,6 +86,7 @@ private:
     std::unique_ptr<pipeline::DriverExecutor> _driver_executor;
     std::unique_ptr<ScanExecutor> _scan_executor;
     std::unique_ptr<ScanExecutor> _connector_scan_executor;
+    std::unique_ptr<ScanExecutor> _ai_scan_executor;
 
     enum class Stage : uint8_t {
         CREATED = 0,

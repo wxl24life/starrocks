@@ -47,8 +47,14 @@ message PQueryStatistics {
     optional int64 mem_cost_bytes = 5;
     optional int64 spill_bytes = 6;
     optional int64 transmitted_bytes = 7;
+    optional int64 ai_token_usage = 12;
+    optional int64 ai_prompt_tokens = 13;
+    optional int64 ai_completion_tokens = 14;
     repeated QueryStatisticsItemPB stats_items = 10;
     repeated NodeExecStatsItemPB node_exec_stats_items = 11;
+    optional int64 ai_cached_tokens = 15;
+    optional int64 ai_error_rows = 16;
+    optional string ai_first_error = 17;
 }
 
 message QueryStatisticsItemPB {

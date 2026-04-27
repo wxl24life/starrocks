@@ -786,6 +786,12 @@ struct TAuditStatistics {
     8: optional i64 spill_bytes
     10: optional i64 transmitted_bytes
     9: optional list<TAuditStatisticsItem> stats_items
+    11: optional i64 ai_token_usage
+    12: optional i64 ai_prompt_tokens
+    13: optional i64 ai_completion_tokens
+    14: optional i64 ai_cached_tokens
+    15: optional i64 ai_error_rows
+    16: optional string ai_first_error
 }
 
 struct TReportAuditStatisticsParams {

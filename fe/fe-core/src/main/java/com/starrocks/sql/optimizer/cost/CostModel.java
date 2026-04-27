@@ -40,6 +40,7 @@ import com.starrocks.sql.optimizer.operator.OperatorVisitor;
 import com.starrocks.sql.optimizer.operator.logical.LogicalAggregationOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalExceptOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalIntersectOperator;
+import com.starrocks.sql.optimizer.operator.physical.PhysicalAIProjectOperator;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalAssertOneRowOperator;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalCTEAnchorOperator;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalCTEConsumeOperator;
@@ -77,6 +78,13 @@ public class CostModel {
 
     private static final Logger LOG = LogManager.getLogger(CostModel.class);
     public static final Double MAX_COST = Double.MAX_VALUE / 2;
+
+    // Penalty factor for AI function HTTP calls.  Each (row × AI call) is modelled
+    // as this many "network cost units" so the optimizer favours plans that reduce
+    // row count before the AI projection (filter pushdown, limit pushdown, etc.).
+    // Empirically an AI API call takes 100ms–2s; a normal in-memory byte costs
+    // ~nanoseconds — so a 1000× penalty is conservative.
+    private static final double AI_FUNCTION_NETWORK_COST_PENALTY = 1000.0;
 
     public static double calculateCost(GroupExpression expression) {
         ExpressionContext expressionContext = new ExpressionContext(expression);
@@ -196,6 +204,23 @@ public class CostModel {
             Preconditions.checkNotNull(statistics);
 
             return CostEstimate.ofCpu(statistics.getComputeSize());
+        }
+
+        @Override
+        public CostEstimate visitPhysicalAIProject(PhysicalAIProjectOperator node, ExpressionContext context) {
+            Statistics statistics = context.getStatistics();
+            Preconditions.checkNotNull(statistics);
+
+            long aiCallCount = node.getColumnRefMap().values().stream()
+                    .filter(Utils::hasAiFunction)
+                    .count();
+            aiCallCount = Math.max(aiCallCount, 1);
+
+            double rowCount = Math.max(statistics.getOutputRowCount(), 1.0);
+            double cpuCost = statistics.getComputeSize();
+            double networkCost = rowCount * aiCallCount * AI_FUNCTION_NETWORK_COST_PENALTY;
+
+            return CostEstimate.of(cpuCost, 0, networkCost);
         }
 
         @Override

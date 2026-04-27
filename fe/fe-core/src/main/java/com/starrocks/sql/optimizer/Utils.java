@@ -870,6 +870,79 @@ public class Utils {
         return true;
     }
 
+    public static boolean hasAiFunction(ScalarOperator operator) {
+        if (operator == null) {
+            return false;
+        }
+        if (operator instanceof CallOperator) {
+            Function fn = ((CallOperator) operator).getFunction();
+            if (fn != null && fn.getBinaryType() == com.starrocks.thrift.TFunctionBinaryType.AI) {
+                return true;
+            }
+        }
+        for (ScalarOperator child : operator.getChildren()) {
+            if (hasAiFunction(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static List<CallOperator> collectAiFunctions(ScalarOperator operator) {
+        List<CallOperator> result = Lists.newArrayList();
+        collectAiFunctionsImpl(operator, result);
+        return result;
+    }
+
+    private static void collectAiFunctionsImpl(ScalarOperator operator, List<CallOperator> result) {
+        if (operator == null) {
+            return;
+        }
+        boolean hasNestedAi = false;
+        for (ScalarOperator child : operator.getChildren()) {
+            int before = result.size();
+            collectAiFunctionsImpl(child, result);
+            if (result.size() > before) {
+                hasNestedAi = true;
+            }
+        }
+        if (!hasNestedAi && operator instanceof CallOperator) {
+            Function fn = ((CallOperator) operator).getFunction();
+            if (fn != null && fn.getBinaryType() == com.starrocks.thrift.TFunctionBinaryType.AI) {
+                result.add((CallOperator) operator);
+            }
+        }
+    }
+
+    /**
+     * Replace AI function CallOperators in an expression tree with the corresponding
+     * ColumnRefOperators from the mapping. Used by ExtractAiFunctionFromFilterRule and
+     * ExtractNestedAiFunctionFromProjectRule.
+     */
+    public static ScalarOperator replaceAiFunctions(ScalarOperator operator,
+                                                    Map<CallOperator, ColumnRefOperator> mapping) {
+        if (operator instanceof CallOperator && mapping.containsKey(operator)) {
+            return mapping.get(operator).clone();
+        }
+        List<ScalarOperator> newChildren = Lists.newArrayList();
+        boolean changed = false;
+        for (ScalarOperator child : operator.getChildren()) {
+            ScalarOperator newChild = replaceAiFunctions(child, mapping);
+            newChildren.add(newChild);
+            if (newChild != child) {
+                changed = true;
+            }
+        }
+        if (!changed) {
+            return operator;
+        }
+        ScalarOperator result = operator.clone();
+        for (int i = 0; i < newChildren.size(); i++) {
+            result.setChild(i, newChildren.get(i));
+        }
+        return result;
+    }
+
     public static void calculateStatistics(OptExpression expr, OptimizerContext context) {
         for (OptExpression child : expr.getInputs()) {
             calculateStatistics(child, context);

@@ -113,6 +113,7 @@ set(EXEC_FILES
     avro_scanner.cpp
     avro_cpp_scanner.cpp
     project_node.cpp
+    ai_project_node.cpp
     dict_decode_node.cpp
     repeat_node.cpp
     table_function_node.cpp
@@ -206,6 +207,7 @@ set(EXEC_FILES
     pipeline/offset_operator.cpp
     pipeline/pipeline_builder.cpp
     pipeline/project_operator.cpp
+    pipeline/ai_buffer_sink_operator.cpp
     pipeline/dict_decode_operator.cpp
     pipeline/result_sink_operator.cpp
     pipeline/olap_table_sink_operator.cpp
@@ -227,6 +229,8 @@ set(EXEC_FILES
     pipeline/scan/schema_chunk_source.cpp
     pipeline/scan/schema_scan_operator.cpp
     pipeline/scan/schema_scan_context.cpp
+    pipeline/scan/ai_chunk_source.cpp
+    pipeline/scan/ai_scan_operator.cpp
     pipeline/sink/connector_sink_operator.cpp
     pipeline/sink/sink_io_buffer.cpp
     pipeline/sink/paimon_table_sink_operator.cpp

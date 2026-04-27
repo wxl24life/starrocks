@@ -37,6 +37,24 @@ public class AuditStatisticsUtil {
         pb.memCostBytes = tb.getMem_cost_bytes();
         pb.spillBytes = tb.getSpill_bytes();
         pb.transmittedBytes = tb.getTransmitted_bytes();
+        if (tb.isSetAi_token_usage()) {
+            pb.aiTokenUsage = tb.getAi_token_usage();
+        }
+        if (tb.isSetAi_prompt_tokens()) {
+            pb.aiPromptTokens = tb.getAi_prompt_tokens();
+        }
+        if (tb.isSetAi_completion_tokens()) {
+            pb.aiCompletionTokens = tb.getAi_completion_tokens();
+        }
+        if (tb.isSetAi_cached_tokens()) {
+            pb.aiCachedTokens = tb.getAi_cached_tokens();
+        }
+        if (tb.isSetAi_error_rows()) {
+            pb.aiErrorRows = tb.getAi_error_rows();
+        }
+        if (tb.isSetAi_first_error()) {
+            pb.aiFirstError = tb.getAi_first_error();
+        }
         if (tb.isSetStats_items()) {
             pb.statsItems = Lists.newArrayList();
             for (TAuditStatisticsItem tItem : tb.getStats_items()) {
@@ -96,6 +114,41 @@ public class AuditStatisticsUtil {
             }
             to.transmittedBytes += from.transmittedBytes;
         }
+        if (from.aiTokenUsage != null) {
+            if (to.aiTokenUsage == null) {
+                to.aiTokenUsage = 0L;
+            }
+            to.aiTokenUsage += from.aiTokenUsage;
+        }
+        if (from.aiPromptTokens != null) {
+            if (to.aiPromptTokens == null) {
+                to.aiPromptTokens = 0L;
+            }
+            to.aiPromptTokens += from.aiPromptTokens;
+        }
+        if (from.aiCompletionTokens != null) {
+            if (to.aiCompletionTokens == null) {
+                to.aiCompletionTokens = 0L;
+            }
+            to.aiCompletionTokens += from.aiCompletionTokens;
+        }
+        if (from.aiCachedTokens != null) {
+            if (to.aiCachedTokens == null) {
+                to.aiCachedTokens = 0L;
+            }
+            to.aiCachedTokens += from.aiCachedTokens;
+        }
+        if (from.aiErrorRows != null) {
+            if (to.aiErrorRows == null) {
+                to.aiErrorRows = 0L;
+            }
+            to.aiErrorRows += from.aiErrorRows;
+        }
+        if (from.aiFirstError != null && !from.aiFirstError.isEmpty()) {
+            if (to.aiFirstError == null || to.aiFirstError.isEmpty()) {
+                to.aiFirstError = from.aiFirstError;
+            }
+        }
         if (CollectionUtils.isNotEmpty(from.statsItems)) {
             if (to.statsItems == null) {
                 to.statsItems = Lists.newArrayList();
@@ -153,6 +206,24 @@ public class AuditStatisticsUtil {
         }
         if (pb.transmittedBytes != null) {
             tb.setTransmitted_bytes(pb.transmittedBytes);
+        }
+        if (pb.aiTokenUsage != null) {
+            tb.setAi_token_usage(pb.aiTokenUsage);
+        }
+        if (pb.aiPromptTokens != null) {
+            tb.setAi_prompt_tokens(pb.aiPromptTokens);
+        }
+        if (pb.aiCompletionTokens != null) {
+            tb.setAi_completion_tokens(pb.aiCompletionTokens);
+        }
+        if (pb.aiCachedTokens != null) {
+            tb.setAi_cached_tokens(pb.aiCachedTokens);
+        }
+        if (pb.aiErrorRows != null) {
+            tb.setAi_error_rows(pb.aiErrorRows);
+        }
+        if (pb.aiFirstError != null) {
+            tb.setAi_first_error(pb.aiFirstError);
         }
         if (CollectionUtils.isNotEmpty(pb.statsItems)) {
             for (QueryStatisticsItemPB pItem : pb.statsItems) {

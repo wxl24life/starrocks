@@ -98,6 +98,7 @@ import com.starrocks.backup.AbstractJob;
 import com.starrocks.backup.BackupJob;
 import com.starrocks.backup.RestoreJob;
 import com.starrocks.backup.SnapshotInfo;
+import com.starrocks.catalog.AIModelResource;
 import com.starrocks.catalog.AggregateFunction;
 import com.starrocks.catalog.AnyArrayType;
 import com.starrocks.catalog.AnyElementType;
@@ -267,7 +268,8 @@ public class GsonUtils {
             .registerSubtype(IcebergResource.class, "IcebergResource")
             .registerSubtype(HudiResource.class, "HudiResource")
             .registerSubtype(OdbcCatalogResource.class, "OdbcCatalogResource")
-            .registerSubtype(JDBCResource.class, "JDBCResource");
+            .registerSubtype(JDBCResource.class, "JDBCResource")
+            .registerSubtype(AIModelResource.class, "AIModelResource");
 
     // runtime adapter for class "AlterJobV2"
     private static final RuntimeTypeAdapterFactory<AlterJobV2> ALTER_JOB_V2_TYPE_ADAPTER_FACTORY =

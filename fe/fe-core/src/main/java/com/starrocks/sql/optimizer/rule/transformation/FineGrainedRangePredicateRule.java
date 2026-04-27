@@ -141,6 +141,7 @@ public class FineGrainedRangePredicateRule extends TransformationRule {
     public List<OptExpression> transform(OptExpression input, OptimizerContext context) {
         LogicalFilterOperator filterOperator;
         boolean withProjection = false;
+        // Narrow check: only matches regular PROJECT, not AI_PROJECT (which has its own pipeline)
         if (input.inputAt(0).getOp().getOpType() == OperatorType.LOGICAL_PROJECT) {
             withProjection = true;
             filterOperator = input.inputAt(0).inputAt(0).getOp().cast();

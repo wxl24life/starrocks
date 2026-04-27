@@ -77,6 +77,10 @@ public class FunctionCallExpr extends Expr {
     // The slot SlotDescriptor nullable info will lost or change
     private boolean mergeAggFnHasNullableChild = true;
 
+    // For AI RESOURCE functions: the resource name resolved by ExpressionAnalyzer.
+    // null for non-AI functions and SYSTEM AI functions (which use "__system__").
+    private String aiModelConfigId;
+
     // TODO(yan): add more known functions which are monotonic.
     private static final ImmutableSet<String> MONOTONIC_FUNCTION_SET =
             new ImmutableSet.Builder<String>().add(FunctionSet.YEAR).build();
@@ -87,6 +91,14 @@ public class FunctionCallExpr extends Expr {
 
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
+    }
+
+    public String getAiModelConfigId() {
+        return aiModelConfigId;
+    }
+
+    public void setAiModelConfigId(String id) {
+        this.aiModelConfigId = id;
     }
 
     public Function getFn() {
@@ -181,6 +193,7 @@ public class FunctionCallExpr extends Expr {
         }
         this.isMergeAggFn = other.isMergeAggFn;
         this.mergeAggFnHasNullableChild = other.mergeAggFnHasNullableChild;
+        this.aiModelConfigId = other.aiModelConfigId;
         fn = other.fn;
     }
 
@@ -324,6 +337,9 @@ public class FunctionCallExpr extends Expr {
             msg.setAgg_expr(new TAggregateExpr(isMergeAggFn));
         } else {
             msg.node_type = TExprNodeType.FUNCTION_CALL;
+        }
+        if (aiModelConfigId != null) {
+            msg.setAi_model_config_id(aiModelConfigId);
         }
     }
 

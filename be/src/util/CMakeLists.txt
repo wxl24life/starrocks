@@ -113,6 +113,7 @@ set(UTIL_FILES
   internal_service_recoverable_stub.cpp
   brpc_stub_cache.cpp
   byte_buffer.cpp
+  ai_http_client.cpp
 )
 
 add_library(Util STATIC

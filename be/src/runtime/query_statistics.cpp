@@ -45,8 +45,20 @@ void QueryStatistics::to_pb(PQueryStatistics* statistics) {
     statistics->set_mem_cost_bytes(mem_cost_bytes);
     statistics->set_spill_bytes(spill_bytes);
     statistics->set_transmitted_bytes(transmitted_bytes);
+    if (ai_token_usage > 0) {
+        statistics->set_ai_token_usage(ai_token_usage);
+        statistics->set_ai_prompt_tokens(ai_prompt_tokens);
+        statistics->set_ai_completion_tokens(ai_completion_tokens);
+        statistics->set_ai_cached_tokens(ai_cached_tokens);
+    }
     {
         std::lock_guard l(_lock);
+        if (ai_error_rows > 0) {
+            statistics->set_ai_error_rows(ai_error_rows);
+            if (!ai_first_error.empty()) {
+                statistics->set_ai_first_error(ai_first_error);
+            }
+        }
         for (const auto& [table_id, stats_item] : _stats_items) {
             auto new_stats_item = statistics->add_stats_items();
             new_stats_item->set_table_id(table_id);
@@ -75,8 +87,20 @@ void QueryStatistics::to_params(TAuditStatistics* params) {
     params->__set_mem_cost_bytes(mem_cost_bytes);
     params->__set_spill_bytes(spill_bytes);
     params->__set_transmitted_bytes(transmitted_bytes);
+    if (ai_token_usage > 0) {
+        params->__set_ai_token_usage(ai_token_usage);
+        params->__set_ai_prompt_tokens(ai_prompt_tokens);
+        params->__set_ai_completion_tokens(ai_completion_tokens);
+        params->__set_ai_cached_tokens(ai_cached_tokens);
+    }
     {
         std::lock_guard l(_lock);
+        if (ai_error_rows > 0) {
+            params->__set_ai_error_rows(ai_error_rows);
+            if (!ai_first_error.empty()) {
+                params->__set_ai_first_error(ai_first_error);
+            }
+        }
         for (const auto& [table_id, stats_item] : _stats_items) {
             auto new_stats_item = params->stats_items.emplace_back();
             new_stats_item.__set_table_id(table_id);
@@ -93,6 +117,15 @@ void QueryStatistics::clear() {
     returned_rows = 0;
     spill_bytes = 0;
     transmitted_bytes = 0;
+    ai_token_usage = 0;
+    ai_prompt_tokens = 0;
+    ai_completion_tokens = 0;
+    ai_cached_tokens = 0;
+    ai_error_rows = 0;
+    {
+        std::lock_guard l(_lock);
+        ai_first_error.clear();
+    }
     _stats_items.clear();
     _exec_stats_items.clear();
 }
@@ -173,6 +206,35 @@ void QueryStatistics::merge(int sender_id, QueryStatistics& other) {
     if (other.transmitted_bytes.compare_exchange_strong(transmitted_bytes, 0)) {
         this->transmitted_bytes += transmitted_bytes;
     }
+    int64_t ai_total = other.ai_token_usage.load();
+    if (other.ai_token_usage.compare_exchange_strong(ai_total, 0)) {
+        this->ai_token_usage += ai_total;
+    }
+    int64_t ai_prompt = other.ai_prompt_tokens.load();
+    if (other.ai_prompt_tokens.compare_exchange_strong(ai_prompt, 0)) {
+        this->ai_prompt_tokens += ai_prompt;
+    }
+    int64_t ai_completion = other.ai_completion_tokens.load();
+    if (other.ai_completion_tokens.compare_exchange_strong(ai_completion, 0)) {
+        this->ai_completion_tokens += ai_completion;
+    }
+    int64_t ai_cached = other.ai_cached_tokens.load();
+    if (other.ai_cached_tokens.compare_exchange_strong(ai_cached, 0)) {
+        this->ai_cached_tokens += ai_cached;
+    }
+    int64_t ai_errors = other.ai_error_rows.load();
+    if (other.ai_error_rows.compare_exchange_strong(ai_errors, 0)) {
+        this->ai_error_rows += ai_errors;
+        // Lock both to protect ai_first_error on both sides.
+        // Consistent address-based ordering prevents deadlock.
+        SpinLock* first = &_lock < &other._lock ? &_lock : &other._lock;
+        SpinLock* second = &_lock < &other._lock ? &other._lock : &_lock;
+        std::lock_guard l1(*first);
+        std::lock_guard l2(*second);
+        if (this->ai_first_error.empty() && !other.ai_first_error.empty()) {
+            this->ai_first_error = std::move(other.ai_first_error);
+        }
+    }
 
     {
         std::unordered_map<int64_t, std::shared_ptr<ScanStats>> other_stats_item;
@@ -207,6 +269,27 @@ void QueryStatistics::merge_pb(const PQueryStatistics& statistics) {
     }
     if (statistics.has_spill_bytes()) {
         spill_bytes += statistics.spill_bytes();
+    }
+    if (statistics.has_ai_token_usage()) {
+        ai_token_usage += statistics.ai_token_usage();
+    }
+    if (statistics.has_ai_prompt_tokens()) {
+        ai_prompt_tokens += statistics.ai_prompt_tokens();
+    }
+    if (statistics.has_ai_completion_tokens()) {
+        ai_completion_tokens += statistics.ai_completion_tokens();
+    }
+    if (statistics.has_ai_cached_tokens()) {
+        ai_cached_tokens += statistics.ai_cached_tokens();
+    }
+    if (statistics.has_ai_error_rows()) {
+        ai_error_rows += statistics.ai_error_rows();
+    }
+    if (statistics.has_ai_first_error()) {
+        std::lock_guard l(_lock);
+        if (ai_first_error.empty()) {
+            ai_first_error = statistics.ai_first_error();
+        }
     }
     if (statistics.has_mem_cost_bytes()) {
         mem_cost_bytes = std::max<int64_t>(mem_cost_bytes, statistics.mem_cost_bytes());

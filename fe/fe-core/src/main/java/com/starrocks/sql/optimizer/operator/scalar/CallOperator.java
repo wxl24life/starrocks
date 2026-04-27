@@ -57,6 +57,9 @@ public class CallOperator extends ScalarOperator {
     // Ignore nulls.
     private boolean ignoreNulls = false;
 
+    // AI model config identifier (resource name or "__system__")
+    private String aiModelConfigId;
+
     public CallOperator(String fnName, Type returnType, List<ScalarOperator> arguments) {
         this(fnName, returnType, arguments, null);
     }
@@ -83,6 +86,14 @@ public class CallOperator extends ScalarOperator {
 
     public void setIgnoreNulls(boolean ignoreNulls) {
         this.ignoreNulls = ignoreNulls;
+    }
+
+    public String getAiModelConfigId() {
+        return aiModelConfigId;
+    }
+
+    public void setAiModelConfigId(String id) {
+        this.aiModelConfigId = id;
     }
 
     public boolean getIgnoreNulls() {
@@ -139,8 +150,9 @@ public class CallOperator extends ScalarOperator {
             return getChild(0).debugString() + " / " + getChild(1).debugString();
         }
 
+        String suffix = (aiModelConfigId != null) ? "[" + aiModelConfigId + "]" : "";
         return fnName + "(" + arguments.stream().map(ScalarOperator::debugString).collect(Collectors.joining(", ")) +
-                ")";
+                ")" + suffix;
     }
 
     @Override
@@ -197,7 +209,7 @@ public class CallOperator extends ScalarOperator {
 
     @Override
     public int hashCode() {
-        return Objects.hash(fnName, arguments, isDistinct);
+        return Objects.hash(fnName, arguments, isDistinct, aiModelConfigId);
     }
 
     @Override
@@ -213,11 +225,11 @@ public class CallOperator extends ScalarOperator {
                 Objects.equals(fnName, other.fnName) &&
                 Objects.equals(type, other.type) &&
                 Objects.equals(arguments, other.arguments) &&
-                Objects.equals(fn, other.fn);
+                Objects.equals(fn, other.fn) &&
+                Objects.equals(aiModelConfigId, other.aiModelConfigId);
     }
 
 
-    // Only used for meaning equivalence comparison in iceberg table scan predicate
     @Override
     public boolean equivalent(Object obj) {
         if (this == obj) {
@@ -236,6 +248,7 @@ public class CallOperator extends ScalarOperator {
                 Objects.equals(fnName, other.fnName) &&
                 Objects.equals(type, other.type) &&
                 Objects.equals(fn, other.fn) &&
+                Objects.equals(aiModelConfigId, other.aiModelConfigId) &&
                 IntStream.range(0, this.arguments.size())
                         .allMatch(i -> this.arguments.get(i).equivalent(other.arguments.get(i)));
 
@@ -255,6 +268,7 @@ public class CallOperator extends ScalarOperator {
         operator.fnName = this.fnName;
         operator.isDistinct = this.isDistinct;
         operator.ignoreNulls = this.ignoreNulls;
+        operator.aiModelConfigId = this.aiModelConfigId;
         return operator;
     }
 

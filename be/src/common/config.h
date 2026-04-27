@@ -1346,6 +1346,23 @@ CONF_mInt64(max_length_for_to_base64, "200000");
 // Used by bitmap functions
 CONF_mInt64(max_length_for_bitmap_function, "1000000");
 
+// AI function HTTP request config
+CONF_mInt32(ai_function_http_timeout_ms, "60000");         // HTTP request timeout in milliseconds (60 seconds)
+CONF_mInt32(ai_function_http_connect_timeout_ms, "10000"); // HTTP connection timeout in milliseconds (10 seconds)
+CONF_mInt32(ai_function_scan_thread_num, "16");              // Number of threads in AI ScanExecutor (yield-aware, threads cycle rapidly)
+CONF_mInt32(ai_function_sub_chunk_size, "64");              // Rows per sub-chunk in AIBufferSink (finer granularity for yield scheduling)
+
+// AI function retry and error handling
+CONF_mInt32(ai_function_max_retries, "3");                 // Max retry attempts for retryable HTTP errors (5xx/408/400, exponential backoff ~30s total)
+CONF_mInt32(ai_function_max_retries_on_throttle, "5");     // Max retry attempts for 429 throttling (exponential backoff ~60s total)
+CONF_mString(ai_function_on_error, "ignore");              // "fail" = abort query on any row error, "ignore" = return NULL for failed rows (Databricks-compatible default)
+CONF_mInt32(ai_function_rate_limit_qps, "64");             // Per-endpoint QPS limit via token bucket (primary throughput control)
+CONF_mInt32(ai_function_max_inflight, "512");              // Global cap on concurrent in-flight AI HTTP requests (yield-mode safety net)
+
+// AI function result cache
+CONF_mBool(ai_function_result_cache_enabled, "false");     // Enable LRU result cache for AI function responses (opt-in)
+CONF_mInt32(ai_function_result_cache_mb, "128");            // Result cache capacity in MB
+
 // Configuration items for datacache
 CONF_Bool(datacache_enable, "true");
 CONF_mString(datacache_mem_size, "0");

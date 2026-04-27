@@ -25,6 +25,7 @@ public enum OperatorType {
      */
     LOGICAL,
     LOGICAL_PROJECT,
+    LOGICAL_AI_PROJECT,
     LOGICAL_OLAP_SCAN,
     LOGICAL_HIVE_SCAN,
     LOGICAL_FILE_SCAN,
@@ -95,6 +96,7 @@ public enum OperatorType {
     PHYSICAL_JDBC_SCAN,
 
     PHYSICAL_PROJECT,
+    PHYSICAL_AI_PROJECT,
     PHYSICAL_SORT,
     PHYSICAL_TOPN,
     PHYSICAL_UNION,

@@ -21,6 +21,7 @@ import com.starrocks.catalog.Type;
 import com.starrocks.sql.optimizer.OptExpression;
 import com.starrocks.sql.optimizer.OptimizerContext;
 import com.starrocks.sql.optimizer.base.ColumnRefSet;
+import com.starrocks.sql.optimizer.operator.OperatorBuilderFactory;
 import com.starrocks.sql.optimizer.operator.OperatorType;
 import com.starrocks.sql.optimizer.operator.logical.LogicalProjectOperator;
 import com.starrocks.sql.optimizer.operator.pattern.Pattern;
@@ -37,8 +38,12 @@ import java.util.Map;
 public class PruneProjectColumnsRule extends TransformationRule {
 
     public PruneProjectColumnsRule() {
-        super(RuleType.TF_PRUNE_PROJECT_COLUMNS, Pattern.create(OperatorType.LOGICAL_PROJECT).
-                addChildren(Pattern.create(OperatorType.PATTERN_LEAF, OperatorType.PATTERN_MULTI_LEAF)));
+        this(RuleType.TF_PRUNE_PROJECT_COLUMNS, OperatorType.LOGICAL_PROJECT);
+    }
+
+    public PruneProjectColumnsRule(RuleType ruleType, OperatorType projectType) {
+        super(ruleType, Pattern.create(projectType)
+                .addChildren(Pattern.create(OperatorType.PATTERN_LEAF, OperatorType.PATTERN_MULTI_LEAF)));
     }
 
     @Override
@@ -77,8 +82,8 @@ public class PruneProjectColumnsRule extends TransformationRule {
         // Change the requiredOutputColumns in context
         requiredOutputColumns.union(requiredInputColumns);
 
-        return Lists.newArrayList(OptExpression.create(
-                LogicalProjectOperator.builder().withOperator(projectOperator).setColumnRefMap(newMap).build(),
-                input.getInputs()));
+        LogicalProjectOperator.Builder builder = OperatorBuilderFactory.build(projectOperator);
+        builder.withOperator(projectOperator).setColumnRefMap(newMap);
+        return Lists.newArrayList(OptExpression.create(builder.build(), input.getInputs()));
     }
 }

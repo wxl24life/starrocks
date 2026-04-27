@@ -380,6 +380,7 @@ public:
     // pipeline scan executor thread pools
     METRICS_DEFINE_THREAD_POOL(scan);
     METRICS_DEFINE_THREAD_POOL(connector_scan);
+    METRICS_DEFINE_THREAD_POOL(ai_scan);
 
     METRIC_DEFINE_UINT_GAUGE(load_rpc_threadpool_size, MetricUnit::NOUNIT);
 

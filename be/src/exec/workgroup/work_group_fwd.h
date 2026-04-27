@@ -27,7 +27,7 @@ using WorkGroupPtr = std::shared_ptr<WorkGroup>;
 
 class ScanTaskQueue;
 
-enum class ScanSchedEntityType : uint8_t { OLAP, CONNECTOR };
+enum class ScanSchedEntityType : uint8_t { OLAP, CONNECTOR, AI };
 
 template <typename Q>
 class WorkGroupSchedEntity;

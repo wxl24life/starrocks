@@ -81,6 +81,7 @@ public class SqlCredentialRedactor {
             .add("pwd")
             .add("property.sasl.password")
             .add("broker.password")
+            .add("api_key")
             .build();
 
     // Pattern to match key-value pairs in SQL

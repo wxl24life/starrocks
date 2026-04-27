@@ -106,6 +106,7 @@ public:
     DriverExecutorMetrics driver_executor_metrics;
     ScanExecutorMetrics scan_executor_metrics;
     ScanExecutorMetrics connector_scan_executor_metrics;
+    ScanExecutorMetrics ai_scan_executor_metrics;
     ExecStateReporterMetrics exec_state_reporter_metrics;
 
     PollerMetrics* get_poller_metrics() { return &poller_metrics; }
@@ -115,6 +116,8 @@ public:
     ScanExecutorMetrics* get_scan_executor_metrics() { return &scan_executor_metrics; }
 
     ScanExecutorMetrics* get_connector_scan_executor_metrics() { return &connector_scan_executor_metrics; }
+
+    ScanExecutorMetrics* get_ai_scan_executor_metrics() { return &ai_scan_executor_metrics; }
 
     ExecStateReporterMetrics* get_exec_state_reporter_metrics() { return &exec_state_reporter_metrics; }
 

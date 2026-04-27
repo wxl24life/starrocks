@@ -1375,5 +1375,39 @@ vectorized_functions = [
     [181001, 'equiwidth_bucket', True, False, 'BIGINT', ['BIGINT', 'BIGINT', 'BIGINT', 'BIGINT'], 'UtilityFunctions::equiwidth_bucket'],
 
     # gin functions
-    [190000, 'tokenize', True, False, 'ARRAY_VARCHAR', ['VARCHAR', 'VARCHAR'], 'GinFunctions::tokenize', 'GinFunctions::tokenize_prepare', 'GinFunctions::tokenize_close']
+    [190000, 'tokenize', True, False, 'ARRAY_VARCHAR', ['VARCHAR', 'VARCHAR'], 'GinFunctions::tokenize', 'GinFunctions::tokenize_prepare', 'GinFunctions::tokenize_close'],
+
+]
+
+# AI functions — registered with TFunctionBinaryType.AI
+# Format: [id, name, exception_safe, check_overflow, return_type, [args], impl, model_source]
+# model_source: 'SYSTEM' = use system default model, 'RESOURCE' = first arg is resource name (FE expands)
+#
+# AI model configuration is passed via TAIProjectNode.ai_model_configs (a per-node map),
+# not as expanded function arguments. Each expression carries an ai_model_config_id reference
+# through TAIProjectNode.ai_model_configs, not as function arguments.
+ai_vectorized_functions = [
+    # Snowflake-aligned: AI_SENTIMENT(text) -> VARCHAR (positive/negative/neutral/mixed/unknown)
+    [200000, 'ai_sentiment', True, False, 'VARCHAR', ['VARCHAR'], 'AiFunctions::ai_sentiment', 'SYSTEM'],
+    # Snowflake-aligned: AI_CLASSIFY(input, categories) -> JSON
+    [200001, 'ai_classify', True, False, 'JSON', ['VARCHAR', 'ARRAY_VARCHAR'], 'AiFunctions::ai_classify', 'SYSTEM'],
+    # Snowflake-aligned: AI_EXTRACT(text, responseFormat) -> JSON
+    [200002, 'ai_extract', True, False, 'JSON', ['VARCHAR', 'ARRAY_VARCHAR'], 'AiFunctions::ai_extract', 'SYSTEM'],
+    # StarRocks-unique (Databricks-inspired)
+    [200003, 'ai_fix_grammar', True, False, 'VARCHAR', ['VARCHAR'], 'AiFunctions::ai_fix_grammar', 'SYSTEM'],
+    # Snowflake-aligned: AI_REDACT(input, categories) -> VARCHAR
+    [200004, 'ai_redact', True, False, 'VARCHAR', ['VARCHAR', 'ARRAY_VARCHAR'], 'AiFunctions::ai_redact', 'SYSTEM'],
+    # Snowflake-aligned: AI_TRANSLATE(text, source_lang, target_lang) -> VARCHAR
+    [200005, 'ai_translate', True, False, 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'AiFunctions::ai_translate', 'SYSTEM'],
+    # Snowflake-aligned: AI_SIMILARITY(input1, input2) -> FLOAT
+    [200006, 'ai_similarity', True, False, 'FLOAT', ['VARCHAR', 'VARCHAR'], 'AiFunctions::ai_similarity', 'SYSTEM'],
+    # Snowflake-aligned: SUMMARIZE(text) -> VARCHAR
+    [200007, 'ai_summarize', True, False, 'VARCHAR', ['VARCHAR'], 'AiFunctions::ai_summarize', 'SYSTEM'],
+    # Snowflake-aligned: AI_COMPLETE(model, prompt [, params]) -> VARCHAR
+    [200008, 'ai_complete', True, False, 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'AiFunctions::ai_complete', 'SYSTEM'],
+    [200009, 'ai_complete', True, False, 'VARCHAR', ['VARCHAR', 'VARCHAR', 'ANY_MAP'], 'AiFunctions::ai_complete', 'SYSTEM'],
+    # User-facing: ai_custom_query(resource_name, prompt) — resource_name replaced by model in Analyzer
+    [200010, 'ai_custom_query', True, False, 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'AiFunctions::ai_custom_query', 'RESOURCE'],
+    # Snowflake-aligned: AI_FILTER(text, condition) -> BOOLEAN
+    [200011, 'ai_filter', True, False, 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'AiFunctions::ai_filter', 'SYSTEM'],
 ]

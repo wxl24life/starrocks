@@ -189,6 +189,8 @@ public class ScalarFunction extends Function {
         newFn.setId(this.getId());
         newFn.setUserVisible(this.isUserVisible());
         newFn.setAggStateDesc(this.getAggStateDesc());
+        newFn.setUseNonDetUniqueId(this.isUseNonDetUniqueId());
+        newFn.setAiModelSource(this.getAiModelSource());
         return newFn;
     }
 

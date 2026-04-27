@@ -233,9 +233,12 @@ WorkGroupScanSchedEntity* WorkGroupScanTaskQueue::_sched_entity(WorkGroup* wg) {
 }
 
 const WorkGroupScanSchedEntity* WorkGroupScanTaskQueue::_sched_entity(const WorkGroup* wg) const {
-    if (_sched_entity_type == ScanSchedEntityType::CONNECTOR) {
+    switch (_sched_entity_type) {
+    case ScanSchedEntityType::CONNECTOR:
         return wg->connector_scan_sched_entity();
-    } else {
+    case ScanSchedEntityType::AI:
+        return wg->ai_scan_sched_entity();
+    default:
         return wg->scan_sched_entity();
     }
 }

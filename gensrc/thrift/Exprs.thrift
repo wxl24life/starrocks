@@ -263,6 +263,9 @@ struct TExprNode {
   // whether this expr is only used in index
   57: optional bool is_index_only_filter
 
+  // AI function model configuration ID
+  60: optional string ai_model_config_id
+
   // for future compatibility
   999: optional TMatchType match_type
 }

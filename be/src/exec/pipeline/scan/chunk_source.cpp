@@ -116,9 +116,12 @@ Status ChunkSource::buffer_next_batch_chunks_blocking(RuntimeState* state, size_
 
 const workgroup::WorkGroupScanSchedEntity* ChunkSource::_scan_sched_entity(const workgroup::WorkGroup* wg) const {
     DCHECK(wg != nullptr);
-    if (_scan_op->sched_entity_type() == workgroup::ScanSchedEntityType::CONNECTOR) {
+    switch (_scan_op->sched_entity_type()) {
+    case workgroup::ScanSchedEntityType::CONNECTOR:
         return wg->connector_scan_sched_entity();
-    } else {
+    case workgroup::ScanSchedEntityType::AI:
+        return wg->ai_scan_sched_entity();
+    default:
         return wg->scan_sched_entity();
     }
 }

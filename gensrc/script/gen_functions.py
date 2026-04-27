@@ -53,10 +53,16 @@ ${license}
 
 package com.starrocks.builtins;
 
+import com.google.common.collect.ImmutableSet;
 import com.starrocks.catalog.FunctionSet;
 import com.starrocks.catalog.Type;
+import com.starrocks.thrift.TAIModelSource;
+
+import java.util.Set;
 
 public class VectorizedBuiltinFunctions {
+    public static final Set<String> AI_FUNCTION_NAMES = ImmutableSet.of(${ai_function_names});
+
     public static void initBuiltins(FunctionSet functionSet) {
         ${functions}
   }
@@ -89,6 +95,7 @@ ${license}
 #include "exprs/es_functions.h"
 #include "exprs/utility_functions.h"
 #include "exprs/gin_functions.h"
+#include "exprs/ai_functions.h"
 
 namespace starrocks {
 
@@ -104,8 +111,7 @@ function_set = set()
 function_signature_set = set()
 
 
-def add_function(fn_data):
-    entry = dict()
+def _validate_and_add_common(fn_data, entry):
     if fn_data[0] in function_set:
         print("=================================================================")
         print("Duplicated function id: " + str(fn_data))
@@ -132,12 +138,17 @@ def add_function(fn_data):
     if "..." in fn_data[5]:
         assert 2 <= len(fn_data[5]), "Invalid arguments in functions.py:\n\t" + repr(fn_data)
         assert "..." == fn_data[5][-1], "variadic parameter must at the end:\n\t" + repr(fn_data)
-
         entry["args_nums"] = len(fn_data[5]) - 1
     else:
         entry["args_nums"] = len(fn_data[5])
 
     entry["fn"] = "&" + fn_data[6] if fn_data[6] != "nullptr" else "nullptr"
+
+
+def add_function(fn_data):
+    entry = dict()
+    _validate_and_add_common(fn_data, entry)
+    entry["binary_type"] = "BUILTIN"
 
     if len(fn_data) >= 9:
         entry["prepare"] = "&" + fn_data[7] if fn_data[7] != "nullptr" else "nullptr"
@@ -146,20 +157,37 @@ def add_function(fn_data):
     function_list.append(entry)
 
 
+def add_ai_function(fn_data):
+    entry = dict()
+    _validate_and_add_common(fn_data, entry)
+    entry["binary_type"] = "AI"
+    entry["model_source"] = fn_data[7] if len(fn_data) > 7 else "SYSTEM"
+    function_list.append(entry)
+
+
 def generate_fe(path):
-    fn_template = Template(
+    builtin_fn_template = Template(
         'functionSet.addVectorizedScalarBuiltin(${id}, "${name}", ${has_vargs}, Type.${ret}${args_types});')
+    ai_fn_template = Template(
+        'functionSet.addVectorizedAIScalarBuiltin(${id}, "${name}", ${has_vargs}, TAIModelSource.${model_source}, Type.${ret}${args_types});')
 
     def gen_fe_fn(fnm):
-        fnm["args_types"] = ", " if len(fnm["args"]) > 0 else ""
-        fnm["args_types"] = fnm["args_types"] + ", ".join(["Type." + i for i in fnm["args"] if i != "..."])
-        fnm["has_vargs"] = "true" if "..." in fnm["args"] else "false"
+        ctx = dict(fnm)
+        ctx["args_types"] = ", " if len(fnm["args"]) > 0 else ""
+        ctx["args_types"] = ctx["args_types"] + ", ".join(["Type." + i for i in fnm["args"] if i != "..."])
+        ctx["has_vargs"] = "true" if "..." in fnm["args"] else "false"
 
-        return fn_template.substitute(fnm)
+        if fnm.get("binary_type") == "AI":
+            return ai_fn_template.substitute(ctx)
+        return builtin_fn_template.substitute(ctx)
+
+    ai_names = sorted(set(fn["name"] for fn in function_list if fn.get("binary_type") == "AI"))
+    ai_names_str = ", ".join('"%s"' % n for n in ai_names) if ai_names else ""
 
     value = dict()
     value["license"] = license_string
     value["functions"] = "\n        ".join([gen_fe_fn(i) for i in function_list])
+    value["ai_function_names"] = ai_names_str
 
     content = java_template.substitute(value)
 
@@ -203,6 +231,9 @@ if __name__ == '__main__':
     # Read the function metadata inputs
     for function in functions.vectorized_functions:
         add_function(function)
+
+    for function in functions.ai_vectorized_functions:
+        add_ai_function(function)
 
     be_functions_dir = args.cpp_path + "/opcode"
     if not os.path.exists(be_functions_dir):

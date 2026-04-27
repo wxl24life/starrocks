@@ -901,6 +901,7 @@ set(STARROCKS_LINK_LIBS
     ServiceBE
     Types
     Udf
+    AiExprs
     Util
     Script
     StarRocksGen

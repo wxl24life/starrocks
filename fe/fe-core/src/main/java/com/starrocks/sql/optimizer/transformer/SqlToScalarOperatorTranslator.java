@@ -727,9 +727,13 @@ public final class SqlToScalarOperatorTranslator {
                     .map(child -> visit(child, context.clone(node)))
                     .collect(Collectors.toList());
 
-            // for nonDeterministicFunctions, we need add an argument as its unique id to distinguish
-            // the reusing behavior in common exprs
-            if (FunctionSet.nonDeterministicFunctions.contains(node.getFnName().getFunction())) {
+            // For nonDeterministicFunctions, add a unique-ID argument so that identical
+            // calls are not merged by common subexpression elimination (CSE).
+            // Some function types (e.g. AI functions) opt out via useNonDetUniqueId=false
+            // because they handle deduplication externally and their BE implementations
+            // are sensitive to extra trailing arguments.
+            if (FunctionSet.nonDeterministicFunctions.contains(node.getFnName().getFunction())
+                    && (node.getFn() == null || node.getFn().isUseNonDetUniqueId())) {
                 arguments.add(ConstantOperator.createInt(columnRefFactory.getNextUniqueId()));
             }
 
@@ -740,6 +744,7 @@ public final class SqlToScalarOperatorTranslator {
                     node.getFn(),
                     node.getParams().isDistinct());
             callOperator.setHints(node.getHints());
+            callOperator.setAiModelConfigId(node.getAiModelConfigId());
             return callOperator;
         }
 

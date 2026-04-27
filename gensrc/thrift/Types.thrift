@@ -289,6 +289,14 @@ enum TFunctionBinaryType {
   
   // 
   PYTHON
+
+  // AI functions with async execution support
+  AI
+}
+
+enum TAIModelSource {
+  SYSTEM,    // use system default model configuration
+  RESOURCE   // resolve model configuration from AIModelResource
 }
 
 // Represents a fully qualified function name.
@@ -388,6 +396,7 @@ struct TFunction {
   34: optional bool isolated
   35: optional string input_type
   36: optional string content
+  37: optional TAIModelSource ai_model_source
 }
 
 enum TLoadJobState {

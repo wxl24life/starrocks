@@ -418,6 +418,10 @@ public class QueryRuntimeProfile {
         long sumQuerySpillBytes = 0;
         long maxQueryPeakMemoryUsage = 0;
         long maxQueryExecutionWallTime = 0;
+        long sumAiTokenUsage = 0;
+        long sumAiPromptTokens = 0;
+        long sumAiCompletionTokens = 0;
+        long sumAiCachedTokens = 0;
 
         List<RuntimeProfile> newFragmentProfiles = Lists.newArrayList();
         for (RuntimeProfile fragmentProfile : fragmentProfiles) {
@@ -471,6 +475,27 @@ public class QueryRuntimeProfile {
                     sumQuerySpillBytes += toBeRemove.getValue();
                 }
                 instanceProfile.removeCounter("QuerySpillBytes");
+
+                toBeRemove = instanceProfile.getCounter("QueryAiTokenUsage");
+                if (toBeRemove != null) {
+                    sumAiTokenUsage += toBeRemove.getValue();
+                }
+                instanceProfile.removeCounter("QueryAiTokenUsage");
+                toBeRemove = instanceProfile.getCounter("QueryAiPromptTokens");
+                if (toBeRemove != null) {
+                    sumAiPromptTokens += toBeRemove.getValue();
+                }
+                instanceProfile.removeCounter("QueryAiPromptTokens");
+                toBeRemove = instanceProfile.getCounter("QueryAiCompletionTokens");
+                if (toBeRemove != null) {
+                    sumAiCompletionTokens += toBeRemove.getValue();
+                }
+                instanceProfile.removeCounter("QueryAiCompletionTokens");
+                toBeRemove = instanceProfile.getCounter("QueryAiCachedTokens");
+                if (toBeRemove != null) {
+                    sumAiCachedTokens += toBeRemove.getValue();
+                }
+                instanceProfile.removeCounter("QueryAiCachedTokens");
             }
             newFragmentProfile.addInfoString("BackendAddresses", String.join(",", backendAddresses));
             newFragmentProfile.addInfoString("InstanceIds", String.join(",", instanceIds));
@@ -601,6 +626,17 @@ public class QueryRuntimeProfile {
         queryExecutionWallTime.setValue(maxQueryExecutionWallTime);
         Counter querySpillBytes = newQueryProfile.addCounter("QuerySpillBytes", TUnit.BYTES, null);
         querySpillBytes.setValue(sumQuerySpillBytes);
+
+        if (sumAiTokenUsage > 0) {
+            Counter aiTokenUsage = newQueryProfile.addCounter("QueryAiTokenUsage", TUnit.UNIT, null);
+            aiTokenUsage.setValue(sumAiTokenUsage);
+            Counter aiPromptTokens = newQueryProfile.addCounter("QueryAiPromptTokens", TUnit.UNIT, null);
+            aiPromptTokens.setValue(sumAiPromptTokens);
+            Counter aiCompletionTokens = newQueryProfile.addCounter("QueryAiCompletionTokens", TUnit.UNIT, null);
+            aiCompletionTokens.setValue(sumAiCompletionTokens);
+            Counter aiCachedTokens = newQueryProfile.addCounter("QueryAiCachedTokens", TUnit.UNIT, null);
+            aiCachedTokens.setValue(sumAiCachedTokens);
+        }
 
         if (execPlan != null) {
             newQueryProfile.addInfoString("Topology", execPlan.getProfilingPlan().toTopologyJson());

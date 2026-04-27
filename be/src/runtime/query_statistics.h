@@ -61,6 +61,21 @@ public:
     void add_mem_costs(int64_t bytes) { mem_cost_bytes += bytes; }
     void add_spill_bytes(int64_t bytes) { spill_bytes += bytes; }
     void add_transmitted_bytes(int64_t bytes) { transmitted_bytes += bytes; }
+    void add_ai_token_usage(int64_t total, int64_t prompt, int64_t completion, int64_t cached) {
+        ai_token_usage += total;
+        ai_prompt_tokens += prompt;
+        ai_completion_tokens += completion;
+        ai_cached_tokens += cached;
+    }
+    void add_ai_error_rows(int64_t count) { ai_error_rows += count; }
+    void set_ai_first_error(const std::string& error) {
+        if (!error.empty()) {
+            std::lock_guard l(_lock);
+            if (ai_first_error.empty()) {
+                ai_first_error = error;
+            }
+        }
+    }
 
     void to_pb(PQueryStatistics* statistics);
     void to_params(TAuditStatistics* params);
@@ -87,6 +102,12 @@ private:
     std::atomic_int64_t mem_cost_bytes{0};
     std::atomic_int64_t spill_bytes{0};
     std::atomic_int64_t transmitted_bytes{0};
+    std::atomic_int64_t ai_token_usage{0};
+    std::atomic_int64_t ai_prompt_tokens{0};
+    std::atomic_int64_t ai_completion_tokens{0};
+    std::atomic_int64_t ai_cached_tokens{0};
+    std::atomic_int64_t ai_error_rows{0};
+    std::string ai_first_error;
 
     // number rows returned by query.
     // only set once by result sink when closing.

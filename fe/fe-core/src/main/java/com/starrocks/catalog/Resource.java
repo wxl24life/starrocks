@@ -55,7 +55,8 @@ public abstract class Resource implements Writable {
         ICEBERG,
         HUDI,
         ODBC_CATALOG,
-        JDBC;
+        JDBC,
+        AI_MODEL;
 
         public static ResourceType fromString(String resourceType) {
             for (ResourceType type : ResourceType.values()) {
@@ -98,6 +99,9 @@ public abstract class Resource implements Writable {
                 break;
             case JDBC:
                 resource = new JDBCResource(stmt.getResourceName());
+                break;
+            case AI_MODEL:
+                resource = new AIModelResource(stmt.getResourceName());
                 break;
             default:
                 throw new DdlException("Unsupported resource type: " + type);

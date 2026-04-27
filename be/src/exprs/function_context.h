@@ -178,6 +178,9 @@ public:
 
     std::unique_ptr<NgramBloomFilterState>& get_ngram_state() { return _ngramState; }
 
+    const std::string& function_name() const { return _function_name; }
+    void set_function_name(std::string name) { _function_name = std::move(name); }
+
 private:
     friend class ExprContext;
 
@@ -227,6 +230,9 @@ private:
 
     // used for ngram bloom filter to speed up some function
     std::unique_ptr<NgramBloomFilterState> _ngramState;
+
+    // SQL-level function name, set by AIFunctionCallExpr::open() from the plan tree.
+    std::string _function_name;
 };
 
 } // namespace starrocks

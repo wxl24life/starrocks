@@ -36,7 +36,13 @@ public class PhysicalProjectOperator extends PhysicalOperator {
 
     public PhysicalProjectOperator(Map<ColumnRefOperator, ScalarOperator> columnRefMap,
                                    Map<ColumnRefOperator, ScalarOperator> commonSubOperatorMap) {
-        super(OperatorType.PHYSICAL_PROJECT);
+        this(OperatorType.PHYSICAL_PROJECT, columnRefMap, commonSubOperatorMap);
+    }
+
+    protected PhysicalProjectOperator(OperatorType opType,
+                                      Map<ColumnRefOperator, ScalarOperator> columnRefMap,
+                                      Map<ColumnRefOperator, ScalarOperator> commonSubOperatorMap) {
+        super(opType);
         this.columnRefMap = columnRefMap;
         this.commonSubOperatorMap = commonSubOperatorMap;
     }

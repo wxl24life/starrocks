@@ -42,7 +42,11 @@ import java.util.List;
  */
 public class PushDownProjectLimitRule extends TransformationRule {
     public PushDownProjectLimitRule() {
-        super(RuleType.TF_PUSH_DOWN_PROJECT_LIMIT, Pattern.create(OperatorType.LOGICAL_PROJECT)
+        this(RuleType.TF_PUSH_DOWN_PROJECT_LIMIT, OperatorType.LOGICAL_PROJECT);
+    }
+
+    public PushDownProjectLimitRule(RuleType ruleType, OperatorType projectType) {
+        super(ruleType, Pattern.create(projectType)
                 .addChildren(Pattern.create(OperatorType.LOGICAL_LIMIT, OperatorType.PATTERN_LEAF)));
     }
 

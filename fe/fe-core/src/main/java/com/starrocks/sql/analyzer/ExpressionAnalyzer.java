@@ -1060,6 +1060,7 @@ public class ExpressionAnalyzer {
             String fnName = node.getFnName().getFunction();
             // check fn & throw exception direct if analyze failed
             checkFunction(fnName, node, argumentTypes);
+
             // get function by function expression and argument types
             Function fn = FunctionAnalyzer.getAnalyzedFunction(session, node, argumentTypes);
             if (fn == null) {
@@ -1072,6 +1073,7 @@ public class ExpressionAnalyzer {
             node.setFn(fn);
             node.setType(fn.getReturnType());
             FunctionAnalyzer.analyze(node);
+
             return null;
         }
 
@@ -1316,6 +1318,18 @@ public class ExpressionAnalyzer {
                     if (!node.getChild(0).getType().isArrayType() && !node.getChild(0).getType().isNull()) {
                         throw new SemanticException("The first input of " + fnName +
                                 " should be an array", node.getPos());
+                    }
+                    break;
+                }
+
+                case FunctionSet.AI_CLASSIFY:
+                case FunctionSet.AI_EXTRACT:
+                case FunctionSet.AI_REDACT: {
+                    if (node.getChildren().size() >= 2
+                            && !node.getChild(1).getType().isArrayType()
+                            && !node.getChild(1).getType().isNull()) {
+                        throw new SemanticException("The second input of " + fnName +
+                                " should be an array, e.g. ['value1','value2']", node.getPos());
                     }
                     break;
                 }

@@ -267,8 +267,10 @@ public class ResourceMgr implements Writable {
                 ((HudiResource) resource).alterProperties(stmt.getProperties());
             } else if (resource instanceof IcebergResource) {
                 ((IcebergResource) resource).alterProperties(stmt.getProperties());
+            } else if (resource instanceof AIModelResource) {
+                ((AIModelResource) resource).alterProperties(stmt.getProperties());
             } else {
-                throw new DdlException("Alter resource statement only support external hive/hudi/iceberg now");
+                throw new DdlException("Alter resource statement only support external hive/hudi/iceberg/ai_model now");
             }
 
             if (resource.needMappingCatalog()) {
