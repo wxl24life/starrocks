@@ -37,6 +37,7 @@
 #include "test_util.h"
 #include "testutil/assert.h"
 #include "testutil/id_generator.h"
+#include "testutil/scoped_updater.h"
 #include "testutil/sync_point.h"
 #include "util/defer_op.h"
 
