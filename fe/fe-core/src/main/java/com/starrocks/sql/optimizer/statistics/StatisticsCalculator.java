@@ -663,7 +663,7 @@ public class StatisticsCalculator extends OperatorVisitor<Void, ExpressionContex
                     optimizerContext, catalogName, table, columnRefOperatorColumnMap, null,
                     node.getPredicate(), node.getLimit(), TableVersionRange.empty());
             context.setStatistics(stats);
-            if (node.isLogical()) {
+            if (node.isLogical() && stats != null) {
                 boolean hasUnknownColumns = stats.getColumnStatistics().values().stream()
                         .anyMatch(ColumnStatistic::isUnknown);
                 ((LogicalPaimonScanOperator) node).setHasUnknownColumn(hasUnknownColumns);

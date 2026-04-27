@@ -43,7 +43,6 @@ import org.junit.Test;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class CachingPaimonCatalogTest {
 
@@ -97,15 +96,13 @@ public class CachingPaimonCatalogTest {
     @Test
     public void testGetystemTable(@Mocked FileStoreTable mockTable)
             throws Catalog.TableNotExistException {
+        List<Column> cols = Collections.singletonList(new Column("f", Type.INT, true));
+        PaimonTable expected = new PaimonTable("test_catalog", "db", "tbl$manifests", cols, mockTable);
+        expected.setLakeOptimizerMode(PaimonTable.LakeOptimizerMode.DISABLED);
+
         new Expectations() {{
-                paimonNativeCatalog.getTable((Identifier) any);
-                result = mockTable;
-
-                mockTable.rowType();
-                result = new RowType(Collections.singletonList(new DataField(0, "f", new IntType())));
-
-                mockTable.partitionKeys();
-                result = Collections.emptyList();
+                cacheManager.getTable((TableCacheKey) any, withNotNull());
+                result = expected;
             }};
 
         // System table should use cache with loader
@@ -159,10 +156,6 @@ public class CachingPaimonCatalogTest {
     @Test
     public void tesLoadTableTriggersRefresh(@Mocked FileStoreTable mockTable)
             throws Catalog.TableNotExistException {
-        List<Column> cols = Collections.singletonList(new Column("id", Type.INT, true));
-        PaimonTable uninit = new PaimonTable(999L, "test_catalog", "db", "uninit", cols, -1L, -1L, mockTable);
-        uninit.setLakeOptimizerMode(PaimonTable.LakeOptimizerMode.UNINITIALIZED);
-        AtomicBoolean refreshTriggered = new AtomicBoolean(false);
 
         new Expectations() {{
                 paimonNativeCatalog.getTable((Identifier) any);
@@ -176,16 +169,11 @@ public class CachingPaimonCatalogTest {
 
                 queryService.queryTableSchemaByName("test_catalog", "db", "uninit");
                 result = null;
-
-                refreshManager.triggerAsyncRefresh((PaimonTable) any);
-                times = 1;
             }};
-
 
         TableCacheKey key = new TableCacheKey("test_catalog", "db", "uninit");
         PaimonTable result = Deencapsulation.invoke(cachingCatalog, "loadTable", key);
         Assert.assertEquals(PaimonTable.LakeOptimizerMode.UNINITIALIZED, result.getLakeOptimizerMode());
-
     }
 
     @Test

@@ -172,7 +172,10 @@ public class PaimonMetadata implements ConnectorMetadata {
             return databases.get(dbName);
         }
         Database db = paimonCatalog.getDb(dbName);
-        databases.put(dbName, db);
+        // ConcurrentHashMap rejects null values; only cache when the lookup actually returned a database.
+        if (db != null) {
+            databases.put(dbName, db);
+        }
         return db;
     }
 
@@ -183,7 +186,10 @@ public class PaimonMetadata implements ConnectorMetadata {
             return tables.get(identifier);
         }
         Table table = this.paimonCatalog.getTable(dbName, tblName);
-        tables.put(identifier, table);
+        // ConcurrentHashMap rejects null values; only cache when the lookup actually returned a table.
+        if (table != null) {
+            tables.put(identifier, table);
+        }
         return table;
     }
 

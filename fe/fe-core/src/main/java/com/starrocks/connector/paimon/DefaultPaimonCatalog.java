@@ -301,7 +301,14 @@ public class DefaultPaimonCatalog implements PaimonCatalog {
         try {
             List<org.apache.paimon.partition.Partition> partitions = paimonNativeCatalog.listPartitions(identifier);
             for (org.apache.paimon.partition.Partition partition : partitions) {
-                List<String> partitionValues = new ArrayList<>(partition.spec().values());
+                // partition.spec() is a Map without a guaranteed iteration order. Build the value
+                // list by looking up each partition column in declaration order so that values are
+                // aligned with `partitionColumnNames` (which is what downstream code assumes).
+                Map<String, String> spec = partition.spec();
+                List<String> partitionValues = new ArrayList<>(partitionColumnNames.size());
+                for (String partitionColumnName : partitionColumnNames) {
+                    partitionValues.add(spec.get(partitionColumnName));
+                }
                 Partition srPartition = buildSrPartition(
                         partition.recordCount(), partition.fileSizeInBytes(), partition.fileCount(),
                         partitionColumnNames, partitionColumnTypes, partitionValues, partition.lastFileCreationTime());

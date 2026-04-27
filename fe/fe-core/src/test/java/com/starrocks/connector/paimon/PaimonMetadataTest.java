@@ -182,10 +182,15 @@ public class PaimonMetadataTest {
                 result = new ArrayList<>(Collections.singleton("col1"));
                 paimonNativeTable.location().toString();
                 result = "hdfs://127.0.0.1:10000/paimon";
-                paimonNativeTable.primaryKeys();
-                result = List.of("col2");
                 paimonNativeTable.uuid();
                 result = "fake_uuid";
+                // primaryKeys() is only consumed by PaimonTable#getProperties / toThrift(), which is
+                // not exercised by this test. Recording it as a strict expectation would cause
+                // MissingInvocation. Keep it relaxed so that any incidental call still returns a
+                // non-null list, but the test does not require it to be invoked.
+                paimonNativeTable.primaryKeys();
+                result = Collections.emptyList();
+                minTimes = 0;
             }
         };
         com.starrocks.catalog.Table table = metadata.getTable(connectContext, "db1", "tbl1");
@@ -411,7 +416,7 @@ public class PaimonMetadataTest {
 
         // no predicate, limit 1
         PaimonMetadata metadata = new PaimonMetadata("paimon", environment,
-                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), properties);
+                new DefaultPaimonCatalog("paimon_catalog", catalog), properties);
         GetRemoteFilesParams params = GetRemoteFilesParams.newBuilder().setFieldNames(fieldNames).setLimit(1).build();
         List<RemoteFileInfo> result = metadata.getRemoteFiles(metadata.getTable(connectContext, "test_db", "test_table"), params);
         assertEquals(1, result.size());
@@ -421,7 +426,7 @@ public class PaimonMetadataTest {
 
         // no predicate, no limit
         metadata = new PaimonMetadata("paimon", environment,
-                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), properties);
+                new DefaultPaimonCatalog("paimon_catalog", catalog), properties);
         params = GetRemoteFilesParams.newBuilder().setFieldNames(fieldNames).setLimit(-1).build();
         result = metadata.getRemoteFiles(metadata.getTable(connectContext, "test_db", "test_table"), params);
         assertEquals(1, result.size());
@@ -435,7 +440,7 @@ public class PaimonMetadataTest {
 
         // partition predicate, limit 1
         metadata = new PaimonMetadata("paimon", environment,
-                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), properties);
+                new DefaultPaimonCatalog("paimon_catalog", catalog), properties);
         params = GetRemoteFilesParams.newBuilder().setFieldNames(fieldNames).setPredicate(createDateEqualPredicate)
                 .setLimit(1).build();
         result = metadata.getRemoteFiles(metadata.getTable(connectContext, "test_db", "test_table"), params);
@@ -446,7 +451,7 @@ public class PaimonMetadataTest {
 
         // partition predicate, no limit
         metadata = new PaimonMetadata("paimon", environment,
-                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), properties);
+                new DefaultPaimonCatalog("paimon_catalog", catalog), properties);
         params = GetRemoteFilesParams.newBuilder().setFieldNames(fieldNames).setPredicate(createDateEqualPredicate)
                 .setLimit(-1).build();
         result = metadata.getRemoteFiles(metadata.getTable(connectContext, "test_db", "test_table"), params);
@@ -461,7 +466,7 @@ public class PaimonMetadataTest {
 
         // none partition predicate, limit 1
         metadata = new PaimonMetadata("paimon", environment,
-                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), properties);
+                new DefaultPaimonCatalog("paimon_catalog", catalog), properties);
         params = GetRemoteFilesParams.newBuilder().setFieldNames(fieldNames).setPredicate(userEqualPredicate)
                 .setLimit(1).build();
         result = metadata.getRemoteFiles(metadata.getTable(connectContext, "test_db", "test_table"), params);
@@ -475,7 +480,7 @@ public class PaimonMetadataTest {
 
         // partition and none partition predicate, limit 1
         metadata = new PaimonMetadata("paimon", environment,
-                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), properties);
+                new DefaultPaimonCatalog("paimon_catalog", catalog), properties);
         params = GetRemoteFilesParams.newBuilder().setFieldNames(fieldNames)
                 .setPredicate(Utils.compoundAnd(createDateGreaterPredicate, userEqualPredicate))
                 .setLimit(1).build();
@@ -498,7 +503,7 @@ public class PaimonMetadataTest {
 
         // partition with function predicate, limit 1
         metadata = new PaimonMetadata("paimon", environment,
-                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), properties);
+                new DefaultPaimonCatalog("paimon_catalog", catalog), properties);
         params = GetRemoteFilesParams.newBuilder().setFieldNames(fieldNames).setPredicate(createDateCoalescePredicate)
                 .setLimit(1).build();
         result = metadata.getRemoteFiles(metadata.getTable(connectContext, "test_db", "test_table"), params);

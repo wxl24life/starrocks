@@ -60,6 +60,7 @@ import org.apache.paimon.schema.Schema;
 import org.apache.paimon.shade.guava30.com.google.common.collect.Lists;
 import org.apache.paimon.table.sink.BatchTableCommit;
 import org.apache.paimon.table.sink.BatchTableWrite;
+import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.BeforeAll;
@@ -200,10 +201,11 @@ public class ConnectorPlanTestBase extends PlanTestBase {
                 false);
         // create table
         org.apache.paimon.table.Table table = catalog.getTable(identifier);
-        BatchTableWrite batchTableWrite = table.newBatchWriteBuilder().newWrite();
-        BatchTableCommit batchTableCommit = table.newBatchWriteBuilder().newCommit();
+        BatchWriteBuilder writeBuilder = table.newBatchWriteBuilder();
+        BatchTableWrite batchTableWrite = writeBuilder.newWrite();
+        BatchTableCommit batchTableCommit = writeBuilder.newCommit();
         for (int i = 0; i < 10; i++) {
-            GenericRow genericRow = new GenericRow(3);
+            GenericRow genericRow = new GenericRow(2);
             genericRow.setField(0, BinaryString.fromString(String.valueOf(i)));
             genericRow.setField(1, BinaryString.fromString("2"));
             batchTableWrite.write(genericRow, 1);
@@ -228,8 +230,9 @@ public class ConnectorPlanTestBase extends PlanTestBase {
                 false);
         // create table
         org.apache.paimon.table.Table table = catalog.getTable(identifier);
-        BatchTableWrite batchTableWrite = table.newBatchWriteBuilder().newWrite();
-        BatchTableCommit batchTableCommit = table.newBatchWriteBuilder().newCommit();
+        BatchWriteBuilder writeBuilder = table.newBatchWriteBuilder();
+        BatchTableWrite batchTableWrite = writeBuilder.newWrite();
+        BatchTableCommit batchTableCommit = writeBuilder.newCommit();
         for (int i = 0; i < 10; i++) {
             GenericRow genericRow = new GenericRow(3);
             genericRow.setField(0, BinaryString.fromString("1"));
@@ -260,7 +263,7 @@ public class ConnectorPlanTestBase extends PlanTestBase {
         GlobalStateMgr.getCurrentState().getCatalogMgr().createCatalog("paimon", MOCK_PAIMON_CATALOG_NAME, "", properties);
         //register paimon catalog
         PaimonMetadata paimonMetadata = new PaimonMetadata(MOCK_PAIMON_CATALOG_NAME, new HdfsEnvironment(),
-                new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog),
+                new DefaultPaimonCatalog(MOCK_PAIMON_CATALOG_NAME, paimonNativeCatalog),
                 new ConnectorProperties(ConnectorType.PAIMON, properties));
         metadataMgr.registerMockedMetadata(MOCK_PAIMON_CATALOG_NAME, paimonMetadata);
     }
