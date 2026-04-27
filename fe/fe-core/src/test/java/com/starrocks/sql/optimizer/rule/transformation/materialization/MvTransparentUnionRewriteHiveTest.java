@@ -136,7 +136,7 @@ public class MvTransparentUnionRewriteHiveTest extends MVTestBase {
                 String[] expects = {
                         "     TABLE: lineitem_par\n" +
                                 "     PARTITION PREDICATES: 25: l_shipdate IN ('1998-01-02', '1998-01-05')\n" +
-                                "     partitions=2/6",
+                                "     partitions=2/2",
                         "     TABLE: mv0\n" +
                                 "     PREAGGREGATION: ON\n" +
                                 "     partitions=2/4\n" +
@@ -145,7 +145,7 @@ public class MvTransparentUnionRewriteHiveTest extends MVTestBase {
                         "     TABLE: lineitem_par\n" +
                                 "     PARTITION PREDICATES: 26: l_shipdate != '1998-01-01', " +
                                 "26: l_shipdate IN ('1998-01-02', '1998-01-05')\n" +
-                                "     partitions=2/6",
+                                "     partitions=2/2",
                         "     TABLE: mv0\n" +
                                 "     PREAGGREGATION: ON\n" +
                                 "     PREDICATES: 23: l_shipdate != '1998-01-01'\n" +
@@ -155,7 +155,7 @@ public class MvTransparentUnionRewriteHiveTest extends MVTestBase {
                                 "26: l_shipdate IN ('1998-01-02', '1998-01-05')\n" +
                                 "     NON-PARTITION PREDICATES: 25: l_suppkey > 1\n" +
                                 "     MIN/MAX PREDICATES: 25: l_suppkey > 1\n" +
-                                "     partitions=2/6",
+                                "     partitions=2/2",
                         "     TABLE: mv0\n" +
                                 "     PREAGGREGATION: ON\n" +
                                 "     PREDICATES: 22: l_suppkey > 1\n" +
@@ -194,7 +194,7 @@ public class MvTransparentUnionRewriteHiveTest extends MVTestBase {
                                 "     PARTITION PREDICATES: date_trunc('month', 25: l_shipdate) = '1998-01-01', " +
                                 "25: l_shipdate IN (NULL, '1998-01-02', '1998-01-05')\n" +
                                 "     NO EVAL-PARTITION PREDICATES: date_trunc('month', 25: l_shipdate) = '1998-01-01'\n" +
-                                "     partitions=2/6"
+                                "     partitions=2/2"
                 };
                 for (int i = 0; i < sqls.length; i++) {
                     String query = sqls[i];
@@ -368,7 +368,7 @@ public class MvTransparentUnionRewriteHiveTest extends MVTestBase {
                                 "     TABLE: lineitem_par\n" +
                                         "     PARTITION PREDICATES: 25: l_shipdate >= '1998-01-02', " +
                                         "25: l_shipdate IN ('1998-01-02', '1998-01-05')\n" +
-                                        "     partitions=2/6",
+                                        "     partitions=2/2",
                                 "     TABLE: mv0\n" +
                                         "     PREAGGREGATION: ON\n" +
                                         "     partitions=3/4", // case 1
