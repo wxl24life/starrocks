@@ -96,7 +96,7 @@ void delete_object(const std::string& object) {
 
 std::string get_object_content_type(const std::string& object) {
     Aws::S3::Model::HeadObjectRequest request;
-    request.SetBucket(kBucketName);
+    request.SetBucket(config::object_storage_bucket.c_str());
     request.SetKey(object);
     Aws::S3::Model::HeadObjectOutcome outcome = g_s3client->HeadObject(request);
     if (outcome.IsSuccess()) {
@@ -190,7 +190,7 @@ TEST_F(S3OutputStreamTest, test_singlepart_upload_with_content_type) {
     delete_object(kObjectName);
 
     // Test with custom content type for CSV
-    S3OutputStream os(g_s3client, kBucketName, kObjectName, 1024, 1024, "text/csv");
+    S3OutputStream os(g_s3client, config::object_storage_bucket.c_str(), kObjectName, 1024, 1024, "text/csv");
     std::string content("col1,col2\nval1,val2\n");
     ASSERT_OK(os.write(content.data(), content.size()));
     ASSERT_OK(os.close());
@@ -207,7 +207,7 @@ TEST_F(S3OutputStreamTest, test_singlepart_upload_with_parquet_content_type) {
     delete_object(kObjectName);
 
     // Test with custom content type for Parquet
-    S3OutputStream os(g_s3client, kBucketName, kObjectName, 1024, 1024, "application/parquet");
+    S3OutputStream os(g_s3client, config::object_storage_bucket.c_str(), kObjectName, 1024, 1024, "application/parquet");
     std::string content("dummy parquet content");
     ASSERT_OK(os.write(content.data(), content.size()));
     ASSERT_OK(os.close());
@@ -224,7 +224,7 @@ TEST_F(S3OutputStreamTest, test_singlepart_upload_with_default_content_type) {
     delete_object(kObjectName);
 
     // Test with default content type (application/octet-stream)
-    S3OutputStream os(g_s3client, kBucketName, kObjectName, 1024, 1024);
+    S3OutputStream os(g_s3client, config::object_storage_bucket.c_str(), kObjectName, 1024, 1024);
     std::string content("binary content");
     ASSERT_OK(os.write(content.data(), content.size()));
     ASSERT_OK(os.close());
@@ -241,7 +241,7 @@ TEST_F(S3OutputStreamTest, test_multipart_upload_with_content_type) {
     delete_object(kObjectName);
 
     // Use small max_single_part_size to trigger multipart upload
-    S3OutputStream os(g_s3client, kBucketName, kObjectName, 12, /*5MB=*/5 * 1024 * 1024, "text/csv");
+    S3OutputStream os(g_s3client, config::object_storage_bucket.c_str(), kObjectName, 12, /*5MB=*/5 * 1024 * 1024, "text/csv");
 
     std::string s1("first line of multipart upload\n");
     std::string s2("second line of multipart upload\n");
@@ -261,7 +261,7 @@ TEST_F(S3OutputStreamTest, test_multipart_upload_with_orc_content_type) {
     delete_object(kObjectName);
 
     // Use small max_single_part_size to trigger multipart upload
-    S3OutputStream os(g_s3client, kBucketName, kObjectName, 12, /*5MB=*/5 * 1024 * 1024, "application/x-orc");
+    S3OutputStream os(g_s3client, config::object_storage_bucket.c_str(), kObjectName, 12, /*5MB=*/5 * 1024 * 1024, "application/x-orc");
 
     std::string s1("first line of multipart upload\n");
     std::string s2("second line of multipart upload\n");
@@ -282,7 +282,7 @@ TEST_F(S3OutputStreamTest, test_direct_s3_output_stream_with_content_type) {
     delete_object(kObjectName);
 
     // DirectS3OutputStream always uses multipart upload
-    DirectS3OutputStream os(g_s3client, kBucketName, kObjectName, "text/csv");
+    DirectS3OutputStream os(g_s3client, config::object_storage_bucket.c_str(), kObjectName, "text/csv");
 
     // Write enough data to complete the upload (minimum 5MB for each part in real S3)
     std::string content("col1,col2\nval1,val2\n");
@@ -300,7 +300,7 @@ TEST_F(S3OutputStreamTest, test_direct_s3_output_stream_with_parquet_content_typ
     const char* kObjectName = "test_direct_s3_output_stream_with_parquet_content_type";
     delete_object(kObjectName);
 
-    DirectS3OutputStream os(g_s3client, kBucketName, kObjectName, "application/parquet");
+    DirectS3OutputStream os(g_s3client, config::object_storage_bucket.c_str(), kObjectName, "application/parquet");
 
     std::string content("dummy parquet content");
     ASSERT_OK(os.write(content.data(), content.size()));
@@ -318,7 +318,7 @@ TEST_F(S3OutputStreamTest, test_direct_s3_output_stream_with_default_content_typ
     delete_object(kObjectName);
 
     // Test with default content type
-    DirectS3OutputStream os(g_s3client, kBucketName, kObjectName);
+    DirectS3OutputStream os(g_s3client, config::object_storage_bucket.c_str(), kObjectName);
 
     std::string content("binary content");
     ASSERT_OK(os.write(content.data(), content.size()));
