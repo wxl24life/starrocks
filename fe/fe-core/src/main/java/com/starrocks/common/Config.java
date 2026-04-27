@@ -3083,6 +3083,15 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static boolean enable_load_volume_from_conf = false;
+
+    /**
+     * Whether to validate storage volume accessibility before CREATE/ALTER STORAGE VOLUME persists metadata.
+     * When enabled (default), StarRocks checks that the specified credentials and endpoint can actually reach
+     * remote storage, failing fast on misconfiguration. Can be temporarily disabled to allow administrative
+     * ALTER operations (e.g. disabling a volume) when remote storage is transiently unreachable.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_storage_volume_access_check = true;
     // remote storage related configuration
     @ConfField(comment = "storage type for cloud native table. Available options: " +
             "\"S3\", \"HDFS\", \"AZBLOB\", \"ADLS2\", \"GS\". case-insensitive")

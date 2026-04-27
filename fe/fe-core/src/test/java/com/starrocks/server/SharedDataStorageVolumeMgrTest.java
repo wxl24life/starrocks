@@ -38,10 +38,12 @@ import com.starrocks.common.ErrorReportException;
 import com.starrocks.common.ExceptionChecker;
 import com.starrocks.common.InvalidConfException;
 import com.starrocks.common.MetaNotFoundException;
+import com.starrocks.common.StarRocksException;
 import com.starrocks.common.jmockit.Deencapsulation;
 import com.starrocks.connector.share.credential.CloudConfigurationConstants;
 import com.starrocks.credential.CloudConfiguration;
 import com.starrocks.credential.aws.AwsCloudConfiguration;
+import com.starrocks.fs.HdfsUtil;
 import com.starrocks.lake.LakeTable;
 import com.starrocks.lake.LakeTablet;
 import com.starrocks.lake.StarOSAgent;
@@ -1210,5 +1212,170 @@ public class SharedDataStorageVolumeMgrTest {
         Assertions.assertFalse(svm.hasStorageVolumeBindAsVirtualGroup(notExistedGroupId));
 
         svm.removeStorageVolume(storageVolumeName);
+    }
+
+    // -------------------------------------------------------------------------
+    // Storage volume accessibility check tests (lock-contention fix)
+    // -------------------------------------------------------------------------
+
+    private Map<String, String> buildS3Params() {
+        Map<String, String> params = new HashMap<>();
+        params.put(AWS_S3_REGION, "us-east-1");
+        params.put(AWS_S3_ENDPOINT, "https://s3.amazonaws.com");
+        params.put(AWS_S3_ACCESS_KEY, "ak");
+        params.put(AWS_S3_SECRET_KEY, "sk");
+        return params;
+    }
+
+    @Test
+    public void testCreateStorageVolumeAccessCheckPass() throws Exception {
+        new MockUp<RunMode>() {
+            @Mock
+            boolean isSharedDataMode() {
+                return true;
+            }
+        };
+        new MockUp<HdfsUtil>() {
+            @Mock
+            public boolean checkPathExist(String remotePath, Map<String, String> properties) throws StarRocksException {
+                return true;
+            }
+        };
+        Config.enable_storage_volume_access_check = true;
+
+        SharedDataStorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
+        List<String> locations = Arrays.asList("s3://test-bucket/data");
+        svm.createStorageVolume("sv_check_pass", "S3", locations, buildS3Params(), Optional.empty(), "");
+        Assertions.assertTrue(svm.exists("sv_check_pass"));
+
+        Config.enable_storage_volume_access_check = true;
+    }
+
+    @Test
+    public void testCreateStorageVolumeAccessCheckFail() {
+        new MockUp<RunMode>() {
+            @Mock
+            boolean isSharedDataMode() {
+                return true;
+            }
+        };
+        new MockUp<HdfsUtil>() {
+            @Mock
+            public boolean checkPathExist(String remotePath, Map<String, String> properties) throws StarRocksException {
+                throw new StarRocksException("Forbidden (Status Code: 403)");
+            }
+        };
+        Config.enable_storage_volume_access_check = true;
+
+        SharedDataStorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
+        List<String> locations = Arrays.asList("s3://test-bucket/data");
+        DdlException ex = Assertions.assertThrows(DdlException.class,
+                () -> svm.createStorageVolume("sv_check_fail", "S3", locations, buildS3Params(), Optional.empty(), ""));
+        Assertions.assertTrue(ex.getMessage().contains("accessibility check failed"));
+        Assertions.assertNull(svm.getStorageVolumeByName("sv_check_fail"));
+
+        Config.enable_storage_volume_access_check = true;
+    }
+
+    @Test
+    public void testCreateStorageVolumeAccessCheckDisabled() throws Exception {
+        new MockUp<RunMode>() {
+            @Mock
+            boolean isSharedDataMode() {
+                return true;
+            }
+        };
+        // Even though checkPathExist would throw, the check is skipped when flag is false.
+        new MockUp<HdfsUtil>() {
+            @Mock
+            public boolean checkPathExist(String remotePath, Map<String, String> properties) throws StarRocksException {
+                throw new StarRocksException("should not be called");
+            }
+        };
+        Config.enable_storage_volume_access_check = false;
+
+        try {
+            SharedDataStorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
+            List<String> locations = Arrays.asList("s3://test-bucket/data");
+            svm.createStorageVolume("sv_check_disabled", "S3", locations, buildS3Params(), Optional.empty(), "");
+            Assertions.assertTrue(svm.exists("sv_check_disabled"));
+        } finally {
+            Config.enable_storage_volume_access_check = true;
+        }
+    }
+
+    @Test
+    public void testAlterStorageVolumeCredentialChangeAccessCheckFail() throws Exception {
+        new MockUp<RunMode>() {
+            @Mock
+            boolean isSharedDataMode() {
+                return true;
+            }
+        };
+        // First CREATE succeeds (check passes).
+        new MockUp<HdfsUtil>() {
+            @Mock
+            public boolean checkPathExist(String remotePath, Map<String, String> properties) throws StarRocksException {
+                return true;
+            }
+        };
+        Config.enable_storage_volume_access_check = true;
+
+        SharedDataStorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
+        List<String> locations = Arrays.asList("s3://test-bucket/data");
+        svm.createStorageVolume("sv_alter_cred", "S3", locations, buildS3Params(), Optional.empty(), "");
+        StorageVolume svBefore = svm.getStorageVolumeByName("sv_alter_cred");
+        String idBefore = svBefore.getId();
+
+        // Now ALTER with bad credentials — check should fail.
+        new MockUp<HdfsUtil>() {
+            @Mock
+            public boolean checkPathExist(String remotePath, Map<String, String> properties) throws StarRocksException {
+                throw new StarRocksException("InvalidAccessKeyId (Status Code: 403)");
+            }
+        };
+        Map<String, String> badParams = new HashMap<>();
+        badParams.put(AWS_S3_ACCESS_KEY, "bad_ak");
+        badParams.put(AWS_S3_SECRET_KEY, "bad_sk");
+        DdlException ex = Assertions.assertThrows(DdlException.class,
+                () -> svm.updateStorageVolume("sv_alter_cred", null, null, badParams, Optional.empty(), ""));
+        Assertions.assertTrue(ex.getMessage().contains("accessibility check failed"));
+
+        // Original SV config must be unchanged.
+        StorageVolume svAfter = svm.getStorageVolumeByName("sv_alter_cred");
+        Assertions.assertEquals(idBefore, svAfter.getId());
+    }
+
+    @Test
+    public void testAlterStorageVolumeMetadataOnlySkipsCheck() throws Exception {
+        new MockUp<RunMode>() {
+            @Mock
+            boolean isSharedDataMode() {
+                return true;
+            }
+        };
+        new MockUp<HdfsUtil>() {
+            @Mock
+            public boolean checkPathExist(String remotePath, Map<String, String> properties) throws StarRocksException {
+                return true;
+            }
+        };
+        Config.enable_storage_volume_access_check = true;
+
+        SharedDataStorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
+        List<String> locations = Arrays.asList("s3://test-bucket/data");
+        svm.createStorageVolume("sv_meta_only", "S3", locations, buildS3Params(), Optional.empty(), "");
+
+        // Now simulate storage being unreachable but ALTER only changes `enabled` — check should be skipped.
+        new MockUp<HdfsUtil>() {
+            @Mock
+            public boolean checkPathExist(String remotePath, Map<String, String> properties) throws StarRocksException {
+                throw new StarRocksException("unreachable — should not be called for metadata-only ALTER");
+            }
+        };
+        // Metadata-only: no svType, no locations, no credential params — only enabled flag.
+        svm.updateStorageVolume("sv_meta_only", null, null, new HashMap<>(), Optional.of(false), "");
+        StorageVolume sv = svm.getStorageVolumeByName("sv_meta_only");
+        Assertions.assertFalse(sv.getEnabled());
     }
 }

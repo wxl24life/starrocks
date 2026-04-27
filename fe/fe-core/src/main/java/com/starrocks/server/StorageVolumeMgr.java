@@ -20,6 +20,7 @@ import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import com.staros.util.LockCloseable;
 import com.starrocks.common.AlreadyExistsException;
+import com.starrocks.common.Config;
 import com.starrocks.common.DdlException;
 import com.starrocks.common.InvalidConfException;
 import com.starrocks.common.MetaNotFoundException;
@@ -120,9 +121,12 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
     public String createStorageVolume(String name, String svType, List<String> locations, Map<String, String> params,
             Optional<Boolean> enabled, String comment)
             throws DdlException, AlreadyExistsException {
+        // Validation and remote I/O are done before acquiring the write lock to avoid
+        // holding it during potentially slow network access.
+        validateParams(svType, params);
+        validateLocations(svType, locations);
+        checkStorageVolumeAccessIfNeeded(name, svType, locations, params);
         try (LockCloseable lock = new LockCloseable(rwLock.writeLock())) {
-            validateParams(svType, params);
-            validateLocations(svType, locations);
             if (exists(name)) {
                 throw new AlreadyExistsException(String.format("Storage volume '%s' already exists", name));
             }
@@ -180,6 +184,40 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
                 throw new DdlException(String.format("Storage volume property '%s' is immutable!", param));
             }
         }
+
+        // Only check accessibility when connectivity-affecting properties change (type, locations, credentials).
+        // Skip for metadata-only changes (enabled, comment) so operators can disable a volume when storage is unreachable.
+        boolean connectivityChanged = !Strings.isNullOrEmpty(svType) || locations != null || !params.isEmpty();
+        if (connectivityChanged) {
+            // Phase 1: snapshot existing SV state under read lock to build merged config for the access check.
+            String checkType;
+            List<String> checkLocations;
+            Map<String, String> checkProperties;
+            try (LockCloseable lock = new LockCloseable(rwLock.readLock())) {
+                StorageVolume sv = getStorageVolumeByName(name);
+                if (sv == null) {
+                    throw new MetaNotFoundException(String.format("Storage volume '%s' does not exist", name));
+                }
+                StorageVolume preview = new StorageVolume(sv);
+                if (!Strings.isNullOrEmpty(svType)) {
+                    preview.setType(svType);
+                }
+                if (locations != null) {
+                    preview.setLocations(locations);
+                }
+                if (!params.isEmpty()) {
+                    preview.setCloudConfiguration(params);
+                }
+                checkType = preview.getType();
+                checkLocations = preview.getLocations();
+                checkProperties = preview.getProperties();
+            }
+
+            // Phase 2: remote I/O outside any lock to avoid blocking concurrent storage volume operations.
+            checkStorageVolumeAccessIfNeeded(name, checkType, checkLocations, checkProperties);
+        }
+
+        // Phase 3: apply update under write lock. Re-read SV to handle any changes since Phase 1.
         try (LockCloseable lock = new LockCloseable(rwLock.writeLock())) {
             StorageVolume sv = getStorageVolumeByName(name);
             if (sv == null) {
@@ -389,6 +427,13 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
 
     public void replayUpdateTableStorageInfos(TableStorageInfos tableStorageInfos) {
         throw new RuntimeException("Not implemented");
+    }
+
+    private void checkStorageVolumeAccessIfNeeded(String name, String svType, List<String> locations,
+            Map<String, String> params) throws DdlException {
+        if (RunMode.isSharedDataMode() && Config.enable_storage_volume_access_check) {
+            StorageVolumeAccessChecker.check(name, svType, locations, params);
+        }
     }
 
     protected void validateParams(String svType, Map<String, String> params) throws DdlException {
