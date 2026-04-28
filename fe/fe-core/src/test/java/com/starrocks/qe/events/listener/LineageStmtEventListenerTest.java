@@ -1542,7 +1542,7 @@ public class LineageStmtEventListenerTest {
         Assert.assertEquals("id2", target.getColumns().get(1).getName());
         Assert.assertEquals("BIGINT", target.getColumns().get(1).getType());
         Assert.assertEquals("name", target.getColumns().get(2).getName());
-        Assert.assertEquals("VARCHAR(65533)", target.getColumns().get(2).getType());
+        Assert.assertEquals("VARCHAR(1048576)", target.getColumns().get(2).getType());
         printChangeLog(lineage, stmt);
     }
 
