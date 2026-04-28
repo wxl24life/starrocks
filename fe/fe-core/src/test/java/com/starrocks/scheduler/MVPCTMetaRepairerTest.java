@@ -142,7 +142,7 @@ public class MVPCTMetaRepairerTest extends MVTestBase {
                 refreshMaterializedView("test", "iceberg_mv1");
                 Assertions.fail();
             } catch (Exception e) {
-                assertThat(e.getMessage()).contains("not exist");
+                assertThat(e.getMessage()).contains("is recreated");
             }
         }
 
