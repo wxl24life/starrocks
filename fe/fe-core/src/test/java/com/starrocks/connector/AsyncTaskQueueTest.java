@@ -152,13 +152,14 @@ public class AsyncTaskQueueTest {
             Assertions.assertTrue(Thread.currentThread().isInterrupted(),
                     "Thread interrupt status should be restored");
         });
+        consumerThread.setDaemon(true);
 
         consumerThread.start();
         Thread.sleep(100);
         consumerThread.interrupt();
-        consumerThread.join(2000);
+        consumerThread.join(5000);
 
-        executorService.shutdown();
+        executorService.shutdownNow();
     }
 
     @Test
