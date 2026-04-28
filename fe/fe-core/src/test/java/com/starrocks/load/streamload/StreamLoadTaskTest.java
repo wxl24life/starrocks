@@ -587,6 +587,6 @@ public class StreamLoadTaskTest {
         // Fixed: toThrift returns TLoadInfo
         TLoadInfo loadInfo = task.toThrift();
         Assertions.assertTrue(loadInfo.isSetWarehouse());
-        Assertions.assertEquals("", loadInfo.getWarehouse());
+        Assertions.assertEquals("Warehouse not found", loadInfo.getWarehouse());
     }
 }
