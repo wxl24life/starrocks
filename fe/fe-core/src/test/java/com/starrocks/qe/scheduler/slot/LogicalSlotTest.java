@@ -86,7 +86,9 @@ public class LogicalSlotTest {
         Optional<LogicalSlot.ExtraMessage> extraMessage = slot1.getExtraMessage();
         assertTrue(extraMessage.isEmpty());
 
+        // Listeners are cleared after onQueryFinished, re-register for second call
         Config.max_query_queue_history_slots_number = 10;
+        connectContext.registerListener(listener);
         connectContext.onQueryFinished();
         extraMessage = slot1.getExtraMessage();
         assertTrue(extraMessage.isPresent());

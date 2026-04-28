@@ -1670,6 +1670,7 @@ public class ConnectContext {
                 LOG.warn("onQueryFinished error", e);
             }
         }
+        listeners.clear();
     }
 
     public boolean isSingleStmt() {
