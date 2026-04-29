@@ -34,17 +34,31 @@ public class ChildFirstClassLoader extends URLClassLoader {
 
     private ParentClassLoader parentLoader;
     private ArrayList<String> parentFirstClass;
+    private ArrayList<String> parentFirstPackagePrefix;
 
     public ChildFirstClassLoader(URL[] urls, ClassLoader parent) {
         super(urls, null);
         this.parentLoader = new ParentClassLoader(parent);
         // load native method class from parent
-        this.parentFirstClass = new ArrayList<>(Arrays.asList("com.starrocks.utils.NativeMethodHelper"));
+        this.parentFirstClass = new ArrayList<>(
+                Arrays.asList("com.starrocks.utils.NativeMethodHelper"));
+        // Also load SLF4J and Log4j bridge classes from parent to avoid LinkageError when different class loaders
+        // load the same class (e.g., org.slf4j.Marker used in Logger interface methods)
+        // Use package prefix matching to cover all classes in these packages
+        this.parentFirstPackagePrefix = new ArrayList<>(
+                Arrays.asList("org.slf4j.",
+                              "org.apache.logging.slf4j."));
     }
 
     @Override
     public Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+        // Check exact class name match
         if (!parentFirstClass.isEmpty() && parentFirstClass.stream().anyMatch(c -> c.equals(name))) {
+            return parentLoader.loadClass(name, resolve);
+        }
+        // Check package prefix match
+        if (!parentFirstPackagePrefix.isEmpty() &&
+                parentFirstPackagePrefix.stream().anyMatch(prefix -> name.startsWith(prefix))) {
             return parentLoader.loadClass(name, resolve);
         }
         try {
