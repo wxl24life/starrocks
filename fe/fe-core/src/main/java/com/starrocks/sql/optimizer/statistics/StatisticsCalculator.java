@@ -89,6 +89,7 @@ import com.starrocks.sql.optimizer.operator.logical.LogicalMysqlScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalOdpsScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalOlapScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalOperator;
+import com.starrocks.sql.optimizer.operator.logical.LogicalPaimonIndexScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalPaimonScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalProjectOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalRawValuesOperator;
@@ -605,6 +606,11 @@ public class StatisticsCalculator extends OperatorVisitor<Void, ExpressionContex
 
     @Override
     public Void visitPhysicalIcebergMetadataScan(PhysicalIcebergMetadataScanOperator node, ExpressionContext context) {
+        return computeMetadataScanNode(node, context, node.getColRefToColumnMetaMap());
+    }
+
+    @Override
+    public Void visitLogicalPaimonIndexScan(LogicalPaimonIndexScanOperator node, ExpressionContext context) {
         return computeMetadataScanNode(node, context, node.getColRefToColumnMetaMap());
     }
 

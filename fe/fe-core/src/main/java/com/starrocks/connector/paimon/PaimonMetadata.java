@@ -54,8 +54,11 @@ import com.starrocks.thrift.TPaimonCommitMessage;
 import com.starrocks.thrift.TSinkCommitInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.Timestamp;
+import org.apache.paimon.globalindex.GlobalIndexResult;
+import org.apache.paimon.globalindex.IndexedSplit;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataInputViewStreamWrapper;
 import org.apache.paimon.metrics.Gauge;
@@ -63,6 +66,7 @@ import org.apache.paimon.metrics.Metric;
 import org.apache.paimon.operation.metrics.ScanMetrics;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.stats.ColStats;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.sink.BatchTableCommit;
 import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.sink.CommitMessage;
@@ -71,6 +75,7 @@ import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.InnerTableScan;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
+import org.apache.paimon.utils.Range;
 
 import java.io.ByteArrayInputStream;
 import java.time.ZoneId;
@@ -81,8 +86,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static com.starrocks.common.profile.Tracers.Module.EXTERNAL;
@@ -206,8 +213,16 @@ public class PaimonMetadata implements ConnectorMetadata {
                 paimonTable.getCatalogTableName(), snapshotId, params.getPredicate());
         if (!paimonSplits.containsKey(filter)) {
             ReadBuilder readBuilder = paimonTable.getNativeTable().newReadBuilder();
+            // Drop synthetic columns that the planner injects but Paimon's schema does not know
+            // about. Without this, indexOf returns -1 and RowType.project blows up with
+            // "Index -1 out of bounds".
+            //   - ___COUNT___: COUNT(*) sentinel column
+            //   - SCORE_COLUMN_NAME (_INDEX_SCORE): added by ApplyTopNIndexRule to carry the
+            //     ANN distance returned from the global-index two-stage scan
             int[] projected = params.getFieldNames().stream()
                     .filter(name -> !name.equalsIgnoreCase("___COUNT___"))
+                    .filter(name -> !name.equalsIgnoreCase(
+                            com.starrocks.sql.optimizer.rule.transformation.ApplyTopNIndexRule.SCORE_COLUMN_NAME))
                     .mapToInt(name -> (paimonTable.getFieldNames().indexOf(name))).toArray();
             List<ScalarOperator> originalConjuncts = Utils.extractConjuncts(params.getPredicate());
             List<Predicate> pushedPredicates = convertPredicates(paimonTable, originalConjuncts);
@@ -224,10 +239,24 @@ public class PaimonMetadata implements ConnectorMetadata {
             InnerTableScan scan;
             boolean useLakeOptimizer =
                     paimonTable.getLakeOptimizerMode() == PaimonTable.LakeOptimizerMode.READY;
-            if (useLakeOptimizer) {
-                scan = readBuilder.newExternalEntriesScan();
-            } else {
+            boolean useGlobalIndex = params.getGlobalIndexResult() != null
+                    && paimonTable.getNativeTable() instanceof FileStoreTable;
+            // globalIndex takes precedence over LakeOptimizer: when both apply, we must obtain a
+            // DataEvolutionBatchScan (only produced by readBuilder.newScan() when the table has
+            // dataEvolutionEnabled), not the external-entries scan path.
+            if (useGlobalIndex || !useLakeOptimizer) {
                 scan = (InnerTableScan) readBuilder.newScan();
+            } else {
+                scan = readBuilder.newExternalEntriesScan();
+            }
+            if (params.getGlobalIndexResult() != null) {
+                // withGlobalIndexResult must come after readBuilder's withFilter (already applied
+                // by newScan above). On DataEvolutionBatchScan, withGlobalIndexResult and
+                // withRowRangeIndex are mutually exclusive; withFilter pushes ROW_ID predicates
+                // down as row ranges, so any future ROW_ID predicate pushdown to Paimon would
+                // collide with this path. On non-DataEvolutionBatchScan implementations
+                // withGlobalIndexResult is a default no-op, so this call is safe in any case.
+                scan.withGlobalIndexResult((GlobalIndexResult) params.getGlobalIndexResult());
             }
             PaimonMetricRegistry paimonMetricRegistry = new PaimonMetricRegistry();
             scan.withMetricRegistry(paimonMetricRegistry);
@@ -318,7 +347,14 @@ public class PaimonMetadata implements ConnectorMetadata {
 
         AtomicLong resultedTableFilesSize = new AtomicLong(0);
         for (Split split : splits) {
-            List<DataFileMeta> dataFileMetas = ((DataSplit) split).dataFiles();
+            List<DataFileMeta> dataFileMetas;
+            if (split instanceof DataSplit) {
+                dataFileMetas = ((DataSplit) split).dataFiles();
+            } else if (split instanceof IndexedSplit) {
+                dataFileMetas = ((IndexedSplit) split).dataSplit().dataFiles();
+            } else {
+                throw new RuntimeException("unsupported split type: " + split.getClass().getName());
+            }
             dataFileMetas.forEach(dataFileMeta -> resultedTableFilesSize.addAndGet(dataFileMeta.fileSize()));
         }
         Tracers.record(EXTERNAL, prefix + "." + "resultedDataFilesSize", resultedTableFilesSize.get() + " B");
@@ -349,8 +385,15 @@ public class PaimonMetadata implements ConnectorMetadata {
                 long rowCount = statistics.get().mergedRecordCount().getAsLong();
                 builder.setOutputRowCount(rowCount);
                 Map<String, ColStats<?>> colStatsMap = statistics.get().colStats();
-                for (ColumnRefOperator column : columns.keySet()) {
-                    builder.addColumnStatistic(column, buildColumnStatistic(columns.get(column), colStatsMap, rowCount));
+                // Synthetic columns (e.g. _INDEX_SCORE) are not in the paimon schema; only fetch
+                // per-column stats for physical columns and fall back to unknown for the rest.
+                for (Map.Entry<ColumnRefOperator, Column> entry : columns.entrySet()) {
+                    if (table.getColumn(entry.getKey().getName()) != null) {
+                        builder.addColumnStatistic(entry.getKey(),
+                                buildColumnStatistic(entry.getValue(), colStatsMap, rowCount));
+                    } else {
+                        builder.addColumnStatistic(entry.getKey(), ColumnStatistic.unknown());
+                    }
                 }
                 return builder.build();
             } else {
@@ -533,6 +576,70 @@ public class PaimonMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new StarRocksConnectorException(e.getMessage(), e);
         }
+    }
+
+    // ==================== Paimon Global Index API ====================
+
+    /**
+     * Returns the list of shard ranges of the global index (one entry per index shard).
+     * Returns null if the table does not have a paimon-native FileStoreTable.
+     */
+    private List<Range> getIndexShardList(Table table) {
+        PaimonTable paimonTable = (PaimonTable) table;
+        if (!(paimonTable.getNativeTable() instanceof FileStoreTable)) {
+            return null;
+        }
+        FileStoreTable fileStoreTable = (FileStoreTable) paimonTable.getNativeTable();
+        Optional<Snapshot> snapshot = paimonTable.getNativeTable().latestSnapshot();
+        if (!snapshot.isPresent()) {
+            return null;
+        }
+        List<Range> shardRanges = new ArrayList<>();
+        for (Split split : fileStoreTable.newReadBuilder().newScan().plan().splits()) {
+            if (split instanceof DataSplit) {
+                for (DataFileMeta file : ((DataSplit) split).dataFiles()) {
+                    shardRanges.add(file.nonNullRowIdRange());
+                }
+            }
+        }
+        return org.apache.paimon.utils.Range.sortAndMergeOverlap(shardRanges, true);
+    }
+
+    @Override
+    public boolean checkGlobalIndexAvailable(Table table) {
+        List<Range> indexShardList = getIndexShardList(table);
+        return indexShardList != null && !indexShardList.isEmpty();
+    }
+
+    @Override
+    public int getGlobalIndexShardCount(Table table) {
+        List<Range> indexShardList = getIndexShardList(table);
+        if (indexShardList == null || indexShardList.isEmpty()) {
+            throw new RuntimeException("index shards is empty");
+        }
+        return indexShardList.size();
+    }
+
+    @Override
+    public <T> List<T> getGlobalIndexShards(Table table, Function<Object, T> mapper) {
+        List<Range> indexShardList = getIndexShardList(table);
+        return indexShardList == null ? null
+                : indexShardList.stream().map(mapper).collect(Collectors.toList());
+    }
+
+    @Override
+    public Map<String, Set<String>> getGlobalIndexes(Table table) {
+        PaimonTable paimonTable = (PaimonTable) table;
+        if (!(paimonTable.getNativeTable() instanceof FileStoreTable)) {
+            return new HashMap<>();
+        }
+        FileStoreTable fileStoreTable = (FileStoreTable) paimonTable.getNativeTable();
+        return fileStoreTable.store().newIndexFileHandler().scanEntries().stream()
+                .filter(s -> s.indexFile().globalIndexMeta() != null)
+                .collect(Collectors.groupingBy(s -> fileStoreTable.rowType()
+                                .getField(s.indexFile().globalIndexMeta().indexFieldId()).name(),
+                        Collectors.mapping(s -> s.indexFile().indexType(), Collectors.toSet())
+                ));
     }
 
     public static boolean onlyHasPartitionPredicate(Table table, List<ScalarOperator> originalConjuncts) {

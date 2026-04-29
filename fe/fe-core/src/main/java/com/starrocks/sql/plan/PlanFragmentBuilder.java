@@ -1349,6 +1349,41 @@ public class PlanFragmentBuilder {
             return fragment;
         }
 
+        public PlanFragment visitPhysicalPaimonIndexScan(OptExpression optExpression, ExecPlan context) {
+            com.starrocks.sql.optimizer.operator.physical.PhysicalPaimonIndexScanOperator node =
+                    (com.starrocks.sql.optimizer.operator.physical.PhysicalPaimonIndexScanOperator) optExpression.getOp();
+
+            // extract index condition (passed as the literal RHS of `args = '<json>'`)
+            com.starrocks.sql.optimizer.operator.scalar.BinaryPredicateOperator predicate =
+                    (com.starrocks.sql.optimizer.operator.scalar.BinaryPredicateOperator) node.getPredicate();
+            if (predicate == null) {
+                throw new StarRocksPlannerException("Index condition is null", INTERNAL_ERROR);
+            }
+            String indexCondition = predicate.getChild(1).toString();
+
+            Table table = node.getTable();
+            TupleDescriptor tupleDescriptor = context.getDescTbl().createTupleDescriptor();
+            tupleDescriptor.setTable(table);
+            prepareContextSlots(node, context, tupleDescriptor);
+
+            com.starrocks.planner.PaimonIndexScanNode paimonIndexScanNode =
+                    new com.starrocks.planner.PaimonIndexScanNode(
+                            context.getNextNodeId(),
+                            tupleDescriptor,
+                            "PaimonIndexScanNode",
+                            (com.starrocks.connector.index.IndexTable) table,
+                            indexCondition);
+            paimonIndexScanNode.setupScanRangeLocations();
+
+            tupleDescriptor.computeMemLayout();
+            context.getScanNodes().add(paimonIndexScanNode);
+
+            PlanFragment fragment =
+                    new PlanFragment(context.getNextFragmentId(), paimonIndexScanNode, DataPartition.RANDOM);
+            context.getFragments().add(fragment);
+            return fragment;
+        }
+
         public PlanFragment visitPhysicalPaimonScan(OptExpression optExpression, ExecPlan context) {
             PhysicalPaimonScanOperator node = (PhysicalPaimonScanOperator) optExpression.getOp();
 
@@ -1363,6 +1398,8 @@ public class PlanFragmentBuilder {
             PaimonScanNode paimonScanNode =
                     new PaimonScanNode(context.getNextNodeId(), tupleDescriptor, "PaimonScanNode");
             paimonScanNode.setScanOptimizeOption(node.getScanOptimizeOption());
+            // Wire IndexCondition so that setupScanRangeLocations can run the global-index two-stage flow.
+            paimonScanNode.setIndexCondition(node.getIndexCondition());
             paimonScanNode.computeStatistics(optExpression.getStatistics());
             currentExecGroup.add(paimonScanNode, true);
             try {

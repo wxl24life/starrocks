@@ -70,6 +70,14 @@ vectorized_functions = [
     [10114, "l2_distance", True, False, "FLOAT", ["ARRAY_FLOAT", "ARRAY_FLOAT"], "MathFunctions::l2_distance<TYPE_FLOAT>"],
     [10116, "approx_l2_distance", True, False, "FLOAT", ["ARRAY_FLOAT", "ARRAY_FLOAT"], "MathFunctions::l2_distance<TYPE_FLOAT>"],
 
+    #   inner product
+    #   Bound to cosine_similarity<TYPE_FLOAT, true>: with isNorm=true the template skips the
+    #   denominator and returns plain Sigma(a_i * b_i), so it is mathematically a dot product
+    #   despite the misleading "cosine_similarity_norm" name. Reuses the existing AVX2 kernel
+    #   instead of duplicating an inner_product implementation.
+    [10117, "inner_product", True, False, "FLOAT", ["ARRAY_FLOAT", "ARRAY_FLOAT"], "MathFunctions::cosine_similarity<TYPE_FLOAT, true>"],
+    [10118, "approx_inner_product", True, False, "FLOAT", ["ARRAY_FLOAT", "ARRAY_FLOAT"], "MathFunctions::cosine_similarity<TYPE_FLOAT, true>"],
+
     [10120, "floor", True, False, "BIGINT", ["DOUBLE"], "MathFunctions::floor"],
     [10121, "dfloor", True, False, "BIGINT", ["DOUBLE"], "MathFunctions::floor"],
 

@@ -62,6 +62,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 public interface ConnectorMetadata {
     /**
@@ -159,6 +160,22 @@ public interface ConnectorMetadata {
 
     default List<PartitionInfo> getRemotePartitions(Table table, List<String> partitionNames) {
         return Lists.newArrayList();
+    }
+
+    default boolean checkGlobalIndexAvailable(Table table) {
+        return false;
+    }
+
+    default int getGlobalIndexShardCount(Table table) {
+        return 0;
+    }
+
+    default <T> List<T> getGlobalIndexShards(Table table, Function<Object, T> mapper) {
+        return Lists.newArrayList();
+    }
+
+    default Map<String, Set<String>> getGlobalIndexes(Table table) {
+        return new HashMap<>();
     }
 
     /**

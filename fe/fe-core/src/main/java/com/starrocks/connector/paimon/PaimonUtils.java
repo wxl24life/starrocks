@@ -14,9 +14,15 @@
 
 package com.starrocks.connector.paimon;
 
+import com.starrocks.common.Pair;
+import com.starrocks.connector.index.IndexCondition;
+import com.starrocks.connector.index.TopNIndexCondition;
 import com.starrocks.thrift.TIcebergSchema;
 import com.starrocks.thrift.TIcebergSchemaField;
 import org.apache.paimon.format.parquet.ParquetSchemaConverter;
+import org.apache.paimon.globalindex.GlobalIndexResult;
+import org.apache.paimon.globalindex.ScoreGetter;
+import org.apache.paimon.globalindex.ScoredGlobalIndexResult;
 import org.apache.paimon.table.SpecialFields;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
@@ -24,9 +30,17 @@ import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.utils.RoaringNavigableMap64;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.PriorityQueue;
 
 public class PaimonUtils {
 
@@ -84,4 +98,114 @@ public class PaimonUtils {
         }
         return tPaimonSchemaField;
     }
+
+    private static void addToTopNQueue(
+            PriorityQueue<Pair<Long, Float>> topNQueue,
+            long limitGlobal,
+            List<Pair<Long, Float>> pairs
+    ) {
+        for (Pair<Long, Float> pair : pairs) {
+            if (topNQueue.size() < limitGlobal) {
+                topNQueue.add(pair);
+            } else {
+                if (pair.second > topNQueue.peek().second) {
+                    topNQueue.poll();
+                    topNQueue.add(pair);
+                }
+            }
+        }
+    }
+
+    // Used when every shard returned a NULL row (no matches). Returning an empty result instead
+    // of null lets DataEvolutionBatchScan produce zero-row splits naturally rather than the FE
+    // raising a fatal exception.
+    public static GlobalIndexResult createEmptyGlobalIndexResult(IndexCondition indexCondition) {
+        if (indexCondition instanceof TopNIndexCondition) {
+            return ScoredGlobalIndexResult.createEmpty();
+        }
+        return GlobalIndexResult.createEmpty();
+    }
+
+    public static GlobalIndexResultAggregator createGlobalIndexResultAggregator(
+            GlobalIndexResult globalIndexResult,
+            IndexCondition indexCondition
+    ) {
+        if (globalIndexResult instanceof ScoredGlobalIndexResult) {
+            if (!(indexCondition instanceof TopNIndexCondition)) {
+                throw new RuntimeException("TopNIndexCondition is required for ScoredGlobalIndexResult");
+            }
+            long[] nLocal = ((TopNIndexCondition) indexCondition).getNLocal();
+            long limitGlobal = Arrays.stream(nLocal).sum();
+            return createAggregatorWithScorePriority((ScoredGlobalIndexResult) globalIndexResult, limitGlobal);
+        } else {
+            return createAggregator(globalIndexResult);
+        }
+    }
+
+    @NotNull
+    public static GlobalIndexResultAggregator createAggregator(GlobalIndexResult globalIndexResult) {
+        return new GlobalIndexResultAggregator() {
+            @Override
+            public void iterate(GlobalIndexResult partial) {
+                globalIndexResult.or(partial);
+            }
+
+            @Override
+            public GlobalIndexResult terminate() {
+                return globalIndexResult;
+            }
+        };
+    }
+
+    @NotNull
+    public static GlobalIndexResultAggregator createAggregatorWithScorePriority(
+            ScoredGlobalIndexResult globalIndexResult, long limitGlobal) {
+        // PriorityQueue requires capacity >= 1; when every shard's localN is 0 (no candidates),
+        // start with capacity 1 — the inner addToTopNQueue still respects the actual limitGlobal.
+        int initialCapacity = (int) Math.max(1L, Math.min(limitGlobal, Integer.MAX_VALUE));
+        PriorityQueue<Pair<Long, Float>> topNQueue = new PriorityQueue<>(
+                initialCapacity,
+                Comparator.comparing(pair -> pair.second)
+        );
+        addToTopNQueue(topNQueue, limitGlobal, toRowIdWithScoreList(globalIndexResult));
+        return new GlobalIndexResultAggregator() {
+            @Override
+            public void iterate(GlobalIndexResult partial) {
+                List<Pair<Long, Float>> partialList = toRowIdWithScoreList((ScoredGlobalIndexResult) partial);
+                addToTopNQueue(topNQueue, limitGlobal, partialList);
+            }
+
+            @Override
+            public GlobalIndexResult terminate() {
+                RoaringNavigableMap64 bitmap = new RoaringNavigableMap64();
+                Map<Long, Float> scoreMap = new HashMap<>();
+                topNQueue.forEach(pair -> {
+                    bitmap.add(pair.first);
+                    scoreMap.put(pair.first, pair.second);
+                });
+                bitmap.runOptimize();
+                return ScoredGlobalIndexResult.create(() -> bitmap, scoreMap::get);
+            }
+        };
+    }
+
+    public static List<Pair<Long, Float>> toRowIdWithScoreList(ScoredGlobalIndexResult indexResult) {
+        RoaringNavigableMap64 results = indexResult.results();
+        List<Pair<Long, Float>> rowIdWithScore = new ArrayList<>(results.getIntCardinality());
+        Iterator<Long> iterator = results.iterator();
+        ScoreGetter scoreGetter = indexResult.scoreGetter();
+        while (iterator.hasNext()) {
+            Long rowId = iterator.next();
+            rowIdWithScore.add(Pair.create(rowId, scoreGetter.score(rowId)));
+        }
+        return rowIdWithScore;
+    }
+
+    public interface GlobalIndexResultAggregator {
+
+        void iterate(GlobalIndexResult result);
+
+        GlobalIndexResult terminate();
+    }
+
 }

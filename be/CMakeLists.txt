@@ -282,8 +282,14 @@ set_target_properties(paimon-parquet-file-format PROPERTIES IMPORTED_LOCATION ${
 add_library(paimon-avro-file-format SHARED IMPORTED)
 set_target_properties(paimon-avro-file-format PROPERTIES IMPORTED_LOCATION ${PAIMON_LIBRARY_ROOT}/libpaimon_avro_file_format.so)
 
-add_library(paimon-file-index SHARED IMPORTED)
-set_target_properties(paimon-file-index PROPERTIES IMPORTED_LOCATION ${PAIMON_LIBRARY_ROOT}/libpaimon_file_index.so)
+add_library(paimon-global-index SHARED IMPORTED)
+set_target_properties(paimon-global-index PROPERTIES IMPORTED_LOCATION ${PAIMON_LIBRARY_ROOT}/libpaimon_global_index.so)
+
+add_library(paimon-lumina-index SHARED IMPORTED)
+set_target_properties(paimon-lumina-index PROPERTIES IMPORTED_LOCATION ${PAIMON_LIBRARY_ROOT}/libpaimon_lumina_index.so)
+
+add_library(paimon-lumina SHARED IMPORTED)
+set_target_properties(paimon-lumina PROPERTIES IMPORTED_LOCATION ${PAIMON_LIBRARY_ROOT}/liblumina.so)
 
 add_library(paimon-local-file-system SHARED IMPORTED)
 set_target_properties(paimon-local-file-system PROPERTIES IMPORTED_LOCATION ${PAIMON_LIBRARY_ROOT}/libpaimon_local_file_system.so)
@@ -945,8 +951,19 @@ set(STARROCKS_DEPENDENCIES ${STARROCKS_DEPENDENCIES}
     paimon-aliorc-file-format
     paimon-parquet-file-format
     paimon-avro-file-format
-    paimon-file-index
+    paimon-global-index
     paimon-local-file-system
+    # libpaimon_lumina_index.so registers LuminaGlobalIndexFactory via a static
+    # constructor (REGISTER_PAIMON_FACTORY). starrocks_be must NEEDED-link it
+    # so the factory self-registers at process start; without this, queries on
+    # a Paimon table with a lumina ANN index fall over with "index reader
+    # number of <col> is 0" because GlobalIndexerFactory::Get returns null.
+    # libpaimon_lumina_index.so itself NEEDED's liblumina.so by SONAME, so we
+    # do NOT link paimon-lumina here -- doing so would embed an absolute
+    # /var/local/thirdparty/installed/lib/paimon/liblumina.so into starrocks_be's
+    # NEEDED list (because liblumina.so has no SONAME), and the BE would fail
+    # to start on hosts that don't have the build-time path layout.
+    paimon-lumina-index
 )
 
 # Set thirdparty libraries

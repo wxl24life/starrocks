@@ -740,6 +740,10 @@ under the License.
                     <groupId>org.apache.arrow</groupId>
                     <artifactId>arrow-c-data</artifactId>
                 </exclusion>
+                <exclusion>
+                    <groupId>com.lancedb</groupId>
+                    <artifactId>lance-core</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
 

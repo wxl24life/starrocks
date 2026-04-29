@@ -49,6 +49,10 @@ public class ScanOperatorPredicates {
     // flag to indicate whether if has pruned partition
     private boolean hasPrunedPartition = false;
 
+    public List<List<ScalarOperator>> getAllConjunctsList() {
+        return Lists.newArrayList(partitionConjuncts, noEvalPartitionConjuncts, nonPartitionConjuncts, minMaxConjuncts);
+    }
+
     public Map<Long, PartitionKey> getIdToPartitionKey() {
         return idToPartitionKey;
     }

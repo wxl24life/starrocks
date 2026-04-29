@@ -693,6 +693,10 @@ public class QueryOptimizer extends Optimizer {
 
         scheduler.rewriteOnce(tree, rootTaskContext, RuleSet.VECTOR_REWRITE_RULES);
 
+        if (context.getSessionVariable().isEnableGlobalIndex()) {
+            scheduler.rewriteOnce(tree, rootTaskContext, RuleSet.APPLY_INDEX_RULES);
+        }
+
         scheduler.rewriteOnce(tree, rootTaskContext, SplitJoinORToUnionRule.getInstance());
         // this rule should be after mv
         // @TODO: it can also be applied to other table scan operator

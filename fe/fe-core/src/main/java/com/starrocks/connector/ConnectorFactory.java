@@ -17,6 +17,7 @@ package com.starrocks.connector;
 import com.starrocks.connector.config.ConnectorConfig;
 import com.starrocks.connector.exception.StarRocksConnectorException;
 import com.starrocks.connector.informationschema.InformationSchemaConnector;
+import com.starrocks.connector.metadata.TableIndexConnector;
 import com.starrocks.connector.metadata.TableMetaConnector;
 import org.apache.commons.lang.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -49,7 +50,9 @@ public class ConnectorFactory {
             InformationSchemaConnector informationSchemaConnector =
                     new InformationSchemaConnector(context.getCatalogName());
             TableMetaConnector tableMetaConnector = new TableMetaConnector(context.getCatalogName(), context.getType());
-            return new CatalogConnector(lazyConnector, informationSchemaConnector, tableMetaConnector);
+            TableIndexConnector tableIndexConnector = new TableIndexConnector();
+            return new CatalogConnector(lazyConnector, informationSchemaConnector, tableMetaConnector,
+                    tableIndexConnector);
         } catch (Exception e) {
             LOG.error(String.format("create [%s] connector failed", context.getType()), e);
             throw new StarRocksConnectorException(e.getMessage(), e);

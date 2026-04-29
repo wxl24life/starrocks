@@ -26,6 +26,8 @@ import com.starrocks.common.DdlException;
 import com.starrocks.common.MetaNotFoundException;
 import com.starrocks.common.StarRocksException;
 import com.starrocks.common.profile.Tracers;
+import com.starrocks.connector.index.IndexTable;
+import com.starrocks.connector.index.TableIndexMetadata;
 import com.starrocks.connector.informationschema.InformationSchemaMetadata;
 import com.starrocks.connector.metadata.MetadataTable;
 import com.starrocks.connector.metadata.MetadataTableType;
@@ -62,6 +64,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.starrocks.catalog.system.information.InfoSchemaDb.isInfoSchemaDb;
@@ -73,16 +76,25 @@ public class CatalogConnectorMetadata implements ConnectorMetadata {
     private final ConnectorMetadata normal;
     private final ConnectorMetadata informationSchema;
     private final ConnectorMetadata tableMetadata;
+    private final ConnectorMetadata indexMetadata;
 
     public CatalogConnectorMetadata(ConnectorMetadata normal,
                                     ConnectorMetadata informationSchema,
                                     ConnectorMetadata tableMetadata) {
+        this(normal, informationSchema, tableMetadata, null);
+    }
+
+    public CatalogConnectorMetadata(ConnectorMetadata normal,
+                                    ConnectorMetadata informationSchema,
+                                    ConnectorMetadata tableMetadata,
+                                    ConnectorMetadata indexMetadata) {
         requireNonNull(normal, "metadata is null");
         requireNonNull(informationSchema, "infoSchemaDb is null");
         checkArgument(informationSchema instanceof InformationSchemaMetadata);
         this.normal = normal;
         this.informationSchema = informationSchema;
         this.tableMetadata = tableMetadata;
+        this.indexMetadata = indexMetadata;
     }
 
     private ConnectorMetadata metadataOfTable(String tableName) {
@@ -98,6 +110,13 @@ public class CatalogConnectorMetadata implements ConnectorMetadata {
             return tableMetadata;
         }
 
+        return null;
+    }
+
+    private ConnectorMetadata metadataOfIndex(String tableName) {
+        if (getTableType() == Table.TableType.PAIMON && TableIndexMetadata.isIndexTable(tableName)) {
+            return indexMetadata;
+        }
         return null;
     }
 
@@ -142,10 +161,20 @@ public class CatalogConnectorMetadata implements ConnectorMetadata {
     public Table getTable(ConnectContext context, String dbName, String tblName) {
         ConnectorMetadata metadata = metadataOfTable(tblName);
         if (metadata == null) {
+            metadata = metadataOfIndex(tblName);
+        }
+        if (metadata == null) {
             metadata = metadataOfDb(dbName);
         }
 
-        return metadata.getTable(context, dbName, tblName);
+        Table table = metadata.getTable(context, dbName, tblName);
+        if (table instanceof IndexTable) {
+            String tableName = tblName.split("\\$")[0];
+            Table innerTable = metadataOfDb(dbName).getTable(context, dbName, tableName);
+            ((IndexTable) table).setTable(innerTable);
+        }
+
+        return table;
     }
 
     @Override
@@ -184,6 +213,26 @@ public class CatalogConnectorMetadata implements ConnectorMetadata {
     @Override
     public List<PartitionInfo> getRemotePartitions(Table table, List<String> partitionNames) {
         return normal.getRemotePartitions(table, partitionNames);
+    }
+
+    @Override
+    public boolean checkGlobalIndexAvailable(Table table) {
+        return normal.checkGlobalIndexAvailable(table);
+    }
+
+    @Override
+    public int getGlobalIndexShardCount(Table table) {
+        return normal.getGlobalIndexShardCount(table);
+    }
+
+    @Override
+    public <T> List<T> getGlobalIndexShards(Table table, Function<Object, T> mapper) {
+        return normal.getGlobalIndexShards(table, mapper);
+    }
+
+    @Override
+    public Map<String, Set<String>> getGlobalIndexes(Table table) {
+        return normal.getGlobalIndexes(table);
     }
 
     @Override

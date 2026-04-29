@@ -21,6 +21,7 @@ import com.starrocks.catalog.ColumnAccessPath;
 import com.starrocks.catalog.Table;
 import com.starrocks.common.AnalysisException;
 import com.starrocks.connector.TableVersionRange;
+import com.starrocks.connector.index.IndexCondition;
 import com.starrocks.datacache.DataCacheOptions;
 import com.starrocks.sql.optimizer.OptExpression;
 import com.starrocks.sql.optimizer.RowOutputInfo;
@@ -51,6 +52,7 @@ public abstract class PhysicalScanOperator extends PhysicalOperator {
     protected ScanOptimizeOption scanOptimizeOption;
     protected TableVersionRange tableVersionRange;
     protected DataCacheOptions dataCacheOptions = null;
+    protected IndexCondition indexCondition;
 
     protected PhysicalScanOperator(OperatorType type) {
         super(type);
@@ -109,6 +111,15 @@ public abstract class PhysicalScanOperator extends PhysicalOperator {
         this(type, scanOperator.getTable(), scanOperator.getColRefToColumnMetaMap(), scanOperator.getLimit(),
                 scanOperator.getPredicate(), scanOperator.getProjection(), scanOperator.getTableVersionRange());
         this.scanOptimizeOption = scanOperator.getScanOptimizeOption().copy();
+        this.indexCondition = scanOperator.getIndexCondition();
+    }
+
+    public IndexCondition getIndexCondition() {
+        return indexCondition;
+    }
+
+    public void setIndexCondition(IndexCondition indexCondition) {
+        this.indexCondition = indexCondition;
     }
 
     public List<ColumnRefOperator> getOutputColumns() {

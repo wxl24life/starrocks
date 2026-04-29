@@ -162,6 +162,7 @@ public class FunctionSet {
     // Vector Index functions:
     public static final String APPROX_COSINE_SIMILARITY = "approx_cosine_similarity";
     public static final String APPROX_L2_DISTANCE = "approx_l2_distance";
+    public static final String APPROX_INNER_PRODUCT = "approx_inner_product";
 
     // Geo functions:
     public static final String ST_ASTEXT = "st_astext";
@@ -674,6 +675,7 @@ public class FunctionSet {
             ImmutableSet.<String>builder()
                     .add(APPROX_COSINE_SIMILARITY)
                     .add(APPROX_L2_DISTANCE)
+                    .add(APPROX_INNER_PRODUCT)
                     .build();
 
     // Only use query cache if these time function can be reduced into a constant

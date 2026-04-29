@@ -349,6 +349,12 @@ private:
     std::string _time_zone;
 };
 
+class IndexTableDescriptor final : public TableDescriptor {
+public:
+    IndexTableDescriptor(const TTableDescriptor& tdesc);
+    ~IndexTableDescriptor() override = default;
+};
+
 class OdpsTableDescriptor : public HiveTableDescriptor {
 public:
     OdpsTableDescriptor(const TTableDescriptor& tdesc, ObjectPool* pool);

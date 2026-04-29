@@ -84,5 +84,9 @@ public class LogicalPaimonScanOperator extends LogicalScanOperator {
             builder.predicates = scanOperator.predicates.clone();
             return this;
         }
+
+        public void setScanOperatorPredicates(ScanOperatorPredicates scanOperatorPredicates) {
+            builder.predicates = scanOperatorPredicates;
+        }
     }
 }

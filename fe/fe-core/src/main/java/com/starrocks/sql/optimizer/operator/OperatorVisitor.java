@@ -40,6 +40,7 @@ import com.starrocks.sql.optimizer.operator.logical.LogicalMetaScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalMysqlScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalOdpsScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalOlapScanOperator;
+import com.starrocks.sql.optimizer.operator.logical.LogicalPaimonIndexScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalPaimonScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalProjectOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalRawValuesOperator;
@@ -85,6 +86,7 @@ import com.starrocks.sql.optimizer.operator.physical.PhysicalNestLoopJoinOperato
 import com.starrocks.sql.optimizer.operator.physical.PhysicalNoCTEOperator;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalOdpsScanOperator;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalOlapScanOperator;
+import com.starrocks.sql.optimizer.operator.physical.PhysicalPaimonIndexScanOperator;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalPaimonScanOperator;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalProjectOperator;
 import com.starrocks.sql.optimizer.operator.physical.PhysicalRawValuesOperator;
@@ -159,6 +161,10 @@ public abstract class OperatorVisitor<R, C> {
     }
 
     public R visitLogicalFlussScan(LogicalFlussScanOperator node, C context) {
+        return visitLogicalTableScan(node, context);
+    }
+
+    public R visitLogicalPaimonIndexScan(LogicalPaimonIndexScanOperator node, C context) {
         return visitLogicalTableScan(node, context);
     }
 
@@ -346,6 +352,10 @@ public abstract class OperatorVisitor<R, C> {
     }
 
     public R visitPhysicalFlussScan(PhysicalFlussScanOperator node, C context) {
+        return visitOperator(node, context);
+    }
+
+    public R visitPhysicalPaimonIndexScan(PhysicalPaimonIndexScanOperator node, C context) {
         return visitOperator(node, context);
     }
 

@@ -125,7 +125,10 @@ set(EXEC_FILES
     arrow_flight_batch_reader.cpp
     iceberg/iceberg_delete_builder.cpp
     iceberg/iceberg_delete_file_iterator.cpp
+    paimon/paimon_adapters.cpp
     paimon/paimon_delete_file_builder.cpp
+    paimon/paimon_global_index_scanner.cpp
+    paimon/paimon_global_index_evaluator.cpp
     schema_scanner/schema_analyze_status.cpp
     schema_scanner/schema_tables_scanner.cpp
     schema_scanner/schema_dummy_scanner.cpp

@@ -18,6 +18,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.starrocks.analysis.Expr;
 import com.starrocks.analysis.FunctionName;
+import com.starrocks.catalog.ArrayType;
 import com.starrocks.catalog.Function;
 import com.starrocks.catalog.FunctionSet;
 import com.starrocks.catalog.ScalarType;
@@ -26,6 +27,8 @@ import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.optimizer.Utils;
 import com.starrocks.sql.optimizer.rewrite.ScalarOperatorRewriter;
 
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 import static com.starrocks.catalog.Function.CompareMode.IS_IDENTICAL;
@@ -33,6 +36,12 @@ import static com.starrocks.catalog.Function.CompareMode.IS_NONSTRICT_SUPERTYPE_
 import static com.starrocks.sql.optimizer.rewrite.ScalarOperatorRewriter.DEFAULT_TYPE_CAST_RULE;
 
 public class ScalarOperatorUtil {
+
+    public static Stream<ScalarOperator> getStream(ScalarOperator operator) {
+        return Stream.concat(Stream.of(operator),
+                operator.getChildren().stream().flatMap(ScalarOperatorUtil::getStream));
+    }
+
     public static CallOperator buildMultiCountDistinct(CallOperator oldFunctionCall) {
         Function searchDesc = new Function(new FunctionName(FunctionSet.MULTI_DISTINCT_COUNT),
                 oldFunctionCall.getFunction().getArgs(), Type.INVALID, false);
@@ -87,14 +96,104 @@ public class ScalarOperatorUtil {
                 .orElse(false);
     }
 
+    public static boolean isLiteral(ScalarOperator scalarOperator) {
+        return scalarOperator.accept(new ScalarOperatorVisitor<Boolean, Void>() {
+            @Override
+            public Boolean visitConstant(ConstantOperator literal, Void context) {
+                return true;
+            }
+
+            @Override
+            public Boolean visitCastOperator(CastOperator operator, Void context) {
+                return operator.getChild(0).accept(this, null);
+            }
+
+            @Override
+            public Boolean visitArray(ArrayOperator array, Void context) {
+                for (ScalarOperator child : array.getChildren()) {
+                    if (!child.accept(this, null)) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            @Override
+            public Boolean visit(ScalarOperator scalarOperator, Void context) {
+                return null;
+            }
+        }, null);
+    }
+
+    public static boolean isFloatArray(ScalarOperator scalarOperator) {
+        Type type = scalarOperator.getType();
+        if (type instanceof ArrayType) {
+            Type itemType = ((ArrayType) type).getItemType();
+            return itemType.isFloat();
+        }
+        return false;
+    }
+
     public static boolean isSimpleNotLike(ScalarOperator op) {
         return Utils.downcast(op, CompoundPredicateOperator.class)
                 .map(compOp -> compOp.isNot() && isSimpleLike(compOp.getChild(0)))
                 .orElse(false);
     }
 
-    public static Stream<ScalarOperator> getStream(ScalarOperator operator) {
-        return Stream.concat(Stream.of(operator),
-                operator.getChildren().stream().flatMap(ScalarOperatorUtil::getStream));
+    public static ScalarOperator and(ScalarOperator lhs, ScalarOperator rhs) {
+        return new CompoundPredicateOperator(CompoundPredicateOperator.CompoundType.AND, lhs, rhs);
+    }
+
+    public static ScalarOperator and(List<ScalarOperator> xs) {
+        if (xs.size() > 2) {
+            return and(xs.get(0), and(xs.subList(1, xs.size())));
+        } else if (xs.size() == 2) {
+            return and(xs.get(0), xs.get(1));
+        } else {
+            throw new RuntimeException("and requires at least 2 arguments");
+        }
+    }
+
+    public static ScalarOperator rewrite(ScalarOperator operator, Map<String, ColumnRefOperator> columnRefMap) {
+        return operator.accept(new ScalarOperatorVisitor<ScalarOperator, Void>() {
+            @Override
+            public ScalarOperator visit(ScalarOperator scalarOperator, Void context) {
+                ScalarOperator clone = scalarOperator.clone();
+                for (int i = 0; i < clone.getChildren().size(); i++) {
+                    clone.setChild(i, clone.getChild(i).accept(this, null));
+                }
+                return clone;
+            }
+            @Override
+            public ScalarOperator visitVariableReference(ColumnRefOperator variable, Void context) {
+                return columnRefMap.get(variable.getName());
+            }
+        }, null);
+    }
+
+    public static ScalarOperator rewrite(ScalarOperator operator, ScalarOperator part, ScalarOperator replace) {
+        return operator.accept(new ScalarOperatorVisitor<ScalarOperator, Void>() {
+            @Override
+            public ScalarOperator visit(ScalarOperator scalarOperator, Void context) {
+                if (scalarOperator.equals(part)) {
+                    return replace;
+                }
+                ScalarOperator clone = scalarOperator.clone();
+                for (int i = 0; i < clone.getChildren().size(); i++) {
+                    clone.setChild(i, clone.getChild(i).accept(this, null));
+                }
+                return clone;
+            }
+        }, null);
+    }
+
+    public static boolean isEquivalentIgnoreCast(ScalarOperator lhs, ScalarOperator rhs) {
+        if (lhs instanceof CastOperator) {
+            return isEquivalentIgnoreCast(lhs.getChild(0), rhs);
+        }
+        if (rhs instanceof CastOperator) {
+            return isEquivalentIgnoreCast(lhs, rhs.getChild(0));
+        }
+        return lhs.equals(rhs);
     }
 }

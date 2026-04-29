@@ -24,6 +24,7 @@
 #include "exec/hdfs_scanner_partition.h"
 #include "exec/hdfs_scanner_text.h"
 #include "exec/jni_scanner.h"
+#include "exec/paimon/paimon_global_index_scanner.h"
 #include "exec/paimon/paimon_scanner.h"
 #include "exprs/expr.h"
 #include "storage/chunk_helper.h"
@@ -83,7 +84,7 @@ Status HiveDataSource::open(RuntimeState* state) {
         _scan_range.length = split_context->split_end - split_context->split_start;
     }
 
-    if (_scan_range.file_length == 0) {
+    if (_scan_range.file_length == 0 && !_scan_range.__isset.paimon_global_index_condition) {
         _no_data = true;
         return Status::OK();
     }
@@ -91,7 +92,10 @@ Status HiveDataSource::open(RuntimeState* state) {
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(hdfs_scan_node.tuple_id);
     _hive_table = dynamic_cast<const HiveTableDescriptor*>(_tuple_desc->table_desc());
-    if (_hive_table == nullptr) {
+    // Paimon global index path uses IndexTableDescriptor (not a HiveTableDescriptor) and
+    // drives PaimonGlobalIndexScanner which only consumes scan_range.paimon_* fields and the
+    // forwarded cloud_configuration — _hive_table stays null on this path.
+    if (_hive_table == nullptr && !_scan_range.__isset.paimon_global_index_condition) {
         return Status::RuntimeError(
                 "Invalid table type. Only hive/iceberg/hudi/delta lake/file/paimon/kudu table are supported");
     }
@@ -659,6 +663,11 @@ Status HiveDataSource::_init_scanner(RuntimeState* state) {
     SCOPED_TIMER(_profile.open_file_timer);
 
     const auto& scan_range = _scan_range;
+    // Paimon global index scan range carries no file path / file_length: PaimonGlobalIndexScanner
+    // builds its own paimon::FileSystem from cloud_configuration and reads the index by
+    // (table_path, shard_id, range, condition). Skip native_file_path / fs / table_location setup
+    // on this path — they would otherwise NPE on a null _hive_table.
+    const bool use_paimon_global_index_reader = scan_range.__isset.paimon_global_index_condition;
     std::string native_file_path = scan_range.full_path;
     if (_hive_table != nullptr && _hive_table->has_partition() && !_hive_table->has_base_path()) {
         auto* partition_desc = _hive_table->get_partition(scan_range.partition_id);
@@ -671,7 +680,7 @@ Status HiveDataSource::_init_scanner(RuntimeState* state) {
         file_path /= scan_range.relative_path;
         native_file_path = file_path.native();
     }
-    if (native_file_path.empty()) {
+    if (native_file_path.empty() && !use_paimon_global_index_reader) {
         bool start_with_slash = !scan_range.relative_path.empty() && scan_range.relative_path.at(0) == '/';
         native_file_path = _hive_table->get_base_path() +
                            (start_with_slash ? scan_range.relative_path : "/" + scan_range.relative_path);
@@ -681,16 +690,17 @@ Status HiveDataSource::_init_scanner(RuntimeState* state) {
     auto fsOptions =
             FSOptions(hdfs_scan_node.__isset.cloud_configuration ? &hdfs_scan_node.cloud_configuration : nullptr);
 
-    ASSIGN_OR_RETURN(auto fs, FileSystem::CreateUniqueFromString(native_file_path, fsOptions));
-
     HdfsScannerParams scanner_params;
     RETURN_IF_ERROR(_init_global_dicts(&scanner_params));
     scanner_params.runtime_filter_collector = _runtime_filters;
     scanner_params.scan_range = &scan_range;
-    scanner_params.fs = _pool.add(fs.release());
-    scanner_params.path = native_file_path;
-    scanner_params.file_size = _scan_range.file_length;
-    scanner_params.table_location = _hive_table->get_base_path();
+    if (!use_paimon_global_index_reader) {
+        ASSIGN_OR_RETURN(auto fs, FileSystem::CreateUniqueFromString(native_file_path, fsOptions));
+        scanner_params.fs = _pool.add(fs.release());
+        scanner_params.path = native_file_path;
+        scanner_params.file_size = _scan_range.file_length;
+        scanner_params.table_location = _hive_table->get_base_path();
+    }
     scanner_params.tuple_desc = _tuple_desc;
     scanner_params.materialize_slots = _materialize_slots;
     scanner_params.materialize_index_in_chunk = _materialize_index_in_chunk;
@@ -741,6 +751,13 @@ Status HiveDataSource::_init_scanner(RuntimeState* state) {
 
     if (scan_range.__isset.paimon_deletion_file && !scan_range.paimon_deletion_file.path.empty()) {
         scanner_params.paimon_deletion_file = std::make_shared<TPaimonDeletionFile>(scan_range.paimon_deletion_file);
+    }
+    if (scan_range.__isset.paimon_global_index_condition) {
+        scanner_params.paimon_global_index_condition = scan_range.paimon_global_index_condition;
+        scanner_params.paimon_global_index_shard_id = scan_range.paimon_global_index_shard_id;
+        scanner_params.paimon_global_index_range_from = scan_range.paimon_global_index_range_from;
+        scanner_params.paimon_global_index_range_to = scan_range.paimon_global_index_range_to;
+        scanner_params.paimon_table_path = scan_range.paimon_table_path;
     }
 
     // setup options for datacache
@@ -819,6 +836,8 @@ Status HiveDataSource::_init_scanner(RuntimeState* state) {
                                                                                 : TCloudConfiguration{});
     } else if (use_fluss_jni_reader) {
         scanner = create_fluss_jni_scanner(jni_scanner_create_options).release();
+    } else if (use_paimon_global_index_reader) {
+        scanner = new PaimonGlobalIndexScanner(hdfs_scan_node.cloud_configuration);
     } else if (use_hudi_jni_reader) {
         scanner = create_hudi_jni_scanner(jni_scanner_create_options).release();
     } else if (use_odps_jni_reader) {

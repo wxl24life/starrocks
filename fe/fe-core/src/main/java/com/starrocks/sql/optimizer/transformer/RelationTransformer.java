@@ -44,6 +44,7 @@ import com.starrocks.connector.ConnectorTableVersion;
 import com.starrocks.connector.PointerType;
 import com.starrocks.connector.TableVersionRange;
 import com.starrocks.connector.elasticsearch.EsTablePartitions;
+import com.starrocks.connector.index.IndexTable;
 import com.starrocks.connector.metadata.MetadataTable;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.SessionVariable;
@@ -119,6 +120,7 @@ import com.starrocks.sql.optimizer.operator.logical.LogicalMetaScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalMysqlScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalOdpsScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalOlapScanOperator;
+import com.starrocks.sql.optimizer.operator.logical.LogicalPaimonIndexScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalPaimonScanOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalProjectOperator;
 import com.starrocks.sql.optimizer.operator.logical.LogicalScanOperator;
@@ -694,6 +696,15 @@ public class RelationTransformer implements AstVisitor<LogicalPlan, ExpressionMa
                         columnMetaToColRefMap, Operator.DEFAULT_LIMIT, null, tableVersionRange);
             } else {
                 throw new StarRocksPlannerException("Not support metadata table type: " + metadataTable.getMetadataTableType(),
+                        ErrorType.UNSUPPORTED);
+            }
+        } else if (Table.TableType.INDEX.equals(node.getTable().getType())) {
+            IndexTable indexTable = (IndexTable) node.getTable();
+            if (indexTable.getInnerType() == Table.TableType.PAIMON) {
+                scanOperator = new LogicalPaimonIndexScanOperator(indexTable, colRefToColumnMetaMapBuilder.build(),
+                        columnMetaToColRefMap, Operator.DEFAULT_LIMIT);
+            } else {
+                throw new StarRocksPlannerException("Not support index table type: " + indexTable.getClass().getName(),
                         ErrorType.UNSUPPORTED);
             }
         } else if (Table.TableType.KUDU.equals(node.getTable().getType())) {

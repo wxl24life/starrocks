@@ -16,6 +16,7 @@ package com.starrocks.connector;
 
 import com.starrocks.common.Pair;
 import com.starrocks.connector.informationschema.InformationSchemaConnector;
+import com.starrocks.connector.metadata.TableIndexConnector;
 import com.starrocks.connector.metadata.TableMetaConnector;
 
 import java.util.List;
@@ -28,9 +29,10 @@ public class CatalogConnector implements Connector {
     private final Connector normalConnector;
     private final Connector informationSchemaConnector;
     private final Connector tableMetaConnector;
+    private final Connector tableIndexConnector;
 
     public CatalogConnector(Connector normalConnector, InformationSchemaConnector informationSchemaConnector,
-                            TableMetaConnector tableMetaConnector) {
+                            TableMetaConnector tableMetaConnector, TableIndexConnector tableIndexConnector) {
         requireNonNull(normalConnector, "normalConnector is null");
         requireNonNull(informationSchemaConnector, "informationSchemaConnector is null");
         checkArgument(!(normalConnector instanceof InformationSchemaConnector), "normalConnector is InformationSchemaConnector");
@@ -38,13 +40,20 @@ public class CatalogConnector implements Connector {
         this.normalConnector = normalConnector;
         this.informationSchemaConnector = informationSchemaConnector;
         this.tableMetaConnector = tableMetaConnector;
+        this.tableIndexConnector = tableIndexConnector;
+    }
+
+    public CatalogConnector(Connector normalConnector, InformationSchemaConnector informationSchemaConnector,
+                            TableMetaConnector tableMetaConnector) {
+        this(normalConnector, informationSchemaConnector, tableMetaConnector, null);
     }
 
     public ConnectorMetadata getMetadata() {
         return new CatalogConnectorMetadata(
                 normalConnector.getMetadata(),
                 informationSchemaConnector.getMetadata(),
-                tableMetaConnector.getMetadata()
+                tableMetaConnector.getMetadata(),
+                tableIndexConnector == null ? null : tableIndexConnector.getMetadata()
         );
     }
 

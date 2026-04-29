@@ -22,6 +22,7 @@ import com.starrocks.catalog.ColumnAccessPath;
 import com.starrocks.catalog.Table;
 import com.starrocks.common.AnalysisException;
 import com.starrocks.connector.TableVersionRange;
+import com.starrocks.connector.index.IndexCondition;
 import com.starrocks.planner.PartitionColumnFilter;
 import com.starrocks.sql.optimizer.ExpressionContext;
 import com.starrocks.sql.optimizer.OptExpression;
@@ -65,6 +66,7 @@ public abstract class LogicalScanOperator extends LogicalOperator {
     protected ImmutableList<ColumnAccessPath> columnAccessPaths;
     protected ScanOptimizeOption scanOptimizeOption;
     protected TableVersionRange tableVersionRange;
+    protected IndexCondition indexCondition;
 
     public LogicalScanOperator(
             OperatorType type,
@@ -151,6 +153,10 @@ public abstract class LogicalScanOperator extends LogicalOperator {
 
     public void setTableVersionRange(TableVersionRange tableVersionRange) {
         this.tableVersionRange = tableVersionRange;
+    }
+
+    public IndexCondition getIndexCondition() {
+        return indexCondition;
     }
 
     // for mark empty partitions/empty tablet
@@ -269,6 +275,11 @@ public abstract class LogicalScanOperator extends LogicalOperator {
                     ColumnFilterConverter.convertColumnFilter(Utils.extractConjuncts(builder.predicate),
                             builder.table));
             return super.build();
+        }
+
+        public B setIndexCondition(IndexCondition indexCondition) {
+            builder.indexCondition = indexCondition;
+            return (B) this;
         }
 
         public B setColRefToColumnMetaMap(Map<ColumnRefOperator, Column> colRefToColumnMetaMap) {

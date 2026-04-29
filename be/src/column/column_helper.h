@@ -21,6 +21,7 @@
 #include "column/nullable_column.h"
 #include "column/type_traits.h"
 #include "column/vectorized_fwd.h"
+#include "common/global_types.h"
 #include "gutil/casts.h"
 #include "gutil/cpu.h"
 #include "types/logical_type.h"

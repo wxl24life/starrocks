@@ -651,6 +651,10 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
 
     public static final String ENABLE_PIPELINE_EVENT_SCHEDULER = "enable_pipeline_event_scheduler";
 
+    // Paimon Global Index
+    public static final String ENABLE_GLOBAL_INDEX = "enable_global_index";
+    public static final String TOP_INDEX_LOCAL_ROWS = "top_index_local_rows";
+
     // Flag to control whether to proxy follower's query statement to leader/follower.
     public enum FollowerQueryForwardMode {
         DEFAULT,    // proxy queries by the follower's replay progress (default)
@@ -2856,6 +2860,33 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
     
     @VarAttr(name = ENABLE_DESC_TABLE_CACHE)
     private boolean enableDescTableCache = true;
+
+    // Paimon Global Index
+    @VarAttr(name = ENABLE_GLOBAL_INDEX)
+    private boolean enableGlobalIndex = false;
+
+    // top_index_local_rows: per-shard candidate count for the ANN TopN global index.
+    //   < 0  : opt out — query falls back to non-index path
+    //   == 0 : auto — derive from TopN LIMIT (LIMIT * 2, floored at 100). Default.
+    //   > 0  : explicit override
+    @VarAttr(name = TOP_INDEX_LOCAL_ROWS)
+    private int topIndexLocalRows = 0;
+
+    public boolean isEnableGlobalIndex() {
+        return enableGlobalIndex;
+    }
+
+    public void setEnableGlobalIndex(boolean enableGlobalIndex) {
+        this.enableGlobalIndex = enableGlobalIndex;
+    }
+
+    public int getTopIndexLocalRows() {
+        return topIndexLocalRows;
+    }
+
+    public void setTopIndexLocalRows(int topIndexLocalRows) {
+        this.topIndexLocalRows = topIndexLocalRows;
+    }
 
     public boolean isEnableDescTableCache() {
         return enableDescTableCache;

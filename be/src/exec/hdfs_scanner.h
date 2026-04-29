@@ -196,7 +196,7 @@ struct HdfsScanProfile {
 };
 
 struct HdfsScannerParams {
-    // one file split (parition_id, file_path, file_length, offset, length, file_format)
+    // one file split (parition_id, file_path, file_length, offset, length)
     const THdfsScanRange* scan_range = nullptr;
 
     bool enable_split_tasks = false;
@@ -265,6 +265,11 @@ struct HdfsScannerParams {
     bool is_lazy_materialization_slot(SlotId slot_id) const;
 
     std::shared_ptr<TPaimonDeletionFile> paimon_deletion_file = nullptr;
+
+    std::string_view paimon_global_index_condition;
+    std::int64_t paimon_global_index_shard_id = 0;
+    std::int64_t paimon_global_index_range_from = 0;
+    std::int64_t paimon_global_index_range_to = 0;
 
     DataCacheOptions datacache_options{};
     bool use_file_metacache = false;

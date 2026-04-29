@@ -47,6 +47,7 @@ import com.starrocks.sql.optimizer.rule.implementation.MysqlScanImplementationRu
 import com.starrocks.sql.optimizer.rule.implementation.NestLoopJoinImplementationRule;
 import com.starrocks.sql.optimizer.rule.implementation.OdpsScanImplementationRule;
 import com.starrocks.sql.optimizer.rule.implementation.OlapScanImplementationRule;
+import com.starrocks.sql.optimizer.rule.implementation.PaimonIndexScanImplementationRule;
 import com.starrocks.sql.optimizer.rule.implementation.PaimonScanImplementationRule;
 import com.starrocks.sql.optimizer.rule.implementation.ProjectImplementationRule;
 import com.starrocks.sql.optimizer.rule.implementation.RawValuesImplementationRule;
@@ -61,6 +62,8 @@ import com.starrocks.sql.optimizer.rule.implementation.WindowImplementationRule;
 import com.starrocks.sql.optimizer.rule.implementation.stream.StreamAggregateImplementationRule;
 import com.starrocks.sql.optimizer.rule.implementation.stream.StreamJoinImplementationRule;
 import com.starrocks.sql.optimizer.rule.implementation.stream.StreamScanImplementationRule;
+import com.starrocks.sql.optimizer.rule.transformation.ApplyPredicateIndexRule;
+import com.starrocks.sql.optimizer.rule.transformation.ApplyTopNIndexRule;
 import com.starrocks.sql.optimizer.rule.transformation.CastToEmptyRule;
 import com.starrocks.sql.optimizer.rule.transformation.CollectCTEConsumeRule;
 import com.starrocks.sql.optimizer.rule.transformation.CollectCTEProduceRule;
@@ -185,6 +188,7 @@ public class RuleSet {
             new HudiScanImplementationRule(),
             new DeltaLakeScanImplementationRule(),
             new PaimonScanImplementationRule(),
+            new PaimonIndexScanImplementationRule(),
             new FlussScanImplementationRule(),
             new OdpsScanImplementationRule(),
             new IcebergMetadataScanImplementationRule(),
@@ -245,6 +249,11 @@ public class RuleSet {
 
     public static final Rule VECTOR_REWRITE_RULES = new CombinationRule(RuleType.GP_VECTOR_REWRITE, ImmutableList.of(
             new RewriteToVectorPlanRule()
+    ));
+
+    public static final Rule APPLY_INDEX_RULES = new CombinationRule(RuleType.GP_APPLY_INDEX, ImmutableList.of(
+            ApplyTopNIndexRule.PAIMON_SCAN,
+            ApplyPredicateIndexRule.PAIMON_SCAN
     ));
 
     public static final Rule PRUNE_COLUMNS_RULES = new CombinationRule(RuleType.GP_PRUNE_COLUMNS, ImmutableList.of(

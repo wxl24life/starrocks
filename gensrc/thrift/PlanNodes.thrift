@@ -456,6 +456,12 @@ struct THdfsScanRange {
 
     // fluss split info
     41: optional string fluss_split_info
+
+    // paimon global index
+    42: optional i64 paimon_global_index_range_from
+    43: optional i64 paimon_global_index_shard_id
+    44: optional i64 paimon_global_index_range_to
+    45: optional string paimon_global_index_condition
 }
 
 struct TBinlogScanRange {

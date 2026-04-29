@@ -16,7 +16,6 @@ package com.starrocks.planner;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Maps;
-import com.starrocks.common.util.DlfUtil;
 import com.starrocks.analysis.DescriptorTable;
 import com.starrocks.analysis.SlotDescriptor;
 import com.starrocks.analysis.TupleDescriptor;
@@ -27,11 +26,13 @@ import com.starrocks.catalog.TableSnapshotInfo;
 import com.starrocks.catalog.Type;
 import com.starrocks.common.profile.Timer;
 import com.starrocks.common.profile.Tracers;
-import com.starrocks.connector.CatalogConnector;
+import com.starrocks.common.util.DlfUtil;
 import com.starrocks.connector.ConnectorMetadatRequestContext;
 import com.starrocks.connector.GetRemoteFilesParams;
 import com.starrocks.connector.PartitionUtil;
 import com.starrocks.connector.RemoteFileInfo;
+import com.starrocks.connector.index.IndexCondition;
+import com.starrocks.connector.paimon.PaimonGlobalIndexService;
 import com.starrocks.connector.paimon.PaimonRemoteFileDesc;
 import com.starrocks.connector.paimon.PaimonSplitsInfo;
 import com.starrocks.credential.CloudConfiguration;
@@ -55,6 +56,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.globalindex.IndexedSplit;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.table.FileStoreTable;
@@ -103,6 +105,11 @@ public class PaimonScanNode extends ScanNode {
     private final PaimonTable paimonTable;
     private final HDFSScanNodePredicates scanNodePredicates = new HDFSScanNodePredicates();
     private final List<TScanRangeLocations> scanRangeLocationsList = new ArrayList<>();
+    // Paimon Global Index two-stage flow:
+    // - indexCondition is set by PlanFragmentBuilder when applying global index;
+    // - globalIndexResult is populated by evaluateGlobalIndexResult() and used to filter scan splits.
+    private IndexCondition indexCondition;
+    private Object globalIndexResult;
 
     public PaimonScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName);
@@ -115,6 +122,14 @@ public class PaimonScanNode extends ScanNode {
 
     public PaimonTable getPaimonTable() {
         return paimonTable;
+    }
+
+    public void setIndexCondition(IndexCondition indexCondition) {
+        this.indexCondition = indexCondition;
+    }
+
+    public IndexCondition getIndexCondition() {
+        return indexCondition;
     }
 
     @Override
@@ -144,6 +159,11 @@ public class PaimonScanNode extends ScanNode {
                                         long limit)
             throws IOException {
         this.processedTable();
+        // Phase 1: if global index is applicable, evaluate it via internal SQL to get bitmap,
+        //          then pass the bitmap to the subsequent split-fetch via GetRemoteFilesParams.
+        if (indexCondition != null) {
+            this.globalIndexResult = new PaimonGlobalIndexService(paimonTable, indexCondition).evaluate();
+        }
         List<String> fieldNames =
                 tupleDescriptor.getSlots().stream().map(s -> s.getColumn().getName()).collect(Collectors.toList());
         List<PartitionKey> partitionKeys;
@@ -158,6 +178,7 @@ public class PaimonScanNode extends ScanNode {
         }
         GetRemoteFilesParams params =
                 GetRemoteFilesParams.newBuilder().setPartitionKeys(partitionKeys).setPredicate(predicate).setFieldNames(fieldNames).setLimit(limit)
+                        .setGlobalIndexResult(globalIndexResult)
                         .build();
         List<RemoteFileInfo> fileInfos;
         try (Timer ignored = Tracers.watchScope(EXTERNAL,
@@ -187,7 +208,7 @@ public class PaimonScanNode extends ScanNode {
         Map<BinaryRow, Long> selectedPartitions = Maps.newHashMap();
         long partitionId = -1;
         for (Split split : splits) {
-            if (split instanceof DataSplit || split instanceof FormatDataSplit) {
+            if (split instanceof DataSplit || split instanceof FormatDataSplit || split instanceof IndexedSplit) {
                 Optional<List<RawFile>> optionalRawFiles = split.convertToRawFiles();
                 boolean nativeSupportedFormat = optionalRawFiles.isPresent()
                         && optionalRawFiles.get().stream().allMatch(p -> fromType(p.format()) != THdfsFileFormat.UNKNOWN) ||
@@ -204,11 +225,19 @@ public class PaimonScanNode extends ScanNode {
                 } else {
                     readerType = PaimonReaderType.JNI;
                 }
+                // IndexedSplit carries row-range info that only paimon-cpp native reader knows how to apply,
+                // so default to PAIMON_NATIVE. forceJNIReader is honored as a diagnostic escape hatch
+                // (paimon-java TableRead can also consume IndexedSplit, at the cost of JNI overhead).
+                if (split instanceof IndexedSplit && !forceJNIReader) {
+                    readerType = PaimonReaderType.PAIMON_NATIVE;
+                }
 
                 BinaryRow partitionValue;
                 if (split instanceof DataSplit) {
                     DataSplit dataSplit = (DataSplit) split;
                     partitionValue = dataSplit.partition();
+                } else if (split instanceof IndexedSplit) {
+                    partitionValue = ((IndexedSplit) split).dataSplit().partition();
                 } else {
                     FormatDataSplit formatDataSplit = (FormatDataSplit) split;
                     partitionValue = formatDataSplit.partition();
@@ -487,6 +516,14 @@ public class PaimonScanNode extends ScanNode {
                     hdfsScanRange.setPaimon_split_info_binary(out.toByteArray());
                 } catch (IOException e) {
                     throw new IOException("Failed to serialize paimon split", e);
+                }
+            } else if (split instanceof IndexedSplit) {
+                IndexedSplit indexedSplit = (IndexedSplit) split;
+                try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                    indexedSplit.serialize(new DataOutputViewStreamWrapper(out));
+                    hdfsScanRange.setPaimon_split_info_binary(out.toByteArray());
+                } catch (IOException e) {
+                    throw new IOException("Failed to serialize paimon indexed split", e);
                 }
             } else {
                 throw new RuntimeException("Unsupported split type: " + split.getClass().getName());

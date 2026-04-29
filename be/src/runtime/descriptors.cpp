@@ -391,6 +391,8 @@ const std::string& FlussTableDescriptor::get_time_zone() const {
     return _time_zone;
 }
 
+IndexTableDescriptor::IndexTableDescriptor(const TTableDescriptor& tdesc) : TableDescriptor(tdesc) {}
+
 OdpsTableDescriptor::OdpsTableDescriptor(const TTableDescriptor& tdesc, ObjectPool* pool)
         : HiveTableDescriptor(tdesc, pool) {
     _columns = tdesc.hdfsTable.columns;
@@ -779,6 +781,10 @@ Status DescriptorTbl::create(RuntimeState* state, ObjectPool* pool, const TDescr
         }
         case TTableType::FLUSS_TABLE: {
             desc = pool->add(new FlussTableDescriptor(tdesc, pool));
+            break;
+        }
+        case TTableType::INDEX_TABLE: {
+            desc = pool->add(new IndexTableDescriptor(tdesc));
             break;
         }
         case TTableType::JDBC_TABLE: {

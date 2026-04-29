@@ -98,6 +98,12 @@
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-lance</artifactId>
             <version>${paimon.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.lancedb</groupId>
+                    <artifactId>lance-core</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
@@ -105,6 +111,12 @@
             <artifactId>lance-core</artifactId>
             <version>${lance.version}</version>
             <classifier>linux</classifier>
+        </dependency>
+
+        <dependency>
+            <groupId>org.questdb</groupId>
+            <artifactId>jar-jni</artifactId>
+            <version>1.1.1</version>
         </dependency>
 
         <dependency>

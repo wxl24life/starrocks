@@ -35,6 +35,7 @@ import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.Decimal;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.predicate.PredicateBuilder;
+import org.apache.paimon.table.SpecialFields;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BinaryType;
 import org.apache.paimon.types.BooleanType;
@@ -65,6 +66,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import static com.starrocks.sql.optimizer.rule.transformation.ApplyTopNIndexRule.SCORE_COLUMN_NAME;
 import static org.apache.paimon.data.Timestamp.fromLocalDateTime;
 
 public class PaimonPredicateConverter extends ScalarOperatorVisitor<Predicate, Void> {
@@ -135,6 +137,12 @@ public class PaimonPredicateConverter extends ScalarOperatorVisitor<Predicate, V
     public Predicate visitBinaryPredicate(BinaryPredicateOperator operator, Void context) {
         String columnName = getColumnName(operator.getChild(0));
         if (columnName == null) {
+            return null;
+        }
+        if (SpecialFields.ROW_ID.name().equalsIgnoreCase(columnName)) {
+            return null;
+        }
+        if (SCORE_COLUMN_NAME.equalsIgnoreCase(columnName)) {
             return null;
         }
         int idx = fieldNames.indexOf(columnName);

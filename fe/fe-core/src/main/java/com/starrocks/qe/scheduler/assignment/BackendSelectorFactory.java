@@ -15,6 +15,7 @@
 package com.starrocks.qe.scheduler.assignment;
 
 import com.starrocks.planner.OlapScanNode;
+import com.starrocks.planner.PaimonIndexScanNode;
 import com.starrocks.planner.ScanNode;
 import com.starrocks.planner.SchemaScanNode;
 import com.starrocks.qe.BackendSelector;
@@ -24,6 +25,7 @@ import com.starrocks.qe.FragmentScanRangeAssignment;
 import com.starrocks.qe.HDFSBackendSelector;
 import com.starrocks.qe.NoopBackendSelector;
 import com.starrocks.qe.NormalBackendSelector;
+import com.starrocks.qe.PaimonGlobalIndexBackendSelector;
 import com.starrocks.qe.ReplicatedBackendSelector;
 import com.starrocks.qe.SessionVariable;
 import com.starrocks.qe.scheduler.WorkerProvider;
@@ -60,6 +62,14 @@ public class BackendSelectorFactory {
 
         if (scanNode instanceof SchemaScanNode) {
             return new NormalBackendSelector(scanNode, locations, assignment, workerProvider, false);
+        } else if (scanNode instanceof PaimonIndexScanNode) {
+            return new PaimonGlobalIndexBackendSelector(
+                    (PaimonIndexScanNode) scanNode,
+                    locations,
+                    assignment,
+                    workerProvider,
+                    sessionVariable
+            );
         } else if (scanNode.isConnectorScanNode()) {
             return new HDFSBackendSelector(scanNode, locations, assignment, workerProvider,
                     sessionVariable.getForceScheduleLocal(),
