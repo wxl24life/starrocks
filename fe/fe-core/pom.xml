@@ -41,9 +41,9 @@ under the License.
         <starrocks.home>${basedir}/../../</starrocks.home>
         <fe_ut_parallel>${env.FE_UT_PARALLEL}</fe_ut_parallel>
         <jacoco.version>0.8.8</jacoco.version>
-        <paimon.version>1-ali-25.3-lake-optimizer</paimon.version>
+        <paimon.version>1-ali-26.1-lake-optimizer</paimon.version>
         <lance.version>0.35.0-ali-1.2</lance.version>
-        <dlf.sdk.version>1-ali-20.1</dlf.sdk.version>
+        <dlf.sdk.version>1-ali-26.0</dlf.sdk.version>
         <dlf.iceberg.plugin.version>1.1.0-SNAPSHOT</dlf.iceberg.plugin.version>
         <fluss.version>0.9-ali-0.1</fluss.version>
         <flink.version>1.20.1</flink.version>
