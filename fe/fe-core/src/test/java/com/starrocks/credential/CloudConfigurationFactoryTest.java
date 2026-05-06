@@ -114,7 +114,8 @@ public class CloudConfigurationFactoryTest {
         cc.toFileStoreInfo();
         Assertions.assertEquals(cc.toConfString(),
                 "AliyunCloudConfiguration{resources='', jars='', hdpuser='', cred=AliyunCloudCredential{accessKey='XX', " +
-                        "secretKey='YY', endpoint='ZZ', stsToken='TTT', stsFilePath='AAA', useDefaultCredential=false}}");
+                        "secretKey='YY', endpoint='ZZ', stsToken='TTT', stsFilePath='AAA', useDefaultCredential=false, " +
+                        "userAgentExtended=''}}");
     }
 
     @Test

@@ -37,12 +37,6 @@ using namespace fmt::literals;
 
 namespace starrocks {
 
-const static std::string JINDO_AGENT_FEATURE_OPTION = "fs.oss.user.agent.features";
-const static std::string JINDO_USER_AGENT_EXTENDED_OPTION = "fs.oss.user.agent.extended";
-const static std::string ENGINE_NAME = "StarRocks";
-const static std::string BACKUP_SECRET_PATH = "PRODUCE_OSS_AK_SECRET_PATH";
-const static std::string BACKUP_BUCKET_NAME = "SERVERLESS_STARROCKS_BACKUP_BUCKET";
-
 int JindoSdkConfig::loadConfig(const std::string& config) {
     std::ifstream infile{config};
     std::string line, seg;
@@ -96,15 +90,10 @@ bool JindoClientFactory::option_equals(const JdoOptions_t& left, const JdoOption
     std::string right_ak_id(jdo_getOption(right, OSS_ACCESS_KEY_ID, ""));
     std::string left_ak_secret(jdo_getOption(left, OSS_ACCESS_KEY_SECRET, ""));
     std::string right_ak_secret(jdo_getOption(right, OSS_ACCESS_KEY_SECRET, ""));
-    std::string left_bucket(jdo_getOption(left, OSS_HDFS_BUCKET, ""));
-    std::string right_bucket(jdo_getOption(right, OSS_HDFS_BUCKET, ""));
-    std::string left_user_agent(jdo_getOption(left, JINDO_USER_AGENT_EXTENDED_OPTION.c_str(), ""));
-    std::string right_user_agent(jdo_getOption(right, JINDO_USER_AGENT_EXTENDED_OPTION.c_str(), ""));
-    if (!left_bucket.empty() && !right_bucket.empty() && left_bucket != right_bucket) {
-        return false;
-    }
+    std::string left_security_token(jdo_getOption(left, OSS_SECURITY_TOKEN, ""));
+    std::string right_security_token(jdo_getOption(right, OSS_SECURITY_TOKEN, ""));
     return left_endpoint == right_endpoint && left_ak_id == right_ak_id && left_ak_secret == right_ak_secret &&
-           left_user_agent == right_user_agent;
+           left_security_token == right_security_token;
 }
 
 JindoClientFactory::JindoClientFactory() {
@@ -158,8 +147,8 @@ JdoOptions_t JindoClientFactory::get_or_create_jindo_opts(const S3URI& uri, cons
         jdo_setOption(jdo_options, kv.first.c_str(), kv.second.c_str());
     }
 
-    const char* serverless_backup_secret_path = std::getenv(BACKUP_SECRET_PATH.c_str());
-    const char* serverless_backup_bucket = std::getenv(BACKUP_BUCKET_NAME.c_str());
+    const char* serverless_backup_secret_path = std::getenv(BACKUP_SECRET_PATH);
+    const char* serverless_backup_bucket = std::getenv(BACKUP_BUCKET_NAME);
     if (serverless_backup_secret_path && serverless_backup_bucket) {
         std::string bucket_provider_endpoint =
                 fmt::format("fs.oss.bucket.{}.provider.endpoint", std::string(serverless_backup_bucket));
@@ -167,8 +156,8 @@ JdoOptions_t JindoClientFactory::get_or_create_jindo_opts(const S3URI& uri, cons
         jdo_setOption(jdo_options, bucket_provider_endpoint.c_str(), serverless_backup_secret_path);
     }
 
-    // Just for oss-hdfs to distinguish the engines
-    jdo_setOption(jdo_options, JINDO_AGENT_FEATURE_OPTION.c_str(), ENGINE_NAME.c_str());
+    // Identify the calling engine to jindosdk
+    jdo_setOption(jdo_options, JINDO_AGENT_FEATURE_OPTION, ENGINE_NAME);
 
     // load properties in catalog definition
     const THdfsProperties* hdfs_properties = opts.hdfs_properties();
@@ -193,7 +182,8 @@ JdoOptions_t JindoClientFactory::get_or_create_jindo_opts(const S3URI& uri, cons
             security_token = aliyun_cloud_credential.security_token;
         }
         if (!aliyun_cloud_credential.user_agent_extended.empty()) {
-            jdo_setOption(jdo_options, JINDO_USER_AGENT_EXTENDED_OPTION.c_str(), aliyun_cloud_credential.user_agent_extended.c_str());
+            jdo_setOption(jdo_options, JINDO_USER_AGENT_EXTENDED_OPTION,
+                          aliyun_cloud_credential.user_agent_extended.c_str());
         }
     } else if (hdfs_properties != nullptr) {
         if (hdfs_properties->__isset.end_point) {
@@ -212,7 +202,6 @@ JdoOptions_t JindoClientFactory::get_or_create_jindo_opts(const S3URI& uri, cons
         endpoint = uri.endpoint();
     }
 
-    std::string bucket = uri.bucket();
     if (!ak_id.empty()) {
         jdo_setOption(jdo_options, OSS_ACCESS_KEY_ID, ak_id.c_str());
     }
@@ -221,9 +210,6 @@ JdoOptions_t JindoClientFactory::get_or_create_jindo_opts(const S3URI& uri, cons
     }
     if (!endpoint.empty()) {
         jdo_setOption(jdo_options, OSS_ENDPOINT_KEY, endpoint.c_str());
-    }
-    if (!bucket.empty() && endpoint.find("oss-dls")) {
-        jdo_setOption(jdo_options, OSS_HDFS_BUCKET, bucket.c_str());
     }
     if (!security_token.empty()) {
         jdo_setOption(jdo_options, OSS_SECURITY_TOKEN, security_token.c_str());

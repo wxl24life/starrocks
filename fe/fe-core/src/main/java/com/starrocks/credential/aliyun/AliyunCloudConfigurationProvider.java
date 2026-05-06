@@ -26,6 +26,7 @@ import static com.starrocks.connector.share.credential.CloudConfigurationConstan
 import static com.starrocks.connector.share.credential.CloudConfigurationConstants.ALIYUN_OSS_SECRET_KEY;
 import static com.starrocks.connector.share.credential.CloudConfigurationConstants.ALIYUN_OSS_STS_FILE_PATH;
 import static com.starrocks.connector.share.credential.CloudConfigurationConstants.ALIYUN_OSS_STS_TOKEN;
+import static com.starrocks.connector.share.credential.CloudConfigurationConstants.ALIYUN_OSS_USER_AGENT_EXTENDED;
 import static com.starrocks.connector.share.credential.CloudConfigurationConstants.ALIYUN_OSS_USE_DEFAULT_CREDENTIAL;
 
 public class AliyunCloudConfigurationProvider implements CloudConfigurationProvider {
@@ -41,7 +42,8 @@ public class AliyunCloudConfigurationProvider implements CloudConfigurationProvi
                 properties.getOrDefault(ALIYUN_OSS_REGION, ""),
                 properties.getOrDefault(ALIYUN_OSS_STS_TOKEN, ""),
                 properties.getOrDefault(ALIYUN_OSS_STS_FILE_PATH, ""),
-                Boolean.parseBoolean(properties.getOrDefault(ALIYUN_OSS_USE_DEFAULT_CREDENTIAL, "false"))
+                Boolean.parseBoolean(properties.getOrDefault(ALIYUN_OSS_USE_DEFAULT_CREDENTIAL, "false")),
+                properties.getOrDefault(ALIYUN_OSS_USER_AGENT_EXTENDED, "")
         );
         if (!aliyunCloudCredential.validate()) {
             return null;

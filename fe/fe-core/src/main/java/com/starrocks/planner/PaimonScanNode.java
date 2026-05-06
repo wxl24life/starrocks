@@ -15,8 +15,6 @@
 package com.starrocks.planner;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.starrocks.common.util.DlfUtil;
 import com.starrocks.analysis.DescriptorTable;
@@ -27,7 +25,6 @@ import com.starrocks.catalog.PaimonTable;
 import com.starrocks.catalog.PartitionKey;
 import com.starrocks.catalog.TableSnapshotInfo;
 import com.starrocks.catalog.Type;
-import com.starrocks.common.util.DlfUtil;
 import com.starrocks.common.profile.Timer;
 import com.starrocks.common.profile.Tracers;
 import com.starrocks.connector.CatalogConnector;
@@ -37,14 +34,10 @@ import com.starrocks.connector.PartitionUtil;
 import com.starrocks.connector.RemoteFileInfo;
 import com.starrocks.connector.paimon.PaimonRemoteFileDesc;
 import com.starrocks.connector.paimon.PaimonSplitsInfo;
-import com.starrocks.connector.share.credential.CloudConfigurationConstants;
 import com.starrocks.credential.CloudConfiguration;
-import com.starrocks.credential.CloudConfigurationFactory;
-import com.starrocks.credential.aliyun.AliyunCloudCredential;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.SessionVariable;
 import com.starrocks.server.GlobalStateMgr;
-import com.starrocks.sql.ast.QueryPeriod;
 import com.starrocks.sql.optimizer.operator.scalar.ScalarOperator;
 import com.starrocks.sql.plan.HDFSScanNodePredicates;
 import com.starrocks.thrift.TExplainLevel;
@@ -64,8 +57,6 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataOutputViewStreamWrapper;
-import org.apache.paimon.rest.RESTToken;
-import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.table.FormatTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.format.FormatDataSplit;
@@ -84,7 +75,6 @@ import org.apache.paimon.utils.PartitionPathUtils;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -113,12 +103,10 @@ public class PaimonScanNode extends ScanNode {
     private final PaimonTable paimonTable;
     private final HDFSScanNodePredicates scanNodePredicates = new HDFSScanNodePredicates();
     private final List<TScanRangeLocations> scanRangeLocationsList = new ArrayList<>();
-    private CloudConfiguration cloudConfiguration = null;
 
     public PaimonScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName);
         this.paimonTable = (PaimonTable) desc.getTable();
-        setupCloudCredential();
     }
 
     public HDFSScanNodePredicates getScanNodePredicates() {
@@ -127,19 +115,6 @@ public class PaimonScanNode extends ScanNode {
 
     public PaimonTable getPaimonTable() {
         return paimonTable;
-    }
-
-    private void setupCloudCredential() {
-        String catalog = paimonTable.getCatalogName();
-        if (catalog == null) {
-            return;
-        }
-        CatalogConnector connector = GlobalStateMgr.getCurrentState().getConnectorMgr().getConnector(catalog);
-        Preconditions.checkState(connector != null,
-                String.format("connector of catalog %s should not be null", catalog));
-        cloudConfiguration = connector.getMetadata().getCloudConfiguration();
-        Preconditions.checkState(cloudConfiguration != null,
-                String.format("cloudConfiguration of catalog %s should not be null", catalog));
     }
 
     @Override
@@ -605,37 +580,11 @@ public class PaimonScanNode extends ScanNode {
 
         String sqlPredicates = getExplainString(conjuncts);
         msg.hdfs_scan_node.setSql_predicates(sqlPredicates);
+        msg.hdfs_scan_node.setTable_name(paimonTable.getName());
 
-        if (paimonTable != null) {
-            msg.hdfs_scan_node.setTable_name(paimonTable.getName());
-            try {
-                if (paimonTable.getNativeTable().fileIO() instanceof RESTTokenFileIO) {
-                    RESTTokenFileIO fileIO = (RESTTokenFileIO) paimonTable.getNativeTable().fileIO();
-                    RESTToken token = fileIO.validToken();
-                    Map<String, String> properties = new HashMap<>();
-                    properties.put(CloudConfigurationConstants.ALIYUN_OSS_ACCESS_KEY,
-                            token.token().get(AliyunCloudCredential.FS_OSS_ACCESS_KEY));
-                    properties.put(CloudConfigurationConstants.ALIYUN_OSS_SECRET_KEY,
-                            token.token().get(AliyunCloudCredential.FS_OSS_SECRET_KEY));
-                    properties.put(CloudConfigurationConstants.ALIYUN_OSS_STS_TOKEN,
-                            token.token().get(AliyunCloudCredential.FS_OSS_SECURITY_TOKEN));
-                    properties.put(CloudConfigurationConstants.ALIYUN_OSS_ENDPOINT,
-                            token.token().get(AliyunCloudCredential.FS_OSS_ENDPOINT));
-                    String userAgentExtended =
-                            DlfUtil.getUserAgentExtended(paimonTable.getNativeTable().options(), token);
-                    if (!Strings.isNullOrEmpty(userAgentExtended)) {
-                        properties.put(CloudConfigurationConstants.ALIYUN_OSS_USER_AGENT_EXTENDED, userAgentExtended);
-                    }
-                    cloudConfiguration = CloudConfigurationFactory.buildCloudConfigurationForStorage(properties);
-                }
-            } catch (Exception e) {
-                LOG.warn("Fail to get data token: " + e.getMessage());
-            }
-        }
-
-        LOG.debug(cloudConfiguration.toConfString());
+        CloudConfiguration cloudConfiguration = DlfUtil.buildPaimonCloudConfiguration(paimonTable);
+        HdfsScanNode.setCloudConfigurationToThrift(tHdfsScanNode, cloudConfiguration);
         HdfsScanNode.setScanOptimizeOptionToThrift(tHdfsScanNode, this);
-        HdfsScanNode.setCloudConfigurationToThrift(tHdfsScanNode, this.cloudConfiguration);
         HdfsScanNode.setNonEvalPartitionConjunctsToThrift(tHdfsScanNode, this, this.getScanNodePredicates());
         HdfsScanNode.setMinMaxConjunctsToThrift(tHdfsScanNode, this, this.getScanNodePredicates());
         HdfsScanNode.setNonPartitionConjunctsToThrift(msg, this, this.getScanNodePredicates());

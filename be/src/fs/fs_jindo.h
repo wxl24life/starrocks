@@ -96,7 +96,11 @@ private:
     static constexpr const char* OSS_ACCESS_KEY_SECRET = "fs.oss.accessKeySecret";
     static constexpr const char* OSS_ENDPOINT_KEY = "fs.oss.endpoint";
     static constexpr const char* OSS_SECURITY_TOKEN = "fs.oss.securityToken";
-    static constexpr const char* OSS_HDFS_BUCKET = "starrocks.internal.jindo.osshdfs.bucket";
+    static constexpr const char* JINDO_AGENT_FEATURE_OPTION = "fs.oss.user.agent.features";
+    static constexpr const char* JINDO_USER_AGENT_EXTENDED_OPTION = "fs.oss.user.agent.extended";
+    static constexpr const char* ENGINE_NAME = "StarRocks";
+    static constexpr const char* BACKUP_SECRET_PATH = "PRODUCE_OSS_AK_SECRET_PATH";
+    static constexpr const char* BACKUP_BUCKET_NAME = "SERVERLESS_STARROCKS_BACKUP_BUCKET";
 
     std::mutex _lock;
 

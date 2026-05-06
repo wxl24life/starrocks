@@ -14,19 +14,12 @@
 
 package com.starrocks.planner;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.starrocks.analysis.LiteralExpr;
 import com.starrocks.analysis.TupleDescriptor;
 import com.starrocks.catalog.PaimonTable;
 import com.starrocks.common.util.DlfUtil;
-import com.starrocks.connector.Connector;
-import com.starrocks.connector.share.credential.CloudConfigurationConstants;
 import com.starrocks.credential.CloudConfiguration;
-import com.starrocks.credential.CloudConfigurationFactory;
-import com.starrocks.credential.aliyun.AliyunCloudCredential;
 import com.starrocks.qe.SessionVariable;
-import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.ast.PartitionNames;
 import com.starrocks.thrift.TCloudConfiguration;
 import com.starrocks.thrift.TDataSink;
@@ -35,9 +28,6 @@ import com.starrocks.thrift.TExplainLevel;
 import com.starrocks.thrift.TPaimonTableSink;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.paimon.rest.RESTToken;
-import org.apache.paimon.rest.RESTTokenFileIO;
-import org.apache.paimon.table.Table;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BooleanType;
 import org.apache.paimon.types.CharType;
@@ -53,9 +43,7 @@ import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarCharType;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 public class PaimonTableSink extends DataSink {
@@ -63,24 +51,17 @@ public class PaimonTableSink extends DataSink {
     private static final Logger LOG = LogManager.getLogger(PaimonTableSink.class);
     protected final TupleDescriptor desc;
     private final long targetTableId;
-    private final String catalogName;
-    private final String databaseName;
-    private final String tableName;
-    private final Table paimonNativeTable;
+    private final PaimonTable paimonTable;
     private final String location;
     private List<String> columnNames = new ArrayList<>();
     private final List<String> columnTypes = new ArrayList<>();
     private final boolean isStaticPartitionSink;
     private final String tableIdentifier;
-    private CloudConfiguration cloudConfiguration;
     private final boolean useNativeWriter;
     private final PartitionNames partitionNames;
 
     public PaimonTableSink(PaimonTable paimonTable, TupleDescriptor desc, boolean isStaticPartitionSink, SessionVariable sessionVariable, PartitionNames partitionNames) {
-        this.paimonNativeTable = paimonTable.getNativeTable();
-        this.catalogName = paimonTable.getCatalogName();
-        this.databaseName = paimonTable.getCatalogDBName();
-        this.tableName = paimonTable.getCatalogTableName();
+        this.paimonTable = paimonTable;
         this.location = paimonTable.getNativeTable().name();
         this.targetTableId = paimonTable.getId();
         this.desc = desc;
@@ -88,11 +69,6 @@ public class PaimonTableSink extends DataSink {
         setColumnTypes(paimonTable.getNativeTable().rowType().getFieldTypes());
         this.isStaticPartitionSink = isStaticPartitionSink;
         this.tableIdentifier = paimonTable.getUUID();
-        String catalogName = paimonTable.getCatalogName();
-        Connector connector = GlobalStateMgr.getCurrentState().getConnectorMgr().getConnector(catalogName);
-        Preconditions.checkState(connector != null,
-                String.format("connector of catalog %s should not be null", catalogName));
-        this.cloudConfiguration = connector.getMetadata().getCloudConfiguration();
         if (sessionVariable.isEnablePaimonNativeWriter()) {
             if (!paimonTable.supportNativeWriter()) {
                 LOG.info("Fallback to JNI writer for paimon table {}", paimonTable.getCatalogTableName());
@@ -126,26 +102,8 @@ public class PaimonTableSink extends DataSink {
                     partitionNames.getPartitionColValues().stream()
                             .map(it -> ((LiteralExpr) it).getRealObjectValue().toString()).collect(Collectors.toList()));
         }
-        if (paimonNativeTable.fileIO() instanceof RESTTokenFileIO) {
-            RESTTokenFileIO fileIO = (RESTTokenFileIO) paimonNativeTable.fileIO();
-            RESTToken token = fileIO.validToken();
-            Map<String, String> properties = new HashMap<>();
-            properties.put(CloudConfigurationConstants.ALIYUN_OSS_ACCESS_KEY,
-                    token.token().get(AliyunCloudCredential.FS_OSS_ACCESS_KEY));
-            properties.put(CloudConfigurationConstants.ALIYUN_OSS_SECRET_KEY,
-                    token.token().get(AliyunCloudCredential.FS_OSS_SECRET_KEY));
-            properties.put(CloudConfigurationConstants.ALIYUN_OSS_STS_TOKEN,
-                    token.token().get(AliyunCloudCredential.FS_OSS_SECURITY_TOKEN));
-            properties.put(CloudConfigurationConstants.ALIYUN_OSS_ENDPOINT,
-                    token.token().get(AliyunCloudCredential.FS_OSS_ENDPOINT));
-            String userAgentExtended = DlfUtil.getUserAgentExtended(paimonNativeTable.options(), token);
-            if (!Strings.isNullOrEmpty(userAgentExtended)) {
-                properties.put(CloudConfigurationConstants.ALIYUN_OSS_USER_AGENT_EXTENDED, userAgentExtended);
-            }
-            cloudConfiguration = CloudConfigurationFactory.buildCloudConfigurationForStorage(properties);
-        }
-
         TCloudConfiguration tCloudConfiguration = new TCloudConfiguration();
+        CloudConfiguration cloudConfiguration = DlfUtil.buildPaimonCloudConfiguration(paimonTable);
         cloudConfiguration.toThrift(tCloudConfiguration);
         tPaimonTableSink.setCloud_configuration(tCloudConfiguration);
         tPaimonTableSink.setData_column_names(columnNames);

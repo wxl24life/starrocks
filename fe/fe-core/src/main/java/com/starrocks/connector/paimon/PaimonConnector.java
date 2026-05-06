@@ -16,7 +16,6 @@ package com.starrocks.connector.paimon;
 
 import com.google.common.base.Strings;
 import com.starrocks.common.util.DlfUtil;
-import com.starrocks.common.util.Util;
 import com.starrocks.connector.Connector;
 import com.starrocks.connector.ConnectorContext;
 import com.starrocks.connector.ConnectorMetadata;
@@ -60,7 +59,6 @@ public class PaimonConnector implements Connector {
     private static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
     private static final String DLF_CATALOG_ID = "dlf.catalog.id";
     private static final String DLF_USER_AGENT_KEY = "header.User-Agent";
-    private static final String OSS_USER_AGENT_KEY = "fs.oss.user.agent.extended";
     private final HdfsEnvironment hdfsEnvironment;
     private final Map<String, Catalog> nativePaimonCatalogs = new ConcurrentHashMap<>();
     private final String catalogName;
@@ -218,13 +216,9 @@ public class PaimonConnector implements Connector {
                 catalogKey = this.catalogName + "-" + "base";
             }
 
-            if (Util.isRootUser()) {
-                this.paimonOptions.set(DLF_USER_AGENT_KEY, "starrocks/internal");
-                this.paimonOptions.set(OSS_USER_AGENT_KEY, "starrocks/internal");
-            } else {
-                this.paimonOptions.set(DLF_USER_AGENT_KEY, "starrocks/user");
-                this.paimonOptions.set(OSS_USER_AGENT_KEY, "starrocks/user");
-            }
+            String userAgentExtended = DlfUtil.buildUserAgentExtended(this.catalogName);
+            this.paimonOptions.set(DLF_USER_AGENT_KEY, userAgentExtended);
+            this.paimonOptions.set(AliyunCloudCredential.FS_OSS_USER_AGENT_EXTENDED, userAgentExtended);
 
             if (!catalogKey.isEmpty() && this.nativePaimonCatalogs.get(catalogKey) != null) {
                 return this.nativePaimonCatalogs.get(catalogKey);

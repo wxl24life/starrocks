@@ -38,6 +38,7 @@ public class AliyunCloudCredential implements CloudCredential {
     public static final String FS_OSS_SECURITY_TOKEN = "fs.oss.securityToken";
     public static final String FS_OSS_ENDPOINT = "fs.oss.endpoint";
     public static final String FS_OSS_IMPL = "fs.oss.impl";
+    public static final String FS_OSS_USER_AGENT_EXTENDED = "fs.oss.user.agent.extended";
 
     private final String accessKey;
     private final String secretKey;
@@ -46,6 +47,7 @@ public class AliyunCloudCredential implements CloudCredential {
     private final String stsToken;
     private final String stsFilePath;
     private final boolean useDefaultCredential;
+    private final String userAgentExtended;
 
     public AliyunCloudCredential(String accessKey, String secretKey, String endpoint) {
         Preconditions.checkNotNull(accessKey);
@@ -58,10 +60,11 @@ public class AliyunCloudCredential implements CloudCredential {
         this.stsToken = "";
         this.stsFilePath = "";
         this.useDefaultCredential = false;
+        this.userAgentExtended = "";
     }
 
     public AliyunCloudCredential(String accessKey, String secretKey, String endpoint, String region, String stsToken,
-                                 String stsFilePath, boolean useDefaultCredential) {
+                                 String stsFilePath, boolean useDefaultCredential, String userAgentExtended) {
         Preconditions.checkNotNull(accessKey);
         Preconditions.checkNotNull(secretKey);
         Preconditions.checkNotNull(endpoint);
@@ -73,6 +76,7 @@ public class AliyunCloudCredential implements CloudCredential {
         this.stsToken = stsToken;
         this.stsFilePath = stsFilePath;
         this.useDefaultCredential = useDefaultCredential;
+        this.userAgentExtended = Strings.nullToEmpty(userAgentExtended);
     }
 
     public String getAccessKey() {
@@ -121,6 +125,7 @@ public class AliyunCloudCredential implements CloudCredential {
         properties.put(CloudConfigurationConstants.ALIYUN_OSS_STS_FILE_PATH, stsFilePath);
         properties.put(CloudConfigurationConstants.ALIYUN_OSS_USE_DEFAULT_CREDENTIAL,
                 String.valueOf(useDefaultCredential));
+        properties.put(CloudConfigurationConstants.ALIYUN_OSS_USER_AGENT_EXTENDED, userAgentExtended);
     }
 
     @Override
@@ -132,15 +137,12 @@ public class AliyunCloudCredential implements CloudCredential {
                 ", stsToken='" + stsToken + '\'' +
                 ", stsFilePath='" + stsFilePath + '\'' +
                 ", useDefaultCredential=" + useDefaultCredential +
+                ", userAgentExtended='" + userAgentExtended + '\'' +
                 '}';
     }
 
     public String getRegion() {
         return region;
-    }
-
-    public String getStsFilePath() {
-        return stsFilePath;
     }
 
     @Override
