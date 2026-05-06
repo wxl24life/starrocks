@@ -572,6 +572,9 @@ public class OperationType {
     @IgnorableOnReplayFailed
     public static final short OP_UPDATE_TABLE_STORAGE_INFOS = 13104;
 
+    @IgnorableOnReplayFailed
+    public static final short OP_SET_TABLE_STORAGE_VOLUME = 13105;
+
     // Pipe operations log
     @IgnorableOnReplayFailed
     public static final short OP_PIPE = 12200;

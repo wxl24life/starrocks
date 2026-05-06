@@ -27,6 +27,7 @@ import com.starrocks.proto.EncryptionKeyPB;
 import com.starrocks.proto.EncryptionKeyTypePB;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.NodeMgr;
+import com.starrocks.server.StorageVolumeMgr;
 import com.starrocks.system.Frontend;
 import mockit.Expectations;
 import mockit.Mocked;
@@ -217,5 +218,40 @@ public class EditLogTest {
         } catch (JournalInconsistentException e) {
             Assertions.assertEquals(OperationType.OP_SAVE_NEXTID, e.getOpCode());
         }
+    }
+
+    @Test
+    public void testLoadJournalSetTableStorageVolume(@Mocked GlobalStateMgr globalStateMgr,
+                                                     @Mocked StorageVolumeMgr mockSvMgr) throws Exception {
+        SetTableStorageVolumeLog log = new SetTableStorageVolumeLog(12345L, "sv-uuid-001");
+
+        // Track whether replaySetTableStorageVolume was called with correct args
+        final boolean[] called = {false};
+        final long[] capturedTableId = {0L};
+        final String[] capturedSvId = {null};
+
+        new Expectations() {
+            {
+                globalStateMgr.getStorageVolumeMgr();
+                result = mockSvMgr;
+
+                mockSvMgr.replaySetTableStorageVolume((SetTableStorageVolumeLog) any);
+                result = new mockit.Delegate<Void>() {
+                    void delegate(SetTableStorageVolumeLog replayLog) {
+                        called[0] = true;
+                        capturedTableId[0] = replayLog.getTableId();
+                        capturedSvId[0] = replayLog.getStorageVolumeId();
+                    }
+                };
+            }
+        };
+
+        JournalEntity journal = new JournalEntity(OperationType.OP_SET_TABLE_STORAGE_VOLUME, log);
+        EditLog editLog = new EditLog(null);
+        editLog.loadJournal(globalStateMgr, journal);
+
+        Assertions.assertTrue(called[0], "replaySetTableStorageVolume should have been called");
+        Assertions.assertEquals(12345L, capturedTableId[0]);
+        Assertions.assertEquals("sv-uuid-001", capturedSvId[0]);
     }
 }

@@ -33,6 +33,7 @@ import com.starrocks.lake.StarOSAgent;
 import com.starrocks.persist.DropStorageVolumeLog;
 import com.starrocks.persist.ImageWriter;
 import com.starrocks.persist.SetDefaultStorageVolumeLog;
+import com.starrocks.persist.SetTableStorageVolumeLog;
 import com.starrocks.persist.TableStorageInfos;
 import com.starrocks.persist.gson.GsonPostProcessable;
 import com.starrocks.persist.gson.GsonUtils;
@@ -297,6 +298,12 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
                         + compositeName + "'");
             }
 
+            // Invariant: composite SV must have at least one child (same as creation constraint)
+            if (csv.getChildVolumeIds().size() <= 1) {
+                throw new DdlException("Cannot remove the last child from Composite SV '"
+                        + compositeName + "'. A Composite SV must have at least one child.");
+            }
+
             // Safety guard: refuse REMOVE VOLUME when tables are bound to this Composite SV.
             // Existing tablets may physically reside on the child's storage paths; removing the
             // child from the membership would break bucket→child mapping for those tablets.
@@ -322,15 +329,21 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
         }
     }
 
-    /** Returns the {@link CompositeStorageVolume} by name, or {@code null} if not found. */
-    public CompositeStorageVolume getCompositeStorageVolumeByName(String name) {
+    /**
+     * Returns the {@link CompositeStorageVolume} by name, or {@code null} if not found.
+     * @throws DdlException if StarOS communication fails
+     */
+    public CompositeStorageVolume getCompositeStorageVolumeByName(String name) throws DdlException {
         try (LockCloseable lock = new LockCloseable(rwLock.readLock())) {
             return getCompositeStorageVolumeByNameNoLock(name);
         }
     }
 
-    /** Returns the {@link CompositeStorageVolume} by ID, or {@code null} if not found. */
-    public CompositeStorageVolume getCompositeStorageVolume(String id) {
+    /**
+     * Returns the {@link CompositeStorageVolume} by ID, or {@code null} if not found.
+     * @throws DdlException if StarOS communication fails
+     */
+    public CompositeStorageVolume getCompositeStorageVolume(String id) throws DdlException {
         try (LockCloseable lock = new LockCloseable(rwLock.readLock())) {
             return getCompositeStorageVolumeByIdNoLock(id);
         }
@@ -376,7 +389,7 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
      * Query StarOS by name. Returns null if not found or not a COMPOSITE type.
      * Returns null if StarOSAgent is not available (e.g. shared-nothing mode).
      */
-    private CompositeStorageVolume getCompositeStorageVolumeByNameNoLock(String name) {
+    private CompositeStorageVolume getCompositeStorageVolumeByNameNoLock(String name) throws DdlException {
         StarOSAgent agent = GlobalStateMgr.getCurrentState().getStarOSAgent();
         if (agent == null) {
             return null;
@@ -389,30 +402,43 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
             return new CompositeStorageVolume(fsInfo.getFsKey(), fsInfo.getFsName(),
                     parseCompositeChildFsKeysFromFsInfo(fsInfo), fsInfo.getEnabled(), fsInfo.getComment());
         } catch (Exception e) {
-            LOG.debug("Failed to get composite storage volume by name: {}", name, e);
-            return null;
+            LOG.warn("StarOS communication error while querying composite storage volume by name '{}': {}",
+                    name, e.getMessage(), e);
+            throw new DdlException("Failed to query composite storage volume '" + name
+                    + "' from StarOS: " + e.getMessage(), e);
         }
     }
 
     /**
-     * Query StarOS by id. Returns null if not found or not a COMPOSITE type.
-     * Returns null if StarOSAgent is not available (e.g. shared-nothing mode).
+     * Query StarOS by id. Returns null if the FileStore exists but is not COMPOSITE type,
+     * or if StarOSAgent is not available (e.g. shared-nothing mode).
+     *
+     * @throws DdlException if the FileStore id is completely unknown to StarOS (possible data loss)
+     *                      or StarOS communication fails
      */
-    protected CompositeStorageVolume getCompositeStorageVolumeByIdNoLock(String id) {
+    protected CompositeStorageVolume getCompositeStorageVolumeByIdNoLock(String id) throws DdlException {
         StarOSAgent agent = GlobalStateMgr.getCurrentState().getStarOSAgent();
         if (agent == null) {
             return null;
         }
         try {
             FileStoreInfo fsInfo = agent.getFileStore(id);
-            if (fsInfo == null || !StorageVolume.isCompositeFileStoreInfo(fsInfo)) {
+            if (fsInfo == null) {
+                throw new DdlException("Storage volume (FileStore id=" + id
+                        + ") not found in StarOS. The FileStore definition may have been lost.");
+            }
+            if (!StorageVolume.isCompositeFileStoreInfo(fsInfo)) {
                 return null;
             }
             return new CompositeStorageVolume(fsInfo.getFsKey(), fsInfo.getFsName(),
                     parseCompositeChildFsKeysFromFsInfo(fsInfo), fsInfo.getEnabled(), fsInfo.getComment());
+        } catch (DdlException e) {
+            throw e;
         } catch (Exception e) {
-            LOG.debug("Failed to get composite storage volume by id: {}", id, e);
-            return null;
+            LOG.warn("StarOS communication error while querying composite storage volume by id '{}': {}",
+                    id, e.getMessage(), e);
+            throw new DdlException("Failed to query composite storage volume (id=" + id
+                    + ") from StarOS: " + e.getMessage(), e);
         }
     }
 
@@ -426,9 +452,14 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
     /** Resolve a list of child SV names to IDs, validating constraints. */
     private List<String> resolveChildNamesToIds(List<String> childNames) throws DdlException {
         List<String> childIds = new ArrayList<>(childNames.size());
+        Set<String> seenNames = new HashSet<>();
         StorageVolume.StorageVolumeType expectedType = null;
         for (String childName : childNames) {
             childName = childName.trim();
+            if (!seenNames.add(childName)) {
+                throw new DdlException("Duplicate child storage volume '" + childName
+                        + "' in child_volumes list");
+            }
             StorageVolume child = getStorageVolumeByName(childName);
             if (child == null) {
                 throw new DdlException("Child storage volume '" + childName + "' not found");
@@ -450,7 +481,7 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
         return childIds;
     }
 
-    private boolean existsNoLock(String svName) {
+    private boolean existsNoLock(String svName) throws DdlException {
         if (getCompositeStorageVolumeByNameNoLock(svName) != null) {
             return true;
         }
@@ -809,6 +840,51 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
     }
 
     /**
+     * Replay ALTER TABLE SET storage_volume: update the in-memory table-to-SV binding.
+     *
+     * <p><b>Known limitation:</b> This replay only updates the binding maps ({@code tableToStorageVolume}
+     * / {@code storageVolumeToTables}). The table's {@code StorageInfo.filePathInfo} (used by
+     * {@code OlapTable.getPartitionFilePathInfo}) is NOT updated here because it would require a
+     * StarOS RPC that may not be available during journal replay.
+     *
+     * <p>For <b>Composite SV</b> tables this is harmless — partition creation always re-resolves the
+     * child SV via {@link #resolveCompositePartitionFilePathInfo} regardless of the table-level path.
+     *
+     * <p>For <b>regular SV</b> tables, if a follower replays this log and later becomes leader,
+     * new partitions may use a stale table-level path until the next checkpoint or until the user
+     * re-executes {@code ALTER TABLE SET ("storage_volume" = "...")}. The {@code StarMgrMetaSyncer}
+     * periodic task will eventually reconcile the table-level path.
+     */
+    public void replaySetTableStorageVolume(SetTableStorageVolumeLog log) {
+        try (LockCloseable lock = new LockCloseable(rwLock.writeLock())) {
+            long tableId = log.getTableId();
+            String newSvId = log.getStorageVolumeId();
+
+            if (Strings.isNullOrEmpty(newSvId)) {
+                LOG.warn("Skip replaying SetTableStorageVolumeLog with null/empty svId for tableId={}", tableId);
+                return;
+            }
+
+            // Remove old binding
+            String oldSvId = tableToStorageVolume.remove(tableId);
+            if (oldSvId != null) {
+                Set<Long> tables = storageVolumeToTables.get(oldSvId);
+                if (tables != null) {
+                    tables.remove(tableId);
+                    if (tables.isEmpty()) {
+                        storageVolumeToTables.remove(oldSvId);
+                    }
+                }
+            }
+
+            // Add new binding
+            Set<Long> tables = storageVolumeToTables.computeIfAbsent(newSvId, k -> new HashSet<>());
+            tables.add(tableId);
+            tableToStorageVolume.put(tableId, newSvId);
+        }
+    }
+
+    /**
      * For a table bound to a Composite SV, resolve the child SV for the given partition via round-robin
      * and return a partition-scoped {@link FilePathInfo}. Returns {@code null} if the table is not
      * bound to a Composite SV.
@@ -826,12 +902,18 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
         if (svId == null) {
             return null;
         }
-        CompositeStorageVolume csv = getCompositeStorageVolume(svId);
+        CompositeStorageVolume csv;
+        try {
+            csv = getCompositeStorageVolume(svId);
+        } catch (DdlException e) {
+            throw new DdlException("Failed to resolve storage volume for table '" + table.getName()
+                    + "' (bound svId=" + svId + "): " + e.getMessage(), e);
+        }
         if (csv == null) {
             return null;
         }
         CompositeStorageVolume.ChildVolumesSnapshot snapshot = csv.resolveChildVolumesStrict(this);
-        int childIndex = (int) (Math.abs(partitionId % snapshot.childVolumes.size()));
+        int childIndex = (int) Math.floorMod(partitionId, snapshot.childVolumes.size());
         StorageVolume selectedChild = snapshot.childVolumes.get(childIndex);
         return GlobalStateMgr.getCurrentState().getStarOSAgent().allocatePartitionFilePathInfoForChildSv(
                 selectedChild.getId(), dbId, table.getId(), physicalPartitionId);
@@ -1004,4 +1086,62 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
             throws MetaNotFoundException;
 
     public abstract boolean hasStorageVolumeBindAsVirtualGroup(long shardGroupId);
+
+    /**
+     * Startup health check: validates that all storage volume IDs referenced by table bindings
+     * actually exist in StarOS. Logs ERROR for any missing FileStore definitions so that operators
+     * can detect metadata inconsistency early (rather than encountering failures at partition
+     * creation time).
+     *
+     * <p>This method is non-blocking and never throws — it logs errors but does not prevent FE startup.
+     * Call this after StarOS agent is fully initialized (e.g., after leader transfer).
+     */
+    public void validateTableStorageVolumeBindings() {
+        StarOSAgent agent = GlobalStateMgr.getCurrentState().getStarOSAgent();
+        if (agent == null) {
+            return;
+        }
+
+        Map<Long, String> snapshot;
+        try (LockCloseable lock = new LockCloseable(rwLock.readLock())) {
+            snapshot = new HashMap<>(tableToStorageVolume);
+        }
+
+        Set<String> checkedIds = new HashSet<>();
+        Set<String> missingIds = new HashSet<>();
+        int errorCount = 0;
+
+        for (Map.Entry<Long, String> entry : snapshot.entrySet()) {
+            String svId = entry.getValue();
+            if (checkedIds.contains(svId)) {
+                if (missingIds.contains(svId)) {
+                    errorCount++;
+                }
+                continue;
+            }
+            checkedIds.add(svId);
+            try {
+                FileStoreInfo fsInfo = agent.getFileStore(svId);
+                if (fsInfo == null) {
+                    missingIds.add(svId);
+                    errorCount++;
+                    LOG.error("Storage volume health check FAILED: FileStore (id={}) not found in StarOS."
+                            + " Tables bound to this SV will fail partition creation."
+                            + " Affected tableId={}.", svId, entry.getKey());
+                }
+            } catch (Exception e) {
+                LOG.warn("Storage volume health check: unable to verify FileStore (id={}): {}",
+                        svId, e.getMessage());
+            }
+        }
+
+        if (errorCount > 0) {
+            LOG.error("Storage volume health check completed: {} table(s) reference {} missing FileStore(s)."
+                    + " Affected svIds: {}. Consider re-binding these tables with ALTER TABLE SET storage_volume.",
+                    errorCount, missingIds.size(), missingIds);
+        } else if (!snapshot.isEmpty()) {
+            LOG.info("Storage volume health check passed: all {} table-to-SV bindings are valid.",
+                    snapshot.size());
+        }
+    }
 }

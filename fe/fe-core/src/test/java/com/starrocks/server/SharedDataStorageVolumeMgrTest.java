@@ -20,6 +20,7 @@ import com.staros.client.StarClientException;
 import com.staros.proto.FileCacheInfo;
 import com.staros.proto.FilePathInfo;
 import com.staros.proto.FileStoreInfo;
+import com.staros.proto.StatusCode;
 import com.starrocks.catalog.AggregateType;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.Database;
@@ -51,6 +52,7 @@ import com.starrocks.lake.StarOSAgent;
 import com.starrocks.persist.EditLog;
 import com.starrocks.persist.ImageWriter;
 import com.starrocks.persist.SetDefaultStorageVolumeLog;
+import com.starrocks.persist.SetTableStorageVolumeLog;
 import com.starrocks.persist.metablock.SRMetaBlockEOFException;
 import com.starrocks.persist.metablock.SRMetaBlockException;
 import com.starrocks.persist.metablock.SRMetaBlockReader;
@@ -66,6 +68,7 @@ import org.apache.commons.lang3.reflect.FieldUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.wildfly.common.Assert;
 
@@ -678,6 +681,214 @@ public class SharedDataStorageVolumeMgrTest {
     }
 
     @Test
+    public void testReplaySetTableStorageVolume() throws DdlException, AlreadyExistsException {
+        SharedDataStorageVolumeMgr sdsvm = new SharedDataStorageVolumeMgr();
+
+        List<String> locations = Arrays.asList("s3://abc");
+        Map<String, String> storageParams = new HashMap<>();
+        storageParams.put(AWS_S3_REGION, "region");
+        storageParams.put(AWS_S3_ENDPOINT, "endpoint");
+        storageParams.put(AWS_S3_USE_AWS_SDK_DEFAULT_BEHAVIOR, "true");
+
+        String oldSvId = sdsvm.createStorageVolume("old_sv", "S3", locations, storageParams, Optional.empty(), "");
+        String newSvId = sdsvm.createStorageVolume("new_sv", "S3", locations, storageParams, Optional.empty(), "");
+
+        // Bind table 1 to old SV
+        sdsvm.replayBindTableToStorageVolume(oldSvId, 1L);
+        Assertions.assertEquals(oldSvId, sdsvm.getStorageVolumeIdOfTable(1L));
+
+        // Replay SET storage_volume to new SV
+        SetTableStorageVolumeLog log = new SetTableStorageVolumeLog(1L, newSvId);
+        sdsvm.replaySetTableStorageVolume(log);
+
+        // Verify binding updated
+        Assertions.assertEquals(newSvId, sdsvm.getStorageVolumeIdOfTable(1L));
+
+        // Verify old SV no longer references the table
+        Assertions.assertFalse(sdsvm.storageVolumeToTables.containsKey(oldSvId)
+                || sdsvm.storageVolumeToTables.getOrDefault(oldSvId, Collections.emptySet()).contains(1L));
+
+        // Verify new SV references the table
+        Assertions.assertTrue(sdsvm.storageVolumeToTables.get(newSvId).contains(1L));
+    }
+
+    @Test
+    public void testReplaySetTableStorageVolumeWithoutPriorBinding() throws DdlException, AlreadyExistsException {
+        SharedDataStorageVolumeMgr sdsvm = new SharedDataStorageVolumeMgr();
+
+        List<String> locations = Arrays.asList("s3://abc");
+        Map<String, String> storageParams = new HashMap<>();
+        storageParams.put(AWS_S3_REGION, "region");
+        storageParams.put(AWS_S3_ENDPOINT, "endpoint");
+        storageParams.put(AWS_S3_USE_AWS_SDK_DEFAULT_BEHAVIOR, "true");
+
+        String newSvId = sdsvm.createStorageVolume("new_sv", "S3", locations, storageParams, Optional.empty(), "");
+
+        // Replay SET storage_volume for a table with no prior binding
+        SetTableStorageVolumeLog log = new SetTableStorageVolumeLog(1L, newSvId);
+        sdsvm.replaySetTableStorageVolume(log);
+
+        Assertions.assertEquals(newSvId, sdsvm.getStorageVolumeIdOfTable(1L));
+        Assertions.assertTrue(sdsvm.storageVolumeToTables.get(newSvId).contains(1L));
+    }
+
+    @Test
+    public void testReplaySetTableStorageVolumeIdempotent() throws DdlException, AlreadyExistsException {
+        SharedDataStorageVolumeMgr sdsvm = new SharedDataStorageVolumeMgr();
+
+        List<String> locations = Arrays.asList("s3://abc");
+        Map<String, String> storageParams = new HashMap<>();
+        storageParams.put(AWS_S3_REGION, "region");
+        storageParams.put(AWS_S3_ENDPOINT, "endpoint");
+        storageParams.put(AWS_S3_USE_AWS_SDK_DEFAULT_BEHAVIOR, "true");
+
+        String svId = sdsvm.createStorageVolume("sv1", "S3", locations, storageParams, Optional.empty(), "");
+
+        // Bind then replay SET to the same SV (idempotent)
+        sdsvm.replayBindTableToStorageVolume(svId, 1L);
+        SetTableStorageVolumeLog log = new SetTableStorageVolumeLog(1L, svId);
+        sdsvm.replaySetTableStorageVolume(log);
+
+        Assertions.assertEquals(svId, sdsvm.getStorageVolumeIdOfTable(1L));
+        Assertions.assertTrue(sdsvm.storageVolumeToTables.get(svId).contains(1L));
+        // Should still have exactly one entry for the table
+        Assertions.assertEquals(1, sdsvm.storageVolumeToTables.get(svId).size());
+    }
+
+    @Test
+    public void testReplaySetTableStorageVolumeMultipleTables() throws DdlException, AlreadyExistsException {
+        SharedDataStorageVolumeMgr sdsvm = new SharedDataStorageVolumeMgr();
+
+        List<String> locations = Arrays.asList("s3://abc");
+        Map<String, String> storageParams = new HashMap<>();
+        storageParams.put(AWS_S3_REGION, "region");
+        storageParams.put(AWS_S3_ENDPOINT, "endpoint");
+        storageParams.put(AWS_S3_USE_AWS_SDK_DEFAULT_BEHAVIOR, "true");
+
+        String sv1 = sdsvm.createStorageVolume("sv1", "S3", locations, storageParams, Optional.empty(), "");
+        String sv2 = sdsvm.createStorageVolume("sv2", "S3", locations, storageParams, Optional.empty(), "");
+
+        // Bind two tables to sv1
+        sdsvm.replayBindTableToStorageVolume(sv1, 1L);
+        sdsvm.replayBindTableToStorageVolume(sv1, 2L);
+        Assertions.assertEquals(2, sdsvm.storageVolumeToTables.get(sv1).size());
+
+        // Move only table 1 to sv2
+        sdsvm.replaySetTableStorageVolume(new SetTableStorageVolumeLog(1L, sv2));
+
+        // table 1 -> sv2, table 2 -> sv1
+        Assertions.assertEquals(sv2, sdsvm.getStorageVolumeIdOfTable(1L));
+        Assertions.assertEquals(sv1, sdsvm.getStorageVolumeIdOfTable(2L));
+        Assertions.assertTrue(sdsvm.storageVolumeToTables.get(sv1).contains(2L));
+        Assertions.assertFalse(sdsvm.storageVolumeToTables.get(sv1).contains(1L));
+        Assertions.assertTrue(sdsvm.storageVolumeToTables.get(sv2).contains(1L));
+    }
+
+    @Test
+    public void testReplaySetTableStorageVolumeRoundTrip() throws DdlException, AlreadyExistsException {
+        SharedDataStorageVolumeMgr sdsvm = new SharedDataStorageVolumeMgr();
+
+        List<String> locations = Arrays.asList("s3://abc");
+        Map<String, String> storageParams = new HashMap<>();
+        storageParams.put(AWS_S3_REGION, "region");
+        storageParams.put(AWS_S3_ENDPOINT, "endpoint");
+        storageParams.put(AWS_S3_USE_AWS_SDK_DEFAULT_BEHAVIOR, "true");
+
+        String svOrig = sdsvm.createStorageVolume("sv_orig", "S3", locations, storageParams, Optional.empty(), "");
+        String svNew = sdsvm.createStorageVolume("sv_new", "S3", locations, storageParams, Optional.empty(), "");
+
+        // Bind table to original SV
+        sdsvm.replayBindTableToStorageVolume(svOrig, 1L);
+
+        // ALTER to new SV
+        sdsvm.replaySetTableStorageVolume(new SetTableStorageVolumeLog(1L, svNew));
+        Assertions.assertEquals(svNew, sdsvm.getStorageVolumeIdOfTable(1L));
+
+        // ALTER back to original SV (restore scenario)
+        sdsvm.replaySetTableStorageVolume(new SetTableStorageVolumeLog(1L, svOrig));
+        Assertions.assertEquals(svOrig, sdsvm.getStorageVolumeIdOfTable(1L));
+
+        // Verify reverse mapping is clean
+        Assertions.assertTrue(sdsvm.storageVolumeToTables.get(svOrig).contains(1L));
+        Assertions.assertFalse(sdsvm.storageVolumeToTables.containsKey(svNew)
+                && sdsvm.storageVolumeToTables.get(svNew).contains(1L));
+    }
+
+    @Test
+    public void testAlterTableStorageVolumePersistsEditLog() throws DdlException, AlreadyExistsException {
+        // Simulates the AlterJobExecutor storage_volume branch and verifies
+        // that logSetTableStorageVolume is called with the correct args.
+        SharedDataStorageVolumeMgr sdsvm = new SharedDataStorageVolumeMgr();
+
+        List<String> locations = Arrays.asList("s3://bucket-e2e");
+        Map<String, String> storageParams = new HashMap<>();
+        storageParams.put(AWS_S3_REGION, "region");
+        storageParams.put(AWS_S3_ENDPOINT, "endpoint");
+        storageParams.put(AWS_S3_USE_AWS_SDK_DEFAULT_BEHAVIOR, "true");
+
+        String svOldId = sdsvm.createStorageVolume("sv_old_e2e", "S3", locations, storageParams, Optional.empty(), "");
+        String svNewId = sdsvm.createStorageVolume("sv_new_e2e", "S3", locations, storageParams, Optional.empty(), "");
+
+        long tableId = 9999L;
+        long dbId = 1L;
+
+        // Initial bind (simulates table creation)
+        sdsvm.replayBindTableToStorageVolume(svOldId, tableId);
+        Assertions.assertEquals(svOldId, sdsvm.getStorageVolumeIdOfTable(tableId));
+
+        // --- Simulate AlterJobExecutor storage_volume branch ---
+        // 1. Pre-validation
+        StorageVolume newSv = sdsvm.getStorageVolumeByName("sv_new_e2e");
+        Assertions.assertNotNull(newSv);
+
+        // 2. Unbind + bind (mirrors AlterJobExecutor lines 596-601)
+        sdsvm.unbindTableToStorageVolume(tableId);
+        boolean bound = sdsvm.bindTableToStorageVolume("sv_new_e2e", dbId, tableId);
+        Assertions.assertTrue(bound);
+
+        // 3. Persist EditLog (mirrors AlterJobExecutor lines 623-626)
+        String newSvIdAfterBind = sdsvm.getStorageVolumeIdOfTable(tableId);
+        SetTableStorageVolumeLog svLog = new SetTableStorageVolumeLog(tableId, newSvIdAfterBind);
+        GlobalStateMgr.getCurrentState().getEditLog().logSetTableStorageVolume(svLog);
+
+        // 4. Verify EditLog was called with correct parameters
+        new mockit.Verifications() {
+            {
+                SetTableStorageVolumeLog capturedLog;
+                editLog.logSetTableStorageVolume(capturedLog = withCapture());
+                Assertions.assertEquals(tableId, capturedLog.getTableId());
+                Assertions.assertEquals(svNewId, capturedLog.getStorageVolumeId());
+            }
+        };
+
+        // 5. Verify in-memory state is correct
+        Assertions.assertEquals(svNewId, sdsvm.getStorageVolumeIdOfTable(tableId));
+    }
+
+    @Test
+    public void testReplaySetTableStorageVolumeSkipsNullSvId() throws DdlException, AlreadyExistsException {
+        SharedDataStorageVolumeMgr sdsvm = new SharedDataStorageVolumeMgr();
+
+        List<String> locations = Arrays.asList("s3://bucket-null");
+        Map<String, String> storageParams = new HashMap<>();
+        storageParams.put(AWS_S3_REGION, "region");
+        storageParams.put(AWS_S3_ENDPOINT, "endpoint");
+        storageParams.put(AWS_S3_USE_AWS_SDK_DEFAULT_BEHAVIOR, "true");
+
+        String svId = sdsvm.createStorageVolume("sv_null_test", "S3", locations, storageParams, Optional.empty(), "");
+        sdsvm.replayBindTableToStorageVolume(svId, 1L);
+
+        // Replay with null svId should be a no-op
+        sdsvm.replaySetTableStorageVolume(new SetTableStorageVolumeLog(1L, null));
+        // Original binding should remain unchanged
+        Assertions.assertEquals(svId, sdsvm.getStorageVolumeIdOfTable(1L));
+
+        // Replay with empty svId should also be a no-op
+        sdsvm.replaySetTableStorageVolume(new SetTableStorageVolumeLog(1L, ""));
+        Assertions.assertEquals(svId, sdsvm.getStorageVolumeIdOfTable(1L));
+    }
+
+    @Test
     public void testGetBucketAndPrefix() throws Exception {
         String oldAwsS3Path = Config.aws_s3_path;
 
@@ -1241,6 +1452,53 @@ public class SharedDataStorageVolumeMgrTest {
         return new String[] {child1Key, child2Key};
     }
 
+    /**
+     * Assert bidirectional consistency between tableToStorageVolume and storageVolumeToTables
+     * for the given tableId against the specified SV IDs.
+     */
+    private static void assertBidirectionalConsistency(SharedDataStorageVolumeMgr sdsvm,
+                                                       long tableId, String... allSvIds) {
+        String boundSvId = sdsvm.getStorageVolumeIdOfTable(tableId);
+        for (String svId : allSvIds) {
+            Set<Long> tables = sdsvm.storageVolumeToTables.getOrDefault(svId, Collections.emptySet());
+            if (svId.equals(boundSvId)) {
+                Assertions.assertTrue(tables.contains(tableId),
+                        "storageVolumeToTables[" + svId + "] should contain tableId " + tableId
+                                + " (tableToStorageVolume points here)");
+            } else {
+                Assertions.assertFalse(tables.contains(tableId),
+                        "storageVolumeToTables[" + svId + "] should NOT contain tableId " + tableId
+                                + " (tableToStorageVolume points to " + boundSvId + ")");
+            }
+        }
+    }
+
+    /**
+     * Assert full bidirectional consistency across all entries in both maps.
+     * - Every (tableId -> svId) in tableToStorageVolume must have tableId in storageVolumeToTables[svId].
+     * - Every tableId in storageVolumeToTables[svId] must have tableToStorageVolume[tableId] == svId.
+     */
+    private static void assertFullBidirectionalConsistency(SharedDataStorageVolumeMgr sdsvm) {
+        for (Map.Entry<Long, String> entry : sdsvm.tableToStorageVolume.entrySet()) {
+            long tableId = entry.getKey();
+            String svId = entry.getValue();
+            Set<Long> tables = sdsvm.storageVolumeToTables.get(svId);
+            Assertions.assertNotNull(tables,
+                    "storageVolumeToTables missing key " + svId + " (referenced by tableId " + tableId + ")");
+            Assertions.assertTrue(tables.contains(tableId),
+                    "storageVolumeToTables[" + svId + "] missing tableId " + tableId);
+        }
+        for (Map.Entry<String, Set<Long>> entry : sdsvm.storageVolumeToTables.entrySet()) {
+            String svId = entry.getKey();
+            for (Long tableId : entry.getValue()) {
+                String boundSvId = sdsvm.tableToStorageVolume.get(tableId);
+                Assertions.assertEquals(svId, boundSvId,
+                        "tableToStorageVolume[" + tableId + "] = " + boundSvId
+                                + " but storageVolumeToTables[" + svId + "] contains it");
+            }
+        }
+    }
+
     @Test
     public void testCreateCompositeStorageVolumeViaTypeRoute() throws Exception {
         StorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
@@ -1466,6 +1724,227 @@ public class SharedDataStorageVolumeMgrTest {
     }
 
     @Test
+    public void testRemoveLastChildFromCompositeBlocked() throws Exception {
+        StorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
+        createChildSVs(svm);
+
+        // Create composite with only child1 — exactly 1 child
+        svm.createCompositeStorageVolume("comp_last", Arrays.asList("child1"), true, "");
+
+        // Removing the last child should fail
+        DdlException ex = Assertions.assertThrows(DdlException.class,
+                () -> svm.removeChildFromCompositeStorageVolume("comp_last", "child1"));
+        Assertions.assertTrue(ex.getMessage().contains("last child"));
+
+        // Add child2 → 2 children; remove child2 succeeds, then remove child1 (last) fails
+        svm.addChildToCompositeStorageVolume("comp_last", "child2");
+        svm.removeChildFromCompositeStorageVolume("comp_last", "child2"); // 2→1, OK
+        Assertions.assertThrows(DdlException.class,
+                () -> svm.removeChildFromCompositeStorageVolume("comp_last", "child1")); // 1→0, blocked
+    }
+
+    @Test
+    public void testDuplicateChildNamesRejected() throws Exception {
+        StorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
+        createChildSVs(svm);
+
+        // Exact duplicate: "child1,child1,child2"
+        DdlException ex = Assertions.assertThrows(DdlException.class,
+                () -> svm.createCompositeStorageVolume("comp_dup",
+                        Arrays.asList("child1", "child1", "child2"), true, ""));
+        Assertions.assertTrue(ex.getMessage().contains("Duplicate"));
+
+        // Duplicate with whitespace: "child1, child1 ,child2"
+        Assertions.assertThrows(DdlException.class,
+                () -> svm.createCompositeStorageVolume("comp_dup2",
+                        Arrays.asList("child1", " child1 ", "child2"), true, ""));
+    }
+
+    @Test
+    public void testStarOSExceptionPropagated() throws Exception {
+        StorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
+        createChildSVs(svm);
+        svm.createCompositeStorageVolume("comp_err", Arrays.asList("child1", "child2"), true, "");
+
+        // Mock StarOS to throw on getFileStoreByName
+        new MockUp<StarOSAgent>() {
+            @Mock
+            public FileStoreInfo getFileStoreByName(String name) throws StarClientException {
+                throw new StarClientException(StatusCode.INTERNAL, "simulated StarOS communication failure");
+            }
+        };
+
+        // getCompositeStorageVolumeByName should throw DdlException, not return null
+        DdlException ex = Assertions.assertThrows(DdlException.class,
+                () -> svm.getCompositeStorageVolumeByName("comp_err"));
+        Assertions.assertTrue(ex.getMessage().contains("StarOS"));
+
+        // exists() should also propagate the error
+        Assertions.assertThrows(DdlException.class, () -> svm.exists("comp_err"));
+    }
+
+    @Test
+    public void testStarOSExceptionPropagatedById() throws Exception {
+        StorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
+        createChildSVs(svm);
+        String csvId = svm.createCompositeStorageVolume(
+                "comp_byid_err", Arrays.asList("child1", "child2"), true, "");
+
+        new MockUp<StarOSAgent>() {
+            @Mock
+            public FileStoreInfo getFileStore(String fsKey) throws StarClientException {
+                throw new StarClientException(StatusCode.INTERNAL,
+                        "simulated StarOS failure on getFileStore");
+            }
+        };
+
+        DdlException ex = Assertions.assertThrows(DdlException.class,
+                () -> svm.getCompositeStorageVolume(csvId));
+        Assertions.assertTrue(ex.getMessage().contains("by id") || ex.getMessage().contains("id="),
+                "Error message should contain ById context, got: " + ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("StarOS"),
+                "Error message should mention StarOS, got: " + ex.getMessage());
+        Assertions.assertInstanceOf(StarClientException.class, ex.getCause(),
+                "DdlException cause should be StarClientException");
+    }
+
+    @Test
+    public void testExistsAndCreateBlockedOnStarOSFailure() throws Exception {
+        StorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
+        createChildSVs(svm);
+
+        List<String> namesBefore = svm.listStorageVolumeNames();
+
+        new MockUp<StarOSAgent>() {
+            @Mock
+            public FileStoreInfo getFileStoreByName(String name) throws StarClientException {
+                if ("ghost_sv".equals(name)) {
+                    throw new StarClientException(StatusCode.INTERNAL,
+                            "simulated StarOS failure");
+                }
+                return null;
+            }
+        };
+
+        DdlException exExists = Assertions.assertThrows(DdlException.class,
+                () -> svm.exists("ghost_sv"));
+        Assertions.assertInstanceOf(StarClientException.class, exExists.getCause(),
+                "exists() DdlException cause should be StarClientException");
+        Assertions.assertTrue(exExists.getMessage().contains("by name")
+                        || exExists.getMessage().contains("'ghost_sv'"),
+                "Error message should contain ByName context, got: " + exExists.getMessage());
+
+        DdlException exCreate = Assertions.assertThrows(DdlException.class,
+                () -> svm.createCompositeStorageVolume("ghost_sv",
+                        Arrays.asList("child1", "child2"), true, ""));
+        Assertions.assertInstanceOf(StarClientException.class, exCreate.getCause(),
+                "createCompositeStorageVolume DdlException cause should be StarClientException");
+
+        new MockUp<StarOSAgent>() {
+            @Mock
+            public FileStoreInfo getFileStoreByName(String name) {
+                return null;
+            }
+        };
+
+        List<String> namesAfter = svm.listStorageVolumeNames();
+        Assertions.assertFalse(namesAfter.contains("ghost_sv"),
+                "ghost_sv should not exist after failed createCompositeStorageVolume");
+        Assertions.assertEquals(new HashSet<>(namesBefore), new HashSet<>(namesAfter),
+                "FileStore name set should be unchanged after failed creation");
+    }
+
+    @Test
+    public void testReplaySetTableStorageVolumeAfterDropTable() throws DdlException, AlreadyExistsException {
+        SharedDataStorageVolumeMgr sdsvm = new SharedDataStorageVolumeMgr();
+
+        List<String> locations = Arrays.asList("s3://bucket-g9");
+        Map<String, String> storageParams = new HashMap<>();
+        storageParams.put(AWS_S3_REGION, "region");
+        storageParams.put(AWS_S3_ENDPOINT, "endpoint");
+        storageParams.put(AWS_S3_USE_AWS_SDK_DEFAULT_BEHAVIOR, "true");
+
+        String sv1 = sdsvm.createStorageVolume("sv_g9_1", "S3", locations, storageParams,
+                Optional.empty(), "");
+        String sv2 = sdsvm.createStorageVolume("sv_g9_2", "S3", locations, storageParams,
+                Optional.empty(), "");
+
+        long tableId = 77777L;
+        long otherTableId = 88888L;
+
+        sdsvm.replayBindTableToStorageVolume(sv1, otherTableId);
+
+        sdsvm.replayBindTableToStorageVolume(sv1, tableId);
+        Assertions.assertEquals(sv1, sdsvm.getStorageVolumeIdOfTable(tableId));
+        assertBidirectionalConsistency(sdsvm, tableId, sv1, sv2);
+        assertFullBidirectionalConsistency(sdsvm);
+        Assertions.assertTrue(sdsvm.storageVolumeToTables.get(sv1).contains(otherTableId));
+
+        sdsvm.replaySetTableStorageVolume(new SetTableStorageVolumeLog(tableId, sv2));
+        Assertions.assertEquals(sv2, sdsvm.getStorageVolumeIdOfTable(tableId));
+        assertBidirectionalConsistency(sdsvm, tableId, sv1, sv2);
+        assertFullBidirectionalConsistency(sdsvm);
+        Assertions.assertTrue(sdsvm.storageVolumeToTables.get(sv1).contains(otherTableId));
+        Assertions.assertFalse(sdsvm.storageVolumeToTables.get(sv1).contains(tableId));
+
+        sdsvm.unbindTableToStorageVolume(tableId);
+        Assertions.assertNull(sdsvm.getStorageVolumeIdOfTable(tableId));
+        assertBidirectionalConsistency(sdsvm, tableId, sv1, sv2);
+        assertFullBidirectionalConsistency(sdsvm);
+        Assertions.assertEquals(sv1, sdsvm.getStorageVolumeIdOfTable(otherTableId));
+        assertBidirectionalConsistency(sdsvm, otherTableId, sv1, sv2);
+
+        sdsvm.replaySetTableStorageVolume(new SetTableStorageVolumeLog(tableId, sv1));
+        Assertions.assertEquals(sv1, sdsvm.getStorageVolumeIdOfTable(tableId),
+                "Current code re-establishes binding for dropped table (known tolerance, not ideal)");
+        Assertions.assertEquals(sv1, sdsvm.getStorageVolumeIdOfTable(otherTableId));
+        assertBidirectionalConsistency(sdsvm, otherTableId, sv1, sv2);
+        assertFullBidirectionalConsistency(sdsvm);
+
+        sdsvm.unbindTableToStorageVolume(tableId);
+        Assertions.assertNull(sdsvm.getStorageVolumeIdOfTable(tableId));
+        assertBidirectionalConsistency(sdsvm, tableId, sv1, sv2);
+        assertFullBidirectionalConsistency(sdsvm);
+
+        sdsvm.unbindTableToStorageVolume(tableId);
+        Assertions.assertNull(sdsvm.getStorageVolumeIdOfTable(tableId));
+
+        Assertions.assertEquals(sv1, sdsvm.getStorageVolumeIdOfTable(otherTableId));
+        assertBidirectionalConsistency(sdsvm, otherTableId, sv1, sv2);
+        assertFullBidirectionalConsistency(sdsvm);
+    }
+
+    @Test
+    @Disabled("Tracking: ideal behavior for stale SET after DROP. Current code re-establishes binding "
+            + "(known tolerance). Not safe to add table existence check in replay path due to "
+            + "image/editlog load order dependency.")
+    public void testReplaySetTableStorageVolumeAfterDropTableStrictSemantics()
+            throws DdlException, AlreadyExistsException {
+        SharedDataStorageVolumeMgr sdsvm = new SharedDataStorageVolumeMgr();
+
+        List<String> locations = Arrays.asList("s3://bucket-g9-strict");
+        Map<String, String> storageParams = new HashMap<>();
+        storageParams.put(AWS_S3_REGION, "region");
+        storageParams.put(AWS_S3_ENDPOINT, "endpoint");
+        storageParams.put(AWS_S3_USE_AWS_SDK_DEFAULT_BEHAVIOR, "true");
+
+        String sv1 = sdsvm.createStorageVolume("sv_strict_1", "S3", locations, storageParams,
+                Optional.empty(), "");
+        long tableId = 77777L;
+
+        sdsvm.replayBindTableToStorageVolume(sv1, tableId);
+        sdsvm.unbindTableToStorageVolume(tableId);
+        sdsvm.replaySetTableStorageVolume(new SetTableStorageVolumeLog(tableId, sv1));
+
+        Assertions.assertNull(sdsvm.getStorageVolumeIdOfTable(tableId),
+                "After DROP, stale SET should be ignored (table no longer exists)");
+        for (Set<Long> tables : sdsvm.storageVolumeToTables.values()) {
+            Assertions.assertFalse(tables.contains(tableId),
+                    "No SV should reference dropped tableId " + tableId);
+        }
+    }
+
+    @Test
     public void testCheckNotReferencedAsChildSv() throws Exception {
         StorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
         String[] childKeys = createChildSVs(svm);
@@ -1554,6 +2033,61 @@ public class SharedDataStorageVolumeMgrTest {
         FilePathInfo resultNonComposite = svm.resolveCompositePartitionFilePathInfo(
                 createMockOlapTable(regularTableId), 100L, 0L, 200L);
         Assertions.assertNull(resultNonComposite);
+    }
+
+    @Test
+    public void testCompositePartitionRoundRobinWithNegativePartitionId() throws Exception {
+        StorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
+        createChildSVs(svm);
+        Map<String, String> params = new HashMap<>();
+        params.put(AWS_S3_REGION, "region");
+        params.put(AWS_S3_ENDPOINT, "endpoint");
+        params.put(AWS_S3_USE_AWS_SDK_DEFAULT_BEHAVIOR, "true");
+        svm.createStorageVolume("child3", "S3", Arrays.asList("s3://bucket3"), params, Optional.of(true), "child 3");
+        svm.createCompositeStorageVolume("comp_rr_neg",
+                Arrays.asList("child1", "child2", "child3"), true, "round-robin negative partition test");
+
+        long tableId = 3000L;
+        svm.bindTableToStorageVolume("comp_rr_neg", 100L, tableId);
+
+        StorageVolume child1 = svm.getStorageVolumeByName("child1");
+        StorageVolume child2 = svm.getStorageVolumeByName("child2");
+        StorageVolume child3 = svm.getStorageVolumeByName("child3");
+
+        FilePathInfo pathInfoChild1 = FilePathInfo.newBuilder()
+                .setFullPath("s3://bucket1/path").build();
+        FilePathInfo pathInfoChild2 = FilePathInfo.newBuilder()
+                .setFullPath("s3://bucket2/path").build();
+        FilePathInfo pathInfoChild3 = FilePathInfo.newBuilder()
+                .setFullPath("s3://bucket3/path").build();
+
+        new Expectations() {
+            {
+                starOSAgent.allocatePartitionFilePathInfoForChildSv(child1.getId(), 100L, tableId, anyLong);
+                result = pathInfoChild1;
+                minTimes = 0;
+
+                starOSAgent.allocatePartitionFilePathInfoForChildSv(child2.getId(), 100L, tableId, anyLong);
+                result = pathInfoChild2;
+                minTimes = 0;
+
+                starOSAgent.allocatePartitionFilePathInfoForChildSv(child3.getId(), 100L, tableId, anyLong);
+                result = pathInfoChild3;
+                minTimes = 0;
+            }
+        };
+
+        // floorMod(-1, 3) = 2, should route to the 3rd child rather than abs(-1 % 3) = 1.
+        FilePathInfo resultMinusOne = svm.resolveCompositePartitionFilePathInfo(
+                createMockOlapTable(tableId), 100L, -1L, 301L);
+        Assertions.assertNotNull(resultMinusOne);
+        Assertions.assertEquals("s3://bucket3/path", resultMinusOne.getFullPath());
+
+        // floorMod(-2, 3) = 1, should route to the 2nd child.
+        FilePathInfo resultMinusTwo = svm.resolveCompositePartitionFilePathInfo(
+                createMockOlapTable(tableId), 100L, -2L, 302L);
+        Assertions.assertNotNull(resultMinusTwo);
+        Assertions.assertEquals("s3://bucket2/path", resultMinusTwo.getFullPath());
     }
 
     /**

@@ -19,7 +19,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
-import com.staros.proto.ShardInfo;
 import com.starrocks.catalog.Database;
 import com.starrocks.catalog.MaterializedIndex;
 import com.starrocks.catalog.OlapTable;
@@ -29,21 +28,12 @@ import com.starrocks.common.util.ListComparator;
 import com.starrocks.common.util.concurrent.lock.LockType;
 import com.starrocks.common.util.concurrent.lock.Locker;
 import com.starrocks.lake.LakeTablet;
-import com.starrocks.lake.StarOSAgent;
 import com.starrocks.monitor.unit.ByteSizeValue;
 import com.starrocks.qe.ConnectContext;
-import com.starrocks.server.GlobalStateMgr;
-import com.starrocks.server.StorageVolumeMgr;
-import com.starrocks.storagevolume.StorageVolume;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /*
  * SHOW PROC /dbs/dbId/tableId/partitions/partitionId/indexId
@@ -51,18 +41,8 @@ import java.util.Map;
  * for LakeTablet
  */
 public class LakeTabletsProcDir implements ProcDirInterface {
-    private static final Logger LOG = LogManager.getLogger(LakeTabletsProcDir.class);
-
-    /**
-     * Columns returned by both {@code SHOW TABLETS FROM table} and
-     * {@code SHOW PROC /dbs/.../partitions/indexId[/tabletId]}.
-     * <p>
-     * The last two columns (StorageVolume, StoragePath) are populated by a
-     * best-effort StarOS RPC call in {@link #fetchComparableResult()}.
-     */
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("TabletId").add("BackendId").add("DataSize").add("RowCount")
-            .add("MinVersion").add("StorageVolume").add("StoragePath")
+            .add("TabletId").add("BackendId").add("DataSize").add("RowCount").add("MinVersion")
             .build();
 
     private final Database db;
@@ -86,73 +66,29 @@ public class LakeTabletsProcDir implements ProcDirInterface {
         throw new AnalysisException("Title name[" + columnName + "] does not exist");
     }
 
-    /**
-     * Returns one 8-element row per tablet:
-     * [TabletId, BackendId, DataSize, RowCount, MinVersion, Range, StorageVolume, StoragePath].
-     * <p>
-     * Phase 1 (under DB read lock): collect basic tablet info and tablet IDs.
-     * Phase 2 (outside DB lock): batch-query ShardInfo from StarOS and enrich
-     * StorageVolume / StoragePath.  StarOS errors are logged and silently swallowed
-     * so that the command always returns something even when StarOS is unavailable.
-     */
     public List<List<Comparable>> fetchComparableResult() {
         Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(index);
         Preconditions.checkState(table.isCloudNativeTableOrMaterializedView());
 
         List<List<Comparable>> tabletInfos = Lists.newArrayList();
-        List<Long> tabletIds = new ArrayList<>();
 
-        // Phase 1: collect basic info under DB read lock
         Locker locker = new Locker();
         locker.lockDatabase(db.getId(), LockType.READ);
         try {
             for (Tablet tablet : index.getTablets()) {
+                List<Comparable> tabletInfo = Lists.newArrayList();
                 LakeTablet lakeTablet = (LakeTablet) tablet;
-                List<Comparable> row = Lists.newArrayList();
-                row.add(lakeTablet.getId());
-                row.add(new Gson().toJson(lakeTablet.getBackendIds(ConnectContext.get().getCurrentWarehouseId())));
-                row.add(new ByteSizeValue(lakeTablet.getDataSize(true)));
-                row.add(lakeTablet.getRowCount(0L));
-                row.add(lakeTablet.getMinVersion());
-                row.add("");  // StorageVolume placeholder
-                row.add("");  // StoragePath  placeholder
-                tabletInfos.add(row);
-                tabletIds.add(lakeTablet.getId());
+                tabletInfo.add(lakeTablet.getId());
+                tabletInfo.add(new Gson().toJson(lakeTablet.getBackendIds(ConnectContext.get().getCurrentWarehouseId())));
+                tabletInfo.add(new ByteSizeValue(lakeTablet.getDataSize(true)));
+                tabletInfo.add(lakeTablet.getRowCount(0L));
+                tabletInfo.add(lakeTablet.getMinVersion());
+                tabletInfos.add(tabletInfo);
             }
         } finally {
             locker.unLockDatabase(db.getId(), LockType.READ);
         }
-
-        // Phase 2: enrich with StarOS shard info (best-effort, outside DB lock)
-        if (!tabletIds.isEmpty()) {
-            try {
-                long workerGroupId = ConnectContext.get().getCurrentWarehouseId();
-                StarOSAgent starOSAgent = GlobalStateMgr.getCurrentState().getStarOSAgent();
-                List<ShardInfo> shardInfos = starOSAgent.getShardInfoBatch(tabletIds, workerGroupId);
-
-                Map<Long, ShardInfo> shardInfoMap = new HashMap<>();
-                for (ShardInfo si : shardInfos) {
-                    shardInfoMap.put(si.getShardId(), si);
-                }
-
-                StorageVolumeMgr svm = GlobalStateMgr.getCurrentState().getStorageVolumeMgr();
-                for (List<Comparable> row : tabletInfos) {
-                    long tabletId = (Long) row.get(0);
-                    ShardInfo si = shardInfoMap.get(tabletId);
-                    if (si != null && si.hasFilePath()) {
-                        String fullPath = si.getFilePath().getFullPath();
-                        String fsKey = si.getFilePath().getFsInfo().getFsKey();
-                        StorageVolume sv = svm.getStorageVolume(fsKey);
-                        row.set(6, sv != null ? sv.getName() : fsKey);
-                        row.set(7, fullPath);
-                    }
-                }
-            } catch (Exception e) {
-                LOG.warn("Failed to fetch shard info for LakeTabletsProcDir", e);
-            }
-        }
-
         return tabletInfos;
     }
 
@@ -160,17 +96,19 @@ public class LakeTabletsProcDir implements ProcDirInterface {
     public ProcResult fetchResult() {
         List<List<Comparable>> tabletInfos = fetchComparableResult();
 
-        // Sort by tabletId
-        ListComparator<List<Comparable>> comparator = new ListComparator<>(0);
+        // sort by tabletId
+        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0);
         Collections.sort(tabletInfos, comparator);
 
+        // set result
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        for (List<Comparable> info : tabletInfos) {
-            List<String> row = new ArrayList<>(info.size());
-            for (Comparable c : info) {
-                row.add(c.toString());
+        for (int i = 0; i < tabletInfos.size(); i++) {
+            List<Comparable> info = tabletInfos.get(i);
+            List<String> row = Lists.newArrayListWithCapacity(info.size());
+            for (int j = 0; j < info.size(); j++) {
+                row.add(info.get(j).toString());
             }
             result.addRow(row);
         }
@@ -211,8 +149,6 @@ public class LakeTabletsProcDir implements ProcDirInterface {
 
     // Handle showing single tablet info
     public static class LakeTabletProcNode implements ProcNodeInterface {
-        private static final Logger LOG = LogManager.getLogger(LakeTabletProcNode.class);
-
         private final LakeTablet tablet;
 
         public LakeTabletProcNode(LakeTablet tablet) {
@@ -226,30 +162,12 @@ public class LakeTabletsProcDir implements ProcDirInterface {
 
             // get current warehouse
             long warehouseId = ConnectContext.get().getCurrentWarehouseId();
-            String svName = "";
-            String storagePath = "";
-            try {
-                StarOSAgent starOSAgent = GlobalStateMgr.getCurrentState().getStarOSAgent();
-                ShardInfo si = starOSAgent.getShardInfo(tablet.getId(), warehouseId);
-                if (si != null && si.hasFilePath()) {
-                    storagePath = si.getFilePath().getFullPath();
-                    String fsKey = si.getFilePath().getFsInfo().getFsKey();
-                    StorageVolumeMgr svm = GlobalStateMgr.getCurrentState().getStorageVolumeMgr();
-                    StorageVolume sv = svm.getStorageVolume(fsKey);
-                    svName = (sv != null) ? sv.getName() : fsKey;
-                }
-            } catch (Exception e) {
-                LOG.warn("Failed to fetch shard info for tablet {}", tablet.getId(), e);
-            }
-
             List<String> row = Arrays.asList(
                     String.valueOf(tablet.getId()),
                     new Gson().toJson(tablet.getBackendIds(warehouseId)),
                     new ByteSizeValue(tablet.getDataSize(true)).toString(),
                     String.valueOf(tablet.getRowCount(0L)),
-                    String.valueOf(tablet.getMinVersion()),
-                    svName,
-                    storagePath
+                    String.valueOf(tablet.getMinVersion())
             );
             result.addRow(row);
 

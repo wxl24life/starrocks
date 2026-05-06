@@ -44,6 +44,7 @@ import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.List;
 
 public class LakeTabletsProcNodeTest {
@@ -115,6 +116,9 @@ public class LakeTabletsProcNodeTest {
 
         // Check
         LakeTabletsProcDir procDir = new LakeTabletsProcDir(db, table, index);
+        Assertions.assertEquals(5, LakeTabletsProcDir.TITLE_NAMES.size());
+        Assertions.assertEquals(Arrays.asList("TabletId", "BackendId", "DataSize", "RowCount", "MinVersion"),
+                LakeTabletsProcDir.TITLE_NAMES);
         List<List<Comparable>> result = procDir.fetchComparableResult();
         Assertions.assertEquals(2, result.size());
         {
@@ -139,6 +143,9 @@ public class LakeTabletsProcNodeTest {
             Assertions.assertEquals(new ByteSizeValue(tablet1.getDataSize(true)).toString(), row.get(2));
             Assertions.assertEquals(String.valueOf(tablet1.getRowCount(0L)), row.get(3));
         }
+
+        ProcResult fullResult = procDir.fetchResult();
+        Assertions.assertEquals(LakeTabletsProcDir.TITLE_NAMES, fullResult.getColumnNames());
 
         { // error case
             // invalid integer

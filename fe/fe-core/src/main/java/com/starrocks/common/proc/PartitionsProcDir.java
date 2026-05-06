@@ -38,6 +38,8 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.staros.proto.FilePathInfo;
+import com.staros.proto.ShardInfo;
 import com.starrocks.analysis.BinaryPredicate;
 import com.starrocks.analysis.BinaryType;
 import com.starrocks.analysis.DateLiteral;
@@ -52,6 +54,7 @@ import com.starrocks.catalog.DistributionInfo;
 import com.starrocks.catalog.DistributionInfo.DistributionInfoType;
 import com.starrocks.catalog.ExpressionRangePartitionInfo;
 import com.starrocks.catalog.ListPartitionInfo;
+import com.starrocks.catalog.MaterializedIndex;
 import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.Partition;
 import com.starrocks.catalog.PartitionInfo;
@@ -59,6 +62,7 @@ import com.starrocks.catalog.PartitionType;
 import com.starrocks.catalog.PhysicalPartition;
 import com.starrocks.catalog.RangePartitionInfo;
 import com.starrocks.catalog.Table;
+import com.starrocks.catalog.Tablet;
 import com.starrocks.catalog.Type;
 import com.starrocks.common.AnalysisException;
 import com.starrocks.common.Config;
@@ -70,12 +74,18 @@ import com.starrocks.common.util.TimeUtils;
 import com.starrocks.common.util.concurrent.lock.LockType;
 import com.starrocks.common.util.concurrent.lock.Locker;
 import com.starrocks.lake.DataCacheInfo;
+import com.starrocks.lake.LakeTablet;
+import com.starrocks.lake.StarOSAgent;
 import com.starrocks.lake.compaction.PartitionIdentifier;
 import com.starrocks.lake.compaction.PartitionStatistics;
 import com.starrocks.lake.compaction.Quantiles;
 import com.starrocks.monitor.unit.ByteSizeValue;
 import com.starrocks.server.GlobalStateMgr;
+import com.starrocks.server.StorageVolumeMgr;
 import com.starrocks.sql.common.MetaUtils;
+import com.starrocks.storagevolume.StorageVolume;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -89,6 +99,7 @@ import java.util.stream.Collectors;
  * show [temp] partitions' detail info within a table
  */
 public class PartitionsProcDir implements ProcDirInterface {
+    private static final Logger LOG = LogManager.getLogger(PartitionsProcDir.class);
     private final PartitionType partitionType;
     public ImmutableList<String> titleNames;
     private Database db;
@@ -109,6 +120,7 @@ public class PartitionsProcDir implements ProcDirInterface {
 
     public void createTitleNames() {
         if (table.isCloudNativeTableOrMaterializedView()) {
+            boolean enableStorageObservation = Config.enable_show_partitions_storage_observation;
             ImmutableList.Builder<String> builder = new ImmutableList.Builder<String>()
                     .add("PartitionId")
                     .add("PartitionName")
@@ -121,7 +133,12 @@ public class PartitionsProcDir implements ProcDirInterface {
                     .add("DistributionKey")
                     .add("Buckets")
                     .add("DataSize")
-                    .add("StorageSize")
+                    .add("StorageSize");
+            if (enableStorageObservation) {
+                builder.add("StorageVolume")
+                        .add("StoragePath");
+            }
+            builder
                     .add("RowCount")
                     .add("EnableDataCache")
                     .add("AsyncWrite")
@@ -406,6 +423,44 @@ public class PartitionsProcDir implements ProcDirInterface {
         partitionInfo.add(new ByteSizeValue(physicalPartition.storageDataSize())); // DataSize
         long storageSize = physicalPartition.storageDataSize() + physicalPartition.getExtraFileSize();
         partitionInfo.add(new ByteSizeValue(storageSize)); // StorageSize
+        if (Config.enable_show_partitions_storage_observation) {
+            String storageVolume = "";
+            String storagePath = "";
+            FilePathInfo partitionPathInfo = null;
+            try {
+                // Use read-only getShardInfo API which supports StarOS leader forwarding,
+                // instead of allocateFilePath (write API, no forwarding on non-leader FEs).
+                for (MaterializedIndex index : physicalPartition.getMaterializedIndices(
+                        MaterializedIndex.IndexExtState.VISIBLE)) {
+                    List<Tablet> tablets = index.getTablets();
+                    if (tablets != null && !tablets.isEmpty() && tablets.get(0) instanceof LakeTablet) {
+                        LakeTablet lakeTablet = (LakeTablet) tablets.get(0);
+                        ShardInfo shardInfo = GlobalStateMgr.getCurrentState().getStarOSAgent()
+                                .getShardInfo(lakeTablet.getShardId(), StarOSAgent.DEFAULT_WORKER_GROUP_ID);
+                        partitionPathInfo = shardInfo.getFilePath();
+                        break;
+                    }
+                }
+            } catch (Exception e) {
+                LOG.warn("failed to resolve partition storage path in SHOW PARTITIONS, dbId={}, tableId={}, partitionId={},"
+                                + " physicalPartitionId={}",
+                        db.getId(), table.getId(), partition.getId(), physicalPartition.getId(), e);
+            }
+            FilePathInfo effectivePathInfo = partitionPathInfo != null
+                    ? partitionPathInfo
+                    : table.getPartitionFilePathInfo(physicalPartition.getId());
+            if (effectivePathInfo != null) {
+                storagePath = effectivePathInfo.getFullPath();
+                if (effectivePathInfo.hasFsInfo() && !effectivePathInfo.getFsInfo().getFsKey().isEmpty()) {
+                    String fsKey = effectivePathInfo.getFsInfo().getFsKey();
+                    StorageVolumeMgr storageVolumeMgr = GlobalStateMgr.getCurrentState().getStorageVolumeMgr();
+                    StorageVolume sv = storageVolumeMgr.getStorageVolume(fsKey);
+                    storageVolume = sv != null ? sv.getName() : fsKey;
+                }
+            }
+            partitionInfo.add(storageVolume); // StorageVolume
+            partitionInfo.add(storagePath); // StoragePath
+        }
         partitionInfo.add(physicalPartition.storageRowCount()); // RowCount
         partitionInfo.add(cacheInfo.isEnabled()); // EnableCache
         partitionInfo.add(cacheInfo.isAsyncWriteBack()); // AsyncWrite

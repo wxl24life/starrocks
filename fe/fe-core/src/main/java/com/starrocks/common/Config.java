@@ -3261,6 +3261,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_display_shadow_partitions = false;
 
+    /**
+     * Whether SHOW PARTITIONS displays StorageVolume/StoragePath for lake tables.
+     * Disabled by default to avoid potential FE lock hold amplification caused by
+     * partition-level storage path resolution.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_show_partitions_storage_observation = false;
+
     @ConfField
     public static boolean enable_dict_optimize_routine_load = false;
 

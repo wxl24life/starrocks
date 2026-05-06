@@ -245,6 +245,7 @@ public class EditLogDeserializer {
             .put(OperationType.OP_CREATE_STORAGE_VOLUME, StorageVolume.class)
             .put(OperationType.OP_UPDATE_STORAGE_VOLUME, StorageVolume.class)
             .put(OperationType.OP_UPDATE_TABLE_STORAGE_INFOS, TableStorageInfos.class)
+            .put(OperationType.OP_SET_TABLE_STORAGE_VOLUME, SetTableStorageVolumeLog.class)
             .put(OperationType.OP_PIPE, PipeOpEntry.class)
             .put(OperationType.OP_CREATE_DICTIONARY, Dictionary.class)
             .put(OperationType.OP_DROP_DICTIONARY, DropDictionaryInfo.class)

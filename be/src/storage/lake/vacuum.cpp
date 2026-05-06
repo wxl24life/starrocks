@@ -747,8 +747,11 @@ void delete_tablets(TabletManager* tablet_mgr, const DeleteTabletRequest& reques
     Status overall_st;
     for (auto& [root, ids] : tablets_by_root) {
         auto st = delete_tablets_impl(tablet_mgr, root, ids);
-        if (!st.ok() && overall_st.ok()) {
-            overall_st = st;
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to delete tablets in root " << root << ": " << st;
+            if (overall_st.ok()) {
+                overall_st = st;
+            }
         }
     }
     overall_st.to_protobuf(response->mutable_status());

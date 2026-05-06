@@ -1481,6 +1481,7 @@ public class GlobalStateMgr {
             // restore storage volumes to virtual tablet group mappings while FE is leader
             // (include after transferring to leader role)
             ((SharedDataStorageVolumeMgr) storageVolumeMgr).restoreStorageVolumeToVTabletGroupMappings();
+            storageVolumeMgr.validateTableStorageVolumeBindings();
 
             starMgrMetaSyncer.start();
             autovacuumDaemon.start();

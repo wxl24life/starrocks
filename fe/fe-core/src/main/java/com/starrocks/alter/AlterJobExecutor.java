@@ -58,6 +58,7 @@ import com.starrocks.persist.AlterViewInfo;
 import com.starrocks.persist.BatchModifyPartitionsInfo;
 import com.starrocks.persist.ModifyPartitionInfo;
 import com.starrocks.persist.ModifyTablePropertyOperationLog;
+import com.starrocks.persist.SetTableStorageVolumeLog;
 import com.starrocks.persist.SwapTableOperationLog;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
@@ -618,10 +619,15 @@ public class AlterJobExecutor implements AstVisitor<Void, ConnectContext> {
                             throw (e instanceof DdlException) ? (DdlException) e : new DdlException(e.getMessage());
                         }
 
-                        // 5. Log: existing partitions/tablets remain on the previous SV's bucket
-                        LOG.info("Changed storage_volume of table {}.{} to '{}'. "
+                        // 5. Persist the binding change to EditLog for Follower replay and restart recovery
+                        String newSvId = svm.getStorageVolumeIdOfTable(olapTable.getId());
+                        SetTableStorageVolumeLog svLog =
+                                new SetTableStorageVolumeLog(olapTable.getId(), newSvId);
+                        GlobalStateMgr.getCurrentState().getEditLog().logSetTableStorageVolume(svLog);
+
+                        LOG.info("Changed storage_volume of table {}.{} to '{}' (svId={}). "
                                 + "NOTE: existing partitions remain on the previous storage volume.",
-                                db.getOriginName(), olapTable.getName(), volumeName);
+                                db.getOriginName(), olapTable.getName(), volumeName, newSvId);
                     } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_LABELS_LOCATION)) {
                         GlobalStateMgr.getCurrentState().getLocalMetastore().alterTableProperties(db, olapTable, properties);
                     } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_STATISTIC_COLLECT_ON_FIRST_LOAD)) {

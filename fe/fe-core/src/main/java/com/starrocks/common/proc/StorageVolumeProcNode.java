@@ -18,6 +18,7 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.starrocks.common.AnalysisException;
+import com.starrocks.common.DdlException;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.StorageVolumeMgr;
 import com.starrocks.storagevolume.CompositeStorageVolume;
@@ -58,8 +59,12 @@ public class StorageVolumeProcNode implements ProcNodeInterface {
         // Build a dedicated row that shows child SV names in the Params column so that
         // DESC STORAGE VOLUME <composite_sv> gives useful output (TC-SMOKE-01).
         if (sv.isComposite()) {
-            CompositeStorageVolume csv =
-                    storageVolumeMgr.getCompositeStorageVolumeByName(storageVolumeName);
+            CompositeStorageVolume csv;
+            try {
+                csv = storageVolumeMgr.getCompositeStorageVolumeByName(storageVolumeName);
+            } catch (DdlException e) {
+                throw new AnalysisException("Failed to query composite storage volume: " + e.getMessage());
+            }
             if (csv != null) {
                 // Resolve child IDs → names; fall back to raw ID on lookup failure
                 List<String> childNames = csv.getChildVolumeIds().stream()

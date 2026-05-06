@@ -1142,6 +1142,11 @@ public class EditLog {
                     globalStateMgr.getStorageVolumeMgr().replayUpdateTableStorageInfos(tableStorageInfos);
                     break;
                 }
+                case OperationType.OP_SET_TABLE_STORAGE_VOLUME: {
+                    SetTableStorageVolumeLog log = (SetTableStorageVolumeLog) journal.data();
+                    globalStateMgr.getStorageVolumeMgr().replaySetTableStorageVolume(log);
+                    break;
+                }
                 case OperationType.OP_PIPE: {
                     PipeOpEntry opEntry = (PipeOpEntry) journal.data();
                     globalStateMgr.getPipeManager().getRepo().replay(opEntry);
@@ -2144,6 +2149,10 @@ public class EditLog {
 
     public void logUpdateTableStorageInfos(TableStorageInfos tableStorageInfos) {
         logEdit(OperationType.OP_UPDATE_TABLE_STORAGE_INFOS, tableStorageInfos);
+    }
+
+    public void logSetTableStorageVolume(SetTableStorageVolumeLog log) {
+        logEdit(OperationType.OP_SET_TABLE_STORAGE_VOLUME, log);
     }
 
     // Composite SV log methods removed: composite SV definitions are persisted in StarOS only.
