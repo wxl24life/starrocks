@@ -59,6 +59,7 @@ public class FlussSplitScanner extends ConnectorScanner  {
     private final ClassLoader classLoader;
 
     private Table flussTable;
+    private Connection connection;
     private ConnectorScannerProxy delegate;
     private ColumnType[] requiredTypes;
     private DataType[] logicalTypes;
@@ -78,8 +79,8 @@ public class FlussSplitScanner extends ConnectorScanner  {
 
     public void initProxy() {
         Configuration tableConfig = ScannerHelper.decodeStringToObject(tableConf);
-        Connection connection = ConnectionFactory.createConnection(tableConfig);
-        this.flussTable = connection.getTable(new TablePath(dbName, tableName));
+        this.connection = ConnectionFactory.createConnection(tableConfig);
+        this.flussTable = this.connection.getTable(new TablePath(dbName, tableName));
 
         SourceSplitBase split = decodeFlussSplit(splitInfo);
         if (split instanceof LakeSnapshotAndFlussLogSplit) {
@@ -163,12 +164,24 @@ public class FlussSplitScanner extends ConnectorScanner  {
     @Override
     public void close() throws IOException {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
-            delegate.closeProxy(this);
+            if (delegate != null) {
+                delegate.closeProxy(this);
+            }
         } catch (Exception e) {
             String msg = "Failed to close the fluss reader for table " +
                     this.flussTable.getTableInfo().getTablePath();
             LOG.error(msg, e);
             throw new IOException(msg, e);
+        } finally {
+            if (connection != null) {
+                try {
+                    connection.close();
+                } catch (Exception e) {
+                    LOG.warn("Failed to close fluss connection for table {}.{}", dbName, tableName, e);
+                } finally {
+                    connection = null;
+                }
+            }
         }
     }
 
