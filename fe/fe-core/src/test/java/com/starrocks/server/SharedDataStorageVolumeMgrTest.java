@@ -1809,6 +1809,34 @@ public class SharedDataStorageVolumeMgrTest {
     }
 
     @Test
+    public void testMissingCompositeByIdSoftFallback() throws Exception {
+        StorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
+        createChildSVs(svm);
+        String csvName = "comp_missing_byid";
+        String csvId = svm.createCompositeStorageVolume(csvName, Arrays.asList("child1", "child2"), true, "");
+
+        new MockUp<StarOSAgent>() {
+            @Mock
+            public FileStoreInfo getFileStore(String fsKey) {
+                if (csvId.equals(fsKey)) {
+                    return null;
+                }
+                return null;
+            }
+        };
+
+        // Soft fail-fast behavior: missing composite definition by id should return null (not throw)
+        CompositeStorageVolume csv = svm.getCompositeStorageVolume(csvId);
+        Assertions.assertNull(csv);
+
+        long tableId = 3100L;
+        svm.bindTableToStorageVolume(csvName, 100L, tableId);
+        FilePathInfo overridePath = svm.resolveCompositePartitionFilePathInfo(
+                createMockOlapTable(tableId), 100L, 1L, 311L);
+        Assertions.assertNull(overridePath, "Missing composite definition should trigger fallback path");
+    }
+
+    @Test
     public void testExistsAndCreateBlockedOnStarOSFailure() throws Exception {
         StorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
         createChildSVs(svm);

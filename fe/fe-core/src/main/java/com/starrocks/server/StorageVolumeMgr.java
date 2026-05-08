@@ -410,11 +410,15 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
     }
 
     /**
-     * Query StarOS by id. Returns null if the FileStore exists but is not COMPOSITE type,
-     * or if StarOSAgent is not available (e.g. shared-nothing mode).
+     * Query StarOS by id. Returns null if:
+     * <ul>
+     *   <li>StarOSAgent is not available (e.g. shared-nothing mode)</li>
+     *   <li>The FileStore exists but is not COMPOSITE type (i.e. it's a regular SV)</li>
+     *   <li>The FileStore id is completely unknown to StarOS (soft fail-fast: logs ERROR, returns null
+     *       so caller falls back to table-level path)</li>
+     * </ul>
      *
-     * @throws DdlException if the FileStore id is completely unknown to StarOS (possible data loss)
-     *                      or StarOS communication fails
+     * @throws DdlException only on StarOS communication failure (timeout, network error)
      */
     protected CompositeStorageVolume getCompositeStorageVolumeByIdNoLock(String id) throws DdlException {
         StarOSAgent agent = GlobalStateMgr.getCurrentState().getStarOSAgent();
@@ -424,16 +428,17 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
         try {
             FileStoreInfo fsInfo = agent.getFileStore(id);
             if (fsInfo == null) {
-                throw new DdlException("Storage volume (FileStore id=" + id
-                        + ") not found in StarOS. The FileStore definition may have been lost.");
+                LOG.error("Storage volume (FileStore id={}) not found in StarOS."
+                        + " Partition creation will fall back to table-level default path"
+                        + " (composite SV round-robin routing DISABLED for this operation)."
+                        + " This may indicate FileStore definition loss — check StarOS metadata integrity.", id);
+                return null;
             }
             if (!StorageVolume.isCompositeFileStoreInfo(fsInfo)) {
                 return null;
             }
             return new CompositeStorageVolume(fsInfo.getFsKey(), fsInfo.getFsName(),
                     parseCompositeChildFsKeysFromFsInfo(fsInfo), fsInfo.getEnabled(), fsInfo.getComment());
-        } catch (DdlException e) {
-            throw e;
         } catch (Exception e) {
             LOG.warn("StarOS communication error while querying composite storage volume by id '{}': {}",
                     id, e.getMessage(), e);
@@ -902,13 +907,7 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
         if (svId == null) {
             return null;
         }
-        CompositeStorageVolume csv;
-        try {
-            csv = getCompositeStorageVolume(svId);
-        } catch (DdlException e) {
-            throw new DdlException("Failed to resolve storage volume for table '" + table.getName()
-                    + "' (bound svId=" + svId + "): " + e.getMessage(), e);
-        }
+        CompositeStorageVolume csv = getCompositeStorageVolume(svId);
         if (csv == null) {
             return null;
         }
