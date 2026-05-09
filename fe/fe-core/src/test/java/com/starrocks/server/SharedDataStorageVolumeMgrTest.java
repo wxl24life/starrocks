@@ -2001,13 +2001,13 @@ public class SharedDataStorageVolumeMgrTest {
     }
 
     @Test
-    public void testCompositePartitionRoundRobin() throws Exception {
+    public void testCompositePartitionHashRoutingDeterministic() throws Exception {
         StorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
-        String[] childKeys = createChildSVs(svm);
+        createChildSVs(svm);
 
         // Create composite SV with 2 children
         String csvId = svm.createCompositeStorageVolume("comp_rr",
-                Arrays.asList("child1", "child2"), true, "round-robin test");
+                Arrays.asList("child1", "child2"), true, "hash routing test");
 
         // Bind table 1000 to the composite SV
         long tableId = 1000L;
@@ -2034,27 +2034,18 @@ public class SharedDataStorageVolumeMgrTest {
             }
         };
 
-        // Verify round-robin: partitionId % 2 determines child selection
-        // Even partitionId → child[0] (child1), Odd partitionId → child[1] (child2)
-        FilePathInfo result0 = svm.resolveCompositePartitionFilePathInfo(
-                createMockOlapTable(tableId), 100L, 0L, 100L);
-        Assertions.assertNotNull(result0);
-        Assertions.assertEquals("s3://bucket1/path", result0.getFullPath());
+        long[] partitionIds = new long[] {0L, 1L, 2L, 3L};
+        for (int i = 0; i < partitionIds.length; i++) {
+            long partitionId = partitionIds[i];
+            long physicalPartitionId = 100L + i;
+            FilePathInfo result = svm.resolveCompositePartitionFilePathInfo(
+                    createMockOlapTable(tableId), 100L, partitionId, physicalPartitionId);
+            Assertions.assertNotNull(result);
 
-        FilePathInfo result1 = svm.resolveCompositePartitionFilePathInfo(
-                createMockOlapTable(tableId), 100L, 1L, 101L);
-        Assertions.assertNotNull(result1);
-        Assertions.assertEquals("s3://bucket2/path", result1.getFullPath());
-
-        FilePathInfo result2 = svm.resolveCompositePartitionFilePathInfo(
-                createMockOlapTable(tableId), 100L, 2L, 102L);
-        Assertions.assertNotNull(result2);
-        Assertions.assertEquals("s3://bucket1/path", result2.getFullPath());
-
-        FilePathInfo result3 = svm.resolveCompositePartitionFilePathInfo(
-                createMockOlapTable(tableId), 100L, 3L, 103L);
-        Assertions.assertNotNull(result3);
-        Assertions.assertEquals("s3://bucket2/path", result3.getFullPath());
+            int expectedIndex = Math.floorMod(StorageVolumeMgr.mixPartitionIdForCompositeRouting(partitionId), 2);
+            String expectedPath = expectedIndex == 0 ? "s3://bucket1/path" : "s3://bucket2/path";
+            Assertions.assertEquals(expectedPath, result.getFullPath());
+        }
 
         // Verify non-composite table returns null
         long regularTableId = 2000L;
@@ -2064,7 +2055,50 @@ public class SharedDataStorageVolumeMgrTest {
     }
 
     @Test
-    public void testCompositePartitionRoundRobinWithNegativePartitionId() throws Exception {
+    public void testCompositePartitionHashRoutingDistributesSameParityIds() throws Exception {
+        StorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
+        createChildSVs(svm);
+        svm.createCompositeStorageVolume("comp_distribution",
+                Arrays.asList("child1", "child2"), true, "distribution regression test");
+
+        long tableId = 2500L;
+        svm.bindTableToStorageVolume("comp_distribution", 100L, tableId);
+
+        StorageVolume child1 = svm.getStorageVolumeByName("child1");
+        StorageVolume child2 = svm.getStorageVolumeByName("child2");
+
+        FilePathInfo pathInfoChild1 = FilePathInfo.newBuilder()
+                .setFullPath("s3://bucket1/path").build();
+        FilePathInfo pathInfoChild2 = FilePathInfo.newBuilder()
+                .setFullPath("s3://bucket2/path").build();
+
+        new Expectations() {
+            {
+                starOSAgent.allocatePartitionFilePathInfoForChildSv(child1.getId(), 100L, tableId, anyLong);
+                result = pathInfoChild1;
+                minTimes = 0;
+
+                starOSAgent.allocatePartitionFilePathInfoForChildSv(child2.getId(), 100L, tableId, anyLong);
+                result = pathInfoChild2;
+                minTimes = 0;
+            }
+        };
+
+        // Regression: even-only ids (common with interleaved id allocation) should not all route to one child.
+        long[] sameParityPartitionIds = new long[] {1680792L, 1681110L, 1681132L, 1681142L, 1681222L, 1681278L, 1681288L};
+        Set<String> observedPaths = new HashSet<>();
+        for (int i = 0; i < sameParityPartitionIds.length; i++) {
+            FilePathInfo result = svm.resolveCompositePartitionFilePathInfo(
+                    createMockOlapTable(tableId), 100L, sameParityPartitionIds[i], 800L + i);
+            Assertions.assertNotNull(result);
+            observedPaths.add(result.getFullPath());
+        }
+        Assertions.assertEquals(2, observedPaths.size(),
+                "Same-parity logical partition ids should still distribute across both child SVs");
+    }
+
+    @Test
+    public void testCompositePartitionHashRoutingWithNegativePartitionId() throws Exception {
         StorageVolumeMgr svm = new SharedDataStorageVolumeMgr();
         createChildSVs(svm);
         Map<String, String> params = new HashMap<>();
@@ -2105,17 +2139,21 @@ public class SharedDataStorageVolumeMgrTest {
             }
         };
 
-        // floorMod(-1, 3) = 2, should route to the 3rd child rather than abs(-1 % 3) = 1.
         FilePathInfo resultMinusOne = svm.resolveCompositePartitionFilePathInfo(
                 createMockOlapTable(tableId), 100L, -1L, 301L);
         Assertions.assertNotNull(resultMinusOne);
-        Assertions.assertEquals("s3://bucket3/path", resultMinusOne.getFullPath());
+        int expectedIndexMinusOne = Math.floorMod(StorageVolumeMgr.mixPartitionIdForCompositeRouting(-1L), 3);
+        String expectedPathMinusOne = expectedIndexMinusOne == 0 ? "s3://bucket1/path"
+                : (expectedIndexMinusOne == 1 ? "s3://bucket2/path" : "s3://bucket3/path");
+        Assertions.assertEquals(expectedPathMinusOne, resultMinusOne.getFullPath());
 
-        // floorMod(-2, 3) = 1, should route to the 2nd child.
         FilePathInfo resultMinusTwo = svm.resolveCompositePartitionFilePathInfo(
                 createMockOlapTable(tableId), 100L, -2L, 302L);
         Assertions.assertNotNull(resultMinusTwo);
-        Assertions.assertEquals("s3://bucket2/path", resultMinusTwo.getFullPath());
+        int expectedIndexMinusTwo = Math.floorMod(StorageVolumeMgr.mixPartitionIdForCompositeRouting(-2L), 3);
+        String expectedPathMinusTwo = expectedIndexMinusTwo == 0 ? "s3://bucket1/path"
+                : (expectedIndexMinusTwo == 1 ? "s3://bucket2/path" : "s3://bucket3/path");
+        Assertions.assertEquals(expectedPathMinusTwo, resultMinusTwo.getFullPath());
     }
 
     /**

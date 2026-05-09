@@ -113,7 +113,7 @@ public class LakeTableAlterJobV2Builder extends AlterJobV2Builder {
     }
 
     /**
-     * For Composite SV tables, resolve the partition's actual child SV path via round-robin.
+     * For Composite SV tables, resolve the partition's actual child SV path via hash-based routing.
      * For regular SV tables, returns the default table-level partition path.
      */
     private FilePathInfo resolvePartitionFilePathInfo(OlapTable table, long partitionId, long physicalPartitionId)

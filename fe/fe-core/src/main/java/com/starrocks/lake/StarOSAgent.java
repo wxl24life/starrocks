@@ -1069,7 +1069,7 @@ public class StarOSAgent {
 
     /**
      * Allocate a partition-scoped {@link FilePathInfo} for a specific child SV of a Composite SV.
-     * Each partition is assigned to one child SV via round-robin; all tablets within the same
+     * Child selection is decided by FE's Composite routing logic; all tablets within the same
      * partition share this path.
      *
      * @param storageVolumeId child SV id (must be a regular SV known to StarOS)

@@ -43,7 +43,8 @@ import java.util.UUID;
  *
  * <p><b>Usage in partition creation:</b>
  * Resolve child SVs at partition-creation time, then distribute partitions across children
- * via round-robin (partitionId % N). All tablets within the same partition share one child SV path.
+ * via hash-based selection on logical partitionId. All tablets within the same partition
+ * share one child SV path.
  */
 public class CompositeStorageVolume implements Writable {
 

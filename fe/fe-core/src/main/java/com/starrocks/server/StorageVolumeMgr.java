@@ -430,7 +430,7 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
             if (fsInfo == null) {
                 LOG.error("Storage volume (FileStore id={}) not found in StarOS."
                         + " Partition creation will fall back to table-level default path"
-                        + " (composite SV round-robin routing DISABLED for this operation)."
+                        + " (composite SV child routing DISABLED for this operation)."
                         + " This may indicate FileStore definition loss — check StarOS metadata integrity.", id);
                 return null;
             }
@@ -890,13 +890,18 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
     }
 
     /**
-     * For a table bound to a Composite SV, resolve the child SV for the given partition via round-robin
-     * and return a partition-scoped {@link FilePathInfo}. Returns {@code null} if the table is not
-     * bound to a Composite SV.
+     * For a table bound to a Composite SV, resolve the child SV for the given partition via
+     * stable hash selection and return a partition-scoped {@link FilePathInfo}. Returns
+     * {@code null} if the table is not bound to a Composite SV.
+     *
+     * <p>We intentionally avoid direct modulo on raw partition ids. Partition ids are monotonically
+     * allocated and may exhibit strong low-bit patterns (for example, newly created ids all share
+     * the same parity), which would bias modulo routing and cause all new partitions to fall into
+     * one child SV. A 64-bit avalanche mix removes this bias while preserving determinism.
      *
      * @param table               the lake table
      * @param dbId                database ID
-     * @param partitionId         logical partition ID (used for round-robin child selection)
+     * @param partitionId         logical partition ID (used as hash input for child selection)
      * @param physicalPartitionId physical partition ID (used for file path construction)
      */
     @Nullable
@@ -912,15 +917,29 @@ public abstract class StorageVolumeMgr implements Writable, GsonPostProcessable 
             return null;
         }
         CompositeStorageVolume.ChildVolumesSnapshot snapshot = csv.resolveChildVolumesStrict(this);
-        int childIndex = (int) Math.floorMod(partitionId, snapshot.childVolumes.size());
+        int childIndex = Math.floorMod(mixPartitionIdForCompositeRouting(partitionId), snapshot.childVolumes.size());
         StorageVolume selectedChild = snapshot.childVolumes.get(childIndex);
         return GlobalStateMgr.getCurrentState().getStarOSAgent().allocatePartitionFilePathInfoForChildSv(
                 selectedChild.getId(), dbId, table.getId(), physicalPartitionId);
     }
 
     /**
+     * Applies a deterministic 64-bit avalanche mix to the logical partition id to avoid low-bit
+     * routing bias when selecting child SV in Composite routing.
+     */
+    static long mixPartitionIdForCompositeRouting(long partitionId) {
+        long mixed = partitionId;
+        mixed ^= (mixed >>> 33);
+        mixed *= 0xff51afd7ed558ccdL;
+        mixed ^= (mixed >>> 33);
+        mixed *= 0xc4ceb9fe1a85ec53L;
+        mixed ^= (mixed >>> 33);
+        return mixed;
+    }
+
+    /**
      * Returns the correct partition {@link FilePathInfo} for creating shards, handling both
-     * Composite SV (round-robin child selection) and regular SV (table-level default).
+     * Composite SV (hash-based child selection) and regular SV (table-level default).
      */
     public FilePathInfo getPartitionFilePathInfo(OlapTable table, long dbId,
                                                   long partitionId, long physicalPartitionId)

@@ -1868,7 +1868,7 @@ public class LocalMetastore implements ConnectorMetadata, MVRepairHandler, Memor
             physicalPartition.updateVisibleVersion(version);
         }
 
-        // For Composite SV tables, resolve which child SV this partition should use (round-robin).
+        // For Composite SV tables, resolve which child SV this partition should use (hash-based).
         FilePathInfo compositeOverridePathInfo = resolveCompositePartitionPathInfo(
                 db, table, partitionId, physicalPartitionId);
 
@@ -2019,11 +2019,11 @@ public class LocalMetastore implements ConnectorMetadata, MVRepairHandler, Memor
     }
 
     /**
-     * If the table is bound to a Composite SV, resolve child SVs and pick one via round-robin
+     * If the table is bound to a Composite SV, resolve child SVs and pick one via stable hashing
      * based on {@code partitionId} (logical). Returns a partition-scoped {@link FilePathInfo} for
      * the selected child SV, or {@code null} if the table uses a regular SV.
      *
-     * @param partitionId         logical partition ID, used for round-robin child selection
+     * @param partitionId         logical partition ID, used as hash input for child selection
      * @param physicalPartitionId physical partition ID, used for file path construction
      */
     @Nullable
