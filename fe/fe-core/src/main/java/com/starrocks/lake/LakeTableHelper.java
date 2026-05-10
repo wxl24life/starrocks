@@ -17,6 +17,7 @@ package com.starrocks.lake;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.staros.client.StarClientException;
+import com.staros.proto.FilePathInfo;
 import com.staros.proto.ShardInfo;
 import com.staros.proto.StatusCode;
 import com.starrocks.alter.AlterJobV2Builder;
@@ -30,6 +31,7 @@ import com.starrocks.catalog.Partition;
 import com.starrocks.catalog.PhysicalPartition;
 import com.starrocks.catalog.Tablet;
 import com.starrocks.common.Config;
+import com.starrocks.common.DdlException;
 import com.starrocks.proto.DeleteTabletCacheRequest;
 import com.starrocks.proto.DeleteTabletCacheResponse;
 import com.starrocks.proto.DropTableRequest;
@@ -397,5 +399,44 @@ public class LakeTableHelper {
                 .getActiveTxnIdOfTable(tableId);
         return Math.min(Math.min(dbMinTxnId, schemaChangeMinTxnId.orElse(Long.MAX_VALUE)),
                 rollupMinTxnId.orElse(Long.MAX_VALUE));
+    }
+
+    public static FilePathInfo getOriginShardPathInfo(
+            List<Long> originTabletIds, OlapTable table, long dbId,
+            long partitionId, long physicalPartitionId, long warehouseId) throws DdlException {
+        if (originTabletIds.isEmpty()) {
+            return GlobalStateMgr.getCurrentState().getStorageVolumeMgr()
+                    .getPartitionFilePathInfo(table, dbId, partitionId, physicalPartitionId);
+        }
+        try {
+            WarehouseManager warehouseManager = GlobalStateMgr.getCurrentState().getWarehouseMgr();
+            long workerGroupId = warehouseManager.selectWorkerGroupByWarehouseId(warehouseId)
+                    .orElse(StarOSAgent.DEFAULT_WORKER_GROUP_ID);
+            List<ShardInfo> shardInfos = GlobalStateMgr.getCurrentState().getStarOSAgent()
+                    .getShardInfoBatch(originTabletIds, workerGroupId);
+            if (shardInfos.size() != originTabletIds.size()) {
+                throw new DdlException("Incomplete shard info from StarOS: expected " + originTabletIds.size()
+                        + " but got " + shardInfos.size() + " for origin tablets " + originTabletIds
+                        + " in partition " + physicalPartitionId);
+            }
+            FilePathInfo firstPath = shardInfos.get(0).getFilePath();
+            if (firstPath == null || firstPath.getFullPath().isEmpty()) {
+                throw new DdlException("Origin shard " + shardInfos.get(0).getShardId()
+                        + " has no valid file_path in partition " + physicalPartitionId);
+            }
+            for (int i = 1; i < shardInfos.size(); i++) {
+                FilePathInfo otherPath = shardInfos.get(i).getFilePath();
+                if (otherPath == null || !firstPath.getFullPath().equals(otherPath.getFullPath())) {
+                    throw new DdlException("Inconsistent shard paths within partition " + physicalPartitionId
+                            + ": shard " + shardInfos.get(0).getShardId() + " -> " + firstPath.getFullPath()
+                            + ", shard " + shardInfos.get(i).getShardId() + " -> "
+                            + (otherPath != null ? otherPath.getFullPath() : "null"));
+                }
+            }
+            return firstPath;
+        } catch (StarClientException e) {
+            throw new DdlException("Failed to query shard info from StarOS for origin tablets "
+                    + originTabletIds + " in partition " + physicalPartitionId + ": " + e.getMessage(), e);
+        }
     }
 }

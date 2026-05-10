@@ -25,6 +25,7 @@ import com.starrocks.common.ErrorCode;
 import com.starrocks.common.ErrorReportException;
 import com.starrocks.common.StarRocksException;
 import com.starrocks.common.util.Util;
+import com.starrocks.lake.LakeTableHelper;
 import com.starrocks.lake.LakeTablet;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
@@ -99,8 +100,8 @@ public class LakeTableRollupBuilder extends AlterJobV2Builder {
                         .collect(Collectors.toList());
                 List<Long> shadowTabletIds = GlobalStateMgr.getCurrentState().getStarOSAgent().createShards(
                         originTablets.size(),
-                        GlobalStateMgr.getCurrentState().getStorageVolumeMgr()
-                                .getPartitionFilePathInfo(olapTable, dbId, partitionId, physicalPartitionId),
+                        LakeTableHelper.getOriginShardPathInfo(
+                                originTableIds, olapTable, dbId, partitionId, physicalPartitionId, warehouseId),
                         olapTable.getPartitionFileCacheInfo(physicalPartitionId),
                         shardGroupId, originTableIds, shardProperties, workerGroupId.get());
                 Preconditions.checkState(originTablets.size() == shadowTabletIds.size());

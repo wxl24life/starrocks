@@ -15,7 +15,11 @@
 package com.starrocks.lake;
 
 import com.google.common.collect.Lists;
+import com.staros.client.StarClientException;
+import com.staros.proto.FilePathInfo;
 import com.staros.proto.ShardGroupInfo;
+import com.staros.proto.ShardInfo;
+import com.staros.proto.StatusCode;
 import com.starrocks.catalog.AggregateType;
 import com.starrocks.catalog.Column;
 import com.starrocks.catalog.Database;
@@ -32,9 +36,11 @@ import com.starrocks.catalog.Tablet;
 import com.starrocks.catalog.TabletMeta;
 import com.starrocks.catalog.Type;
 import com.starrocks.common.Config;
+import com.starrocks.common.DdlException;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.RunMode;
+import com.starrocks.server.WarehouseManager;
 import com.starrocks.sql.ast.CreateDbStmt;
 import com.starrocks.sql.ast.CreateTableStmt;
 import com.starrocks.thrift.TStorageMedium;
@@ -53,6 +59,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -287,5 +294,104 @@ public class LakeTableHelperTest {
                 Assertions.assertEquals(ordinal, column.getUniqueId());
             }
         }
+    }
+
+    private void mockStarOSForShardPathTests(StarOSAgent starOSAgent, List<ShardInfo> result) {
+        new MockUp<GlobalStateMgr>() {
+            @Mock
+            public StarOSAgent getStarOSAgent() {
+                return starOSAgent;
+            }
+        };
+        new MockUp<StarOSAgent>() {
+            @Mock
+            public List<ShardInfo> getShardInfoBatch(List<Long> shardIds, long workerGroupId)
+                    throws StarClientException {
+                return result;
+            }
+        };
+        new MockUp<WarehouseManager>() {
+            @Mock
+            public Optional<Long> selectWorkerGroupByWarehouseId(long warehouseId) {
+                return Optional.of(StarOSAgent.DEFAULT_WORKER_GROUP_ID);
+            }
+        };
+    }
+
+    @Test
+    public void testGetOriginShardPathInfoReusesExistingPath(@Mocked StarOSAgent starOSAgent) throws Exception {
+        FilePathInfo originPath = FilePathInfo.newBuilder()
+                .setFullPath("s3://bucket-child1/db/table/partition100")
+                .build();
+        ShardInfo shard1 = ShardInfo.newBuilder()
+                .setShardId(5001L).setFilePath(originPath).build();
+        ShardInfo shard2 = ShardInfo.newBuilder()
+                .setShardId(5002L).setFilePath(originPath).build();
+
+        mockStarOSForShardPathTests(starOSAgent, Arrays.asList(shard1, shard2));
+
+        List<Long> originTabletIds = Arrays.asList(5001L, 5002L);
+        FilePathInfo result = LakeTableHelper.getOriginShardPathInfo(
+                originTabletIds, null, 0L, 0L, 0L, 0L);
+        Assertions.assertEquals("s3://bucket-child1/db/table/partition100", result.getFullPath());
+    }
+
+    @Test
+    public void testGetOriginShardPathInfoFailsOnInconsistentPaths(@Mocked StarOSAgent starOSAgent) {
+        FilePathInfo path1 = FilePathInfo.newBuilder()
+                .setFullPath("s3://bucket-child1/path").build();
+        FilePathInfo path2 = FilePathInfo.newBuilder()
+                .setFullPath("s3://bucket-child2/path").build();
+        ShardInfo shard1 = ShardInfo.newBuilder().setShardId(6001L).setFilePath(path1).build();
+        ShardInfo shard2 = ShardInfo.newBuilder().setShardId(6002L).setFilePath(path2).build();
+
+        mockStarOSForShardPathTests(starOSAgent, Arrays.asList(shard1, shard2));
+
+        List<Long> originTabletIds = Arrays.asList(6001L, 6002L);
+        Assertions.assertThrows(DdlException.class, () ->
+                LakeTableHelper.getOriginShardPathInfo(originTabletIds, null, 0L, 0L, 100L, 0L));
+    }
+
+    @Test
+    public void testGetOriginShardPathInfoFailsOnStarClientException(@Mocked StarOSAgent starOSAgent) {
+        new MockUp<GlobalStateMgr>() {
+            @Mock
+            public StarOSAgent getStarOSAgent() {
+                return starOSAgent;
+            }
+        };
+        new MockUp<StarOSAgent>() {
+            @Mock
+            public List<ShardInfo> getShardInfoBatch(List<Long> shardIds, long workerGroupId)
+                    throws StarClientException {
+                throw new StarClientException(StatusCode.INTERNAL, "connection refused");
+            }
+        };
+        new MockUp<WarehouseManager>() {
+            @Mock
+            public Optional<Long> selectWorkerGroupByWarehouseId(long warehouseId) {
+                return Optional.of(StarOSAgent.DEFAULT_WORKER_GROUP_ID);
+            }
+        };
+
+        List<Long> originTabletIds = Arrays.asList(7001L);
+        DdlException ex = Assertions.assertThrows(DdlException.class, () ->
+                LakeTableHelper.getOriginShardPathInfo(originTabletIds, null, 0L, 0L, 200L, 0L));
+        Assertions.assertTrue(ex.getMessage().contains("Failed to query shard info from StarOS"));
+    }
+
+    @Test
+    public void testGetOriginShardPathInfoFailsOnIncompleteBatchResult(@Mocked StarOSAgent starOSAgent) {
+        FilePathInfo path = FilePathInfo.newBuilder()
+                .setFullPath("s3://bucket/path").build();
+        ShardInfo shard1 = ShardInfo.newBuilder().setShardId(8001L).setFilePath(path).build();
+
+        mockStarOSForShardPathTests(starOSAgent, Arrays.asList(shard1));
+
+        List<Long> originTabletIds = Arrays.asList(8001L, 8002L, 8003L);
+        DdlException ex = Assertions.assertThrows(DdlException.class, () ->
+                LakeTableHelper.getOriginShardPathInfo(originTabletIds, null, 0L, 0L, 300L, 0L));
+        Assertions.assertTrue(ex.getMessage().contains("Incomplete shard info"));
+        Assertions.assertTrue(ex.getMessage().contains("expected 3 but got 1"));
     }
 }

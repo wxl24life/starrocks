@@ -26,6 +26,7 @@ import com.starrocks.catalog.Tablet;
 import com.starrocks.catalog.TabletMeta;
 import com.starrocks.common.DdlException;
 import com.starrocks.common.StarRocksException;
+import com.starrocks.lake.LakeTableHelper;
 import com.starrocks.lake.LakeTablet;
 import com.starrocks.lake.StarOSAgent;
 import com.starrocks.server.GlobalStateMgr;
@@ -84,8 +85,8 @@ public class LakeTableAlterJobV2Builder extends AlterJobV2Builder {
                 properties.put(LakeTablet.PROPERTY_KEY_TABLE_ID, Long.toString(table.getId()));
                 properties.put(LakeTablet.PROPERTY_KEY_PARTITION_ID, Long.toString(physicalPartitionId));
                 properties.put(LakeTablet.PROPERTY_KEY_INDEX_ID, Long.toString(shadowIndexId));
-                FilePathInfo partitionPathInfo = resolvePartitionFilePathInfo(
-                        table, partitionId, physicalPartitionId);
+                FilePathInfo partitionPathInfo = LakeTableHelper.getOriginShardPathInfo(
+                        originTabletIds, table, dbId, partitionId, physicalPartitionId, warehouseId);
                 List<Long> shadowTabletIds = createShards(originTablets.size(),
                         partitionPathInfo,
                         table.getPartitionFileCacheInfo(physicalPartitionId), shardGroupId,
@@ -110,16 +111,6 @@ public class LakeTableAlterJobV2Builder extends AlterJobV2Builder {
                     entry.getValue());
         } // end for index
         return schemaChangeJob;
-    }
-
-    /**
-     * For Composite SV tables, resolve the partition's actual child SV path via hash-based routing.
-     * For regular SV tables, returns the default table-level partition path.
-     */
-    private FilePathInfo resolvePartitionFilePathInfo(OlapTable table, long partitionId, long physicalPartitionId)
-            throws DdlException {
-        return GlobalStateMgr.getCurrentState().getStorageVolumeMgr()
-                .getPartitionFilePathInfo(table, dbId, partitionId, physicalPartitionId);
     }
 
     @VisibleForTesting
