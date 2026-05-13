@@ -364,9 +364,18 @@ Status SinkBuffer::_try_to_send_rpc(const TUniqueId& instance_id, const std::fun
             _first_send_time = MonotonicNanos();
         }
 
-        closure->addFailedHandler([this](const ClosureContext& ctx, std::string_view rpc_error_msg) noexcept {
-            auto query_ctx = _fragment_ctx->runtime_state()->query_ctx();
-            auto query_ctx_guard = query_ctx->shared_from_this();
+        auto query_ctx_weak = _fragment_ctx->runtime_state()->query_ctx()->weak_from_this();
+
+        closure->addFailedHandler([this, query_ctx_weak](const ClosureContext& ctx,
+                                                         std::string_view rpc_error_msg) noexcept {
+            auto query_ctx_guard = query_ctx_weak.lock();
+            if (UNLIKELY(!query_ctx_guard)) {
+                _is_finishing = true;
+                ++sink_ctx(ctx.instance_id.lo).num_finished_rpcs;
+                --sink_ctx(ctx.instance_id.lo).num_in_flight_rpcs;
+                --_total_in_flight_rpc;
+                return;
+            }
             auto notify = this->defer_notify();
 
             auto defer = DeferOp([this]() { --_total_in_flight_rpc; });
@@ -383,9 +392,16 @@ Status SinkBuffer::_try_to_send_rpc(const TUniqueId& instance_id, const std::fun
             _fragment_ctx->cancel(Status::ThriftRpcError(err_msg));
             LOG(WARNING) << err_msg;
         });
-        closure->addSuccessHandler([this](const ClosureContext& ctx, const PTransmitChunkResult& result) noexcept {
-            auto query_ctx = _fragment_ctx->runtime_state()->query_ctx();
-            auto query_ctx_guard = query_ctx->shared_from_this();
+        closure->addSuccessHandler([this, query_ctx_weak](const ClosureContext& ctx,
+                                                          const PTransmitChunkResult& result) noexcept {
+            auto query_ctx_guard = query_ctx_weak.lock();
+            if (UNLIKELY(!query_ctx_guard)) {
+                _is_finishing = true;
+                ++sink_ctx(ctx.instance_id.lo).num_finished_rpcs;
+                --sink_ctx(ctx.instance_id.lo).num_in_flight_rpcs;
+                --_total_in_flight_rpc;
+                return;
+            }
             auto notify = this->defer_notify();
 
             auto defer = DeferOp([this]() { --_total_in_flight_rpc; });
