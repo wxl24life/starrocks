@@ -81,6 +81,7 @@ MaxCompute catalog 的描述。此参数是可选的。
 | odps.split.size.limit | 否    | 当 `odps.split.policy` 设置为 `size` 时每个分片的最大数据大小。<br />默认值：`32 * 1024 * 1024 = 33554432 (32MB)`。<br />            |
 | odps.split.row.count | 否    | 当 `odps.split.policy` 设置为 `row_offset` 时每个分片的最大行数。<br />默认值：`4 * 1024 * 1024 = 4194304`。<br />                 |
 | odps.predicate.pushdown.enable  | 否    | 是否启用谓词下推，将谓词下推到 MaxCompute Scan 算子。取值范围：`true` 和 `false`。默认值：`true`。取值为 `true` 表示启用过滤条件，取值为 `false` 表示不启用过滤条件。 |
+| odps.enable.namespace.schema    | 否    | 是否启用 MaxCompute 三层命名空间（`project.schema.table`）模式。取值范围：`true` 和 `false`。默认值：`false`。取值为 `false` 时保持原有两层行为，StarRocks database 映射到 MaxCompute project；取值为 `true` 时 StarRocks database 映射到 `odps.project` 所指定 project 下的 schema，该 catalog 仅暴露该 project 下的 schema。如需访问命名空间模式不同的多个 project，请分别创建独立的 catalog。 |
 
 | 参数                  | 必需  | 描述                                       |
 |----------------------|-------|-------------------------------------------|

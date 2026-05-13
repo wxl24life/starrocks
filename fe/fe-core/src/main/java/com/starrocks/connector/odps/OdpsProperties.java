@@ -43,6 +43,7 @@ public class OdpsProperties {
     public static final String PROJECT_CACHE_SIZE = "odps.cache.table-name.size";
     public static final String ENABLE_PREDICATE_PUSHDOWN = "odps.predicate.pushdown.enable";
     public static final String REMOTE_FILE_LOAD_THREAD_NUM = "odps.remote.file.load.thread.num";
+    public static final String ENABLE_NAMESPACE_SCHEMA = "odps.enable.namespace.schema";
 
     public static final String ROW_OFFSET = "row_offset";
     public static final String SIZE = "size";
@@ -76,6 +77,7 @@ public class OdpsProperties {
         newProperty(PROJECT_CACHE_SIZE).withDefaultValue(1000);
         newProperty(ENABLE_PREDICATE_PUSHDOWN).withDefaultValue(true);
         newProperty(REMOTE_FILE_LOAD_THREAD_NUM).withDefaultValue(8);
+        newProperty(ENABLE_NAMESPACE_SCHEMA).withDefaultValue(false);
     }
 
     public OdpsProperties(Map<String, String> properties) {

@@ -15,7 +15,10 @@
 package com.starrocks.connector.odps;
 
 import com.aliyun.odps.OdpsException;
+import com.aliyun.odps.Schema;
+import com.aliyun.odps.Schemas;
 import com.aliyun.odps.TableSchema;
+import com.aliyun.odps.table.TableIdentifier;
 import com.google.common.collect.ImmutableList;
 import com.starrocks.catalog.Database;
 import com.starrocks.catalog.OdpsTable;
@@ -34,16 +37,23 @@ import com.starrocks.thrift.TTableDescriptor;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class OdpsMetadataTest extends MockedBase {
@@ -173,6 +183,95 @@ public class OdpsMetadataTest extends MockedBase {
         Assertions.assertNotNull(thrift);
     }
 
+    private OdpsMetadata newSchemaModeMetadata() {
+        Map<String, String> p = new HashMap<>();
+        p.put(OdpsProperties.ACCESS_ID, "ak");
+        p.put(OdpsProperties.ACCESS_KEY, "sk");
+        p.put(OdpsProperties.ENDPOINT, "http://127.0.0.1");
+        p.put(OdpsProperties.PROJECT, "project");
+        p.put(OdpsProperties.TUNNEL_QUOTA, "pay-as-you-go");
+        p.put(OdpsProperties.ENABLE_NAMESPACE_SCHEMA, "true");
+        p.put(OdpsProperties.ENABLE_TABLE_CACHE, "false");
+        p.put(OdpsProperties.ENABLE_PARTITION_CACHE, "false");
+        p.put(OdpsProperties.ENABLE_TABLE_NAME_CACHE, "false");
+        p.put(OdpsProperties.ENABLE_PREDICATE_PUSHDOWN, "false");
+        return new OdpsMetadata(odps, "odps", aliyunCloudCredential, new OdpsProperties(p));
+    }
+
+    @Test
+    public void testSchemaModeListDbNames() {
+        Schemas schemas = Mockito.mock(Schemas.class);
+        Schema sch1 = Mockito.mock(Schema.class);
+        Schema sch2 = Mockito.mock(Schema.class);
+        when(sch1.getName()).thenReturn("sch1");
+        when(sch2.getName()).thenReturn("sch2");
+        Iterator<Schema> it = Arrays.asList(sch1, sch2).iterator();
+        when(odps.schemas()).thenReturn(schemas);
+        when(schemas.iterator(eq("project"))).thenReturn(it);
+
+        OdpsMetadata schemaMetadata = newSchemaModeMetadata();
+        List<String> names = schemaMetadata.listDbNames(new ConnectContext());
+        Assertions.assertEquals(Arrays.asList("sch1", "sch2"), names);
+    }
+
+    @Test
+    public void testSchemaModeGetTableUses3ArgSdkCall() {
+        when(tables.get(eq("project"), eq("sch1"), eq("tableName"))).thenReturn(table);
+
+        OdpsMetadata schemaMetadata = newSchemaModeMetadata();
+        OdpsTable t = (OdpsTable) schemaMetadata.getTable(new ConnectContext(), "sch1", "tableName");
+        Assertions.assertNotNull(t);
+        Assertions.assertEquals("project", t.getProjectName());
+        Assertions.assertEquals("sch1", t.getSchemaName());
+        Assertions.assertEquals("sch1", t.getCatalogDBName());
+        verify(tables, atLeastOnce()).get(eq("project"), eq("sch1"), eq("tableName"));
+    }
+
+    @Test
+    public void testSchemaModeListTableNamesUses4ArgIterator() {
+        Iterator<com.aliyun.odps.Table> localIt = Collections.singletonList(table).iterator();
+        when(tables.iterator(eq("project"), eq("sch1"), eq(null), eq(false))).thenReturn(localIt);
+
+        OdpsMetadata schemaMetadata = newSchemaModeMetadata();
+        List<String> tbls = schemaMetadata.listTableNames(new ConnectContext(), "sch1");
+        Assertions.assertEquals(Collections.singletonList("tableName"), tbls);
+        verify(tables, atLeastOnce()).iterator(eq("project"), eq("sch1"), eq(null), eq(false));
+    }
+
+    @Test
+    public void testSchemaModeGetRemoteFilesUses3ArgIdentifier() throws IOException {
+        when(tables.get(eq("project"), eq("sch1"), eq("tableName"))).thenReturn(table);
+
+        OdpsMetadata schemaMetadata = newSchemaModeMetadata();
+        OdpsTable t = (OdpsTable) schemaMetadata.getTable(new ConnectContext(), "sch1", "tableName");
+        GetRemoteFilesParams params = GetRemoteFilesParams.newBuilder()
+                .setFieldNames(t.getPartitionColumnNames())
+                .setPartitionKeys(Collections.emptyList())
+                .build();
+        ArgumentCaptor<TableIdentifier> captor = ArgumentCaptor.forClass(TableIdentifier.class);
+        when(mockTableReadSessionBuilder.identifier(captor.capture())).thenReturn(mockTableReadSessionBuilder);
+
+        schemaMetadata.getRemoteFiles(t, params, mockTableReadSessionBuilder);
+        TableIdentifier captured = captor.getValue();
+        Assertions.assertEquals("project", captured.getProject());
+        Assertions.assertEquals("sch1", captured.getSchema());
+        Assertions.assertEquals("tableName", captured.getTable());
+    }
+
+    @Test
+    public void testOdpsTableToThriftAlwaysCarriesProject() {
+        OdpsTable t = new OdpsTable("catalog", "project", "sch1", table);
+        TTableDescriptor thrift = t.toThrift(null);
+        Assertions.assertEquals("project", thrift.getDbName());
+        Assertions.assertEquals("sch1", t.getCatalogDBName());
+    }
+
+    @Test
+    public void testOdpsTableSchemaUUIDUnique() {
+        OdpsTable a = new OdpsTable("catalog", "project", "sch1", table);
+        OdpsTable b = new OdpsTable("catalog", "project", "sch2", table);
+        Assertions.assertNotEquals(a.getUUID(), b.getUUID());
+    }
 
     @Test
     public void testGetRemoteFilesWithSmallLimit() throws AnalysisException, IOException {

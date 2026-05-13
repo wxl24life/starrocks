@@ -83,6 +83,7 @@ The following table describes the parameter you need to configure in `ScanParams
 | odps.split.size.limit | No        | The maximum bytes of data per shard when `odps.split.policy` is set to `size`. <br />Default value: `32 * 1024 * 1024 = 33554432 (32MB)`.<br />                                                                      |
 | odps.split.row.count | No        | The maximum number of rows per shard when `odps.split.policy` is set to `row_offset`. <br />Default value: `4 * 1024 * 1024 = 4194304`.<br />                                                                        |
 | odps.predicate.pushdown.enable | No       | Specifies whether to push down the predicate to MaxCompute scan operator. Valid values: `true` and `false`. Default value: `true`. The value `true` enables the feature, and the value `false` disables the feature. |
+| odps.enable.namespace.schema   | No       | Whether to enable MaxCompute three-tier (`project.schema.table`) namespace mode. Valid values: `true` and `false`. Default value: `false`. When set to `false`, StarRocks databases map to MaxCompute projects (legacy two-tier behavior). When set to `true`, StarRocks databases map to schemas under the MaxCompute project specified by `odps.project`; the catalog only exposes that single project's schemas. To access multiple projects with different namespace modes, create a separate catalog for each. |
 
 #### CachingMetaParams
 

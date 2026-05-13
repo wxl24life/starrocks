@@ -18,6 +18,7 @@ import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.PartitionSpec;
 import com.aliyun.odps.Project;
+import com.aliyun.odps.Schema;
 import com.aliyun.odps.security.SecurityManager;
 import com.aliyun.odps.table.TableIdentifier;
 import com.aliyun.odps.table.configuration.RestOptions;
@@ -97,6 +98,8 @@ public class OdpsMetadata implements ConnectorMetadata {
     private final AliyunCloudCredential aliyunCloudCredential;
     private final OdpsProperties properties;
     private final ExecutorService pullRemoteFileExecutor;
+    private final boolean schemaMode;
+    private final String boundProject;
 
     private String catalogOwner;
     private LoadingCache<String, Set<String>> tableNameCache;
@@ -117,6 +120,8 @@ public class OdpsMetadata implements ConnectorMetadata {
         this.aliyunCloudCredential = aliyunCloudCredential;
         this.properties = properties;
         this.pullRemoteFileExecutor = pullRemoteFileExecutor;
+        this.schemaMode = Boolean.parseBoolean(properties.get(OdpsProperties.ENABLE_NAMESPACE_SCHEMA));
+        this.boundProject = properties.get(OdpsProperties.PROJECT);
         EnvironmentSettings.Builder settingsBuilder =
                 EnvironmentSettings.newBuilder().withServiceEndpoint(odps.getEndpoint())
                         .withCredentials(Credentials.newBuilder().withAccount(odps.getAccount()).build())
@@ -139,10 +144,10 @@ public class OdpsMetadata implements ConnectorMetadata {
             tableNameCache =
                     newCacheBuilder(Long.parseLong(properties.get(OdpsProperties.TABLE_NAME_CACHE_EXPIRE_TIME)),
                             Long.parseLong(properties.get(OdpsProperties.PROJECT_CACHE_SIZE)))
-                            .build(asyncReloading(CacheLoader.from(this::loadProjects), executor));
+                            .build(asyncReloading(CacheLoader.from(this::loadTables), executor));
         } else {
             tableNameCache = newCacheBuilder(NEVER_CACHE, NEVER_CACHE)
-                    .build(CacheLoader.from(this::loadProjects));
+                    .build(CacheLoader.from(this::loadTables));
         }
         if (Boolean.parseBoolean(properties.get(OdpsProperties.ENABLE_TABLE_CACHE))) {
             tableCache = newCacheBuilder(Long.parseLong(properties.get(OdpsProperties.TABLE_CACHE_EXPIRE_TIME)),
@@ -169,6 +174,9 @@ public class OdpsMetadata implements ConnectorMetadata {
 
     @Override
     public List<String> listDbNames(ConnectContext context) {
+        if (schemaMode) {
+            return listSchemaNames();
+        }
         ImmutableList.Builder<String> builder = ImmutableList.builder();
         try {
             if (StringUtils.isNullOrEmpty(catalogOwner)) {
@@ -193,6 +201,20 @@ public class OdpsMetadata implements ConnectorMetadata {
         return databases;
     }
 
+    private List<String> listSchemaNames() {
+        ImmutableList.Builder<String> builder = ImmutableList.builder();
+        try {
+            Iterator<Schema> iterator = odps.schemas().iterator(boundProject);
+            while (iterator.hasNext()) {
+                builder.add(iterator.next().getName());
+            }
+        } catch (Exception e) {
+            throw new StarRocksConnectorException(
+                    "fail to list schemas of project " + boundProject + ": " + e.getMessage(), e);
+        }
+        return builder.build();
+    }
+
     @Override
     public Database getDb(ConnectContext context, String name) {
         try {
@@ -213,9 +235,11 @@ public class OdpsMetadata implements ConnectorMetadata {
         }
     }
 
-    private Set<String> loadProjects(String dbName) {
+    private Set<String> loadTables(String dbName) {
         ImmutableSet.Builder<String> builder = ImmutableSet.builder();
-        Iterator<com.aliyun.odps.Table> iterator = odps.tables().iterator(dbName);
+        Iterator<com.aliyun.odps.Table> iterator = schemaMode
+                ? odps.tables().iterator(boundProject, dbName, null, false)
+                : odps.tables().iterator(dbName);
         while (iterator.hasNext()) {
             builder.add(iterator.next().getName());
         }
@@ -228,11 +252,18 @@ public class OdpsMetadata implements ConnectorMetadata {
     }
 
     private OdpsTable loadTable(OdpsTableName odpsTableName) {
-        com.aliyun.odps.Table table = odps.tables().get(odpsTableName.getDatabaseName(), odpsTableName.getTableName());
+        String dbName = odpsTableName.getDatabaseName();
+        String tblName = odpsTableName.getTableName();
+        com.aliyun.odps.Table table = schemaMode
+                ? odps.tables().get(boundProject, dbName, tblName)
+                : odps.tables().get(dbName, tblName);
         try {
             table.reload();
         } catch (OdpsException e) {
             return null;
+        }
+        if (schemaMode) {
+            return new OdpsTable(catalogName, boundProject, dbName, table);
         }
         return new OdpsTable(catalogName, table);
     }
@@ -294,8 +325,11 @@ public class OdpsMetadata implements ConnectorMetadata {
     }
 
     private List<PartitionSpec> loadPartitions(OdpsTableName odpsTableName) {
-        com.aliyun.odps.Table odpsTable =
-                odps.tables().get(odpsTableName.getDatabaseName(), odpsTableName.getTableName());
+        String dbName = odpsTableName.getDatabaseName();
+        String tblName = odpsTableName.getTableName();
+        com.aliyun.odps.Table odpsTable = schemaMode
+                ? odps.tables().get(boundProject, dbName, tblName)
+                : odps.tables().get(dbName, tblName);
         try {
             return odpsTable.getPartitionSpecs();
         } catch (OdpsException e) {
@@ -321,8 +355,18 @@ public class OdpsMetadata implements ConnectorMetadata {
         Set<String> filter = new HashSet<>(partitionNames);
         return partitions.stream()
                 .filter(partition -> filter.contains(partition.toString(false, true)))
-                .map(p -> new OdpsPartition(odps.tables().get(odpsTable.getCatalogDBName(), odpsTable.getCatalogTableName()), p))
+                .map(p -> new OdpsPartition(getOdpsSdkTable(odpsTable), p))
                 .collect(Collectors.toList());
+    }
+
+    private com.aliyun.odps.Table getOdpsSdkTable(OdpsTable odpsTable) {
+        if (odpsTable.getSchemaName() != null) {
+            return odps.tables().get(odpsTable.getProjectName(),
+                    odpsTable.getSchemaName(), odpsTable.getCatalogTableName());
+        }
+        return odps.tables().get(odpsTable.getProjectName() != null
+                        ? odpsTable.getProjectName() : odpsTable.getCatalogDBName(),
+                odpsTable.getCatalogTableName());
     }
 
     @Override
@@ -376,10 +420,17 @@ public class OdpsMetadata implements ConnectorMetadata {
             }
         }
         try {
-            LOG.info("get remote file infos, project:{}, table:{}, columns:{}", odpsTable.getCatalogDBName(),
+            LOG.info("get remote file infos, project:{}, schema:{}, table:{}, columns:{}",
+                    odpsTable.getProjectName(), odpsTable.getSchemaName(),
                     odpsTable.getCatalogTableName(), params.getFieldNames());
-            TableReadSessionBuilder tableReadSessionBuilder = scanBuilder.identifier(
-                            TableIdentifier.of(odpsTable.getCatalogDBName(), odpsTable.getCatalogTableName()))
+            TableIdentifier identifier = odpsTable.getSchemaName() != null
+                    ? TableIdentifier.of(odpsTable.getProjectName(),
+                            odpsTable.getSchemaName(), odpsTable.getCatalogTableName())
+                    : TableIdentifier.of(
+                            odpsTable.getProjectName() != null
+                                    ? odpsTable.getProjectName() : odpsTable.getCatalogDBName(),
+                            odpsTable.getCatalogTableName());
+            TableReadSessionBuilder tableReadSessionBuilder = scanBuilder.identifier(identifier)
                     .withSettings(settings).requiredDataColumns(orderedColumnNames).requiredPartitions(partitionSpecs);
 
             OdpsSplitsInfo odpsSplitsInfo;

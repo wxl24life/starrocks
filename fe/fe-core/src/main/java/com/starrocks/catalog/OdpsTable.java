@@ -42,6 +42,10 @@ public class OdpsTable extends Table {
     private String catalogName;
     @SerializedName(value = "dn")
     private String dbName;
+    @SerializedName(value = "pn")
+    private String projectName;
+    @SerializedName(value = "sn")
+    private String schemaName;
     private List<Column> dataColumns;
     private List<Column> partitionColumns;
 
@@ -50,17 +54,31 @@ public class OdpsTable extends Table {
     }
 
     public OdpsTable(String catalogName, com.aliyun.odps.Table odpsTable) {
+        this(catalogName, odpsTable.getProject(), null, odpsTable);
+    }
+
+    public OdpsTable(String catalogName, String projectName, String schemaName, com.aliyun.odps.Table odpsTable) {
         super(CONNECTOR_ID_GENERATOR.getNextId().asInt(), odpsTable.getName(), TableType.ODPS,
                 EntityConvertUtils.getFullSchema(odpsTable));
         this.createTime = odpsTable.getCreatedTime().getTime();
         this.catalogName = catalogName;
-        this.dbName = odpsTable.getProject();
+        this.projectName = projectName;
+        this.schemaName = schemaName;
+        this.dbName = (schemaName != null) ? schemaName : projectName;
         this.tableName = odpsTable.getName();
         this.partitionColumns =
                 odpsTable.getSchema().getPartitionColumns().stream().map(EntityConvertUtils::convertColumn).collect(
                         Collectors.toList());
         this.dataColumns = odpsTable.getSchema().getColumns().stream().map(EntityConvertUtils::convertColumn).collect(
                 Collectors.toList());
+    }
+
+    public String getProjectName() {
+        return projectName;
+    }
+
+    public String getSchemaName() {
+        return schemaName;
     }
 
     @Override
@@ -117,13 +135,22 @@ public class OdpsTable extends Table {
 
     @Override
     public String getUUID() {
-        return String.join(".", catalogName, dbName, name, Long.toString(createTime));
+        if (schemaName != null) {
+            return String.join(".", catalogName, projectName, schemaName, name, Long.toString(createTime));
+        }
+        // Legacy two-tier mode: keep UUID format unchanged (catalog.project.name.createTime).
+        // Fall back to dbName when projectName is absent (e.g., on deserialized old objects).
+        String project = projectName != null ? projectName : dbName;
+        return String.join(".", catalogName, project, name, Long.toString(createTime));
     }
 
     @Override
     public TTableDescriptor toThrift(List<DescriptorTable.ReferencedPartitionInfo> partitions) {
+        // Always pass the real MaxCompute project name in the dbName slot so BE/scanner
+        // sees the project (not schema) as `project_name` — preserves the legacy contract.
+        String beDbName = projectName != null ? projectName : getCatalogDBName();
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ODPS_TABLE,
-                fullSchema.size(), 0, getName(), getCatalogDBName());
+                fullSchema.size(), 0, getName(), beDbName);
         THdfsTable hdfsTable = new THdfsTable();
         hdfsTable.setColumns(getColumns().stream().map(Column::toThrift).collect(Collectors.toList()));
         // for be, partition column is equals to data column
