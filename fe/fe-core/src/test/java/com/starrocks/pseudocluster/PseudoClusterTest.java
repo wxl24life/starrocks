@@ -33,6 +33,7 @@ import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.LocalMetastore;
 import com.starrocks.server.RunMode;
 import com.starrocks.server.SharedNothingStorageVolumeMgr;
+import com.starrocks.storagevolume.CompositeStorageVolume;
 import com.starrocks.storagevolume.StorageVolume;
 import mockit.Mock;
 import mockit.MockUp;
@@ -285,6 +286,11 @@ public class PseudoClusterTest {
             @Mock
             public String getStorageVolumeIdOfTable(long tableId) {
                 return fsInfo.getFsKey();
+            }
+
+            @Mock
+            public CompositeStorageVolume getCompositeStorageVolume(String id) throws DdlException {
+                return null;
             }
         };
 

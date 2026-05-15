@@ -14,6 +14,7 @@
 
 package com.starrocks.lake.snapshot;
 
+import com.staros.proto.FileStoreInfo;
 import com.starrocks.alter.AlterJobV2;
 import com.starrocks.alter.AlterTest;
 import com.starrocks.alter.MaterializedViewHandler;
@@ -124,6 +125,11 @@ public class ClusterSnapshotTest {
             @Mock
             public String getRawServiceId() {
                 return "qwertty";
+            }
+
+            @Mock
+            public FileStoreInfo getFileStoreByName(String fsName) {
+                return null;
             }
         };
 

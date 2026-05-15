@@ -163,13 +163,13 @@ public class RestoreClusterSnapshotMgrTest {
         Assertions.assertTrue(RestoreClusterSnapshotMgr.getRestoredSnapshotInfo().getStarMgrJournalId() == 10L);
         Assertions.assertTrue(RestoreClusterSnapshotMgr.isRestoring());
 
-        ClusterSnapshotConfig.StorageVolume sv1 = RestoreClusterSnapshotMgr.getConfig().getStorageVolumes().get(0);
         ClusterSnapshotConfig.StorageVolume sv2 = RestoreClusterSnapshotMgr.getConfig().getStorageVolumes().get(1);
         RestoreClusterSnapshotMgr.getConfig().getStorageVolumes().remove(0);
 
-        GlobalStateMgr.getCurrentState().getStorageVolumeMgr().createStorageVolume(sv2.getName(), sv1.getType(),
-                Collections.singletonList(sv1.getLocation()), sv1.getProperties(), Optional.of(true),
-                sv1.getComment());
+        String oldLocation = "hdfs://127.0.0.1:9000/sr/old/";
+        GlobalStateMgr.getCurrentState().getStorageVolumeMgr().createStorageVolume(sv2.getName(), sv2.getType(),
+                Collections.singletonList(oldLocation), sv2.getProperties(), Optional.of(true),
+                sv2.getComment());
 
         String sql = "create table single_partition_duplicate_key (key1 int, key2 varchar(10))\n" +
                 "distributed by hash(key1) buckets 1\n" +
@@ -193,7 +193,7 @@ public class RestoreClusterSnapshotMgrTest {
 
         String newStoragePath = table.getTableProperty().getStorageInfo().getFilePathInfo().getFullPath();
         Assertions.assertNotEquals(oldStoragePath, newStoragePath);
-        Assertions.assertTrue(oldStoragePath.startsWith(sv1.getLocation()));
+        Assertions.assertTrue(oldStoragePath.startsWith(oldLocation));
         Assertions.assertTrue(newStoragePath.startsWith(sv2.getLocation()));
     }
 }
