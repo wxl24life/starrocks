@@ -68,6 +68,35 @@ std::string query_id_for_log(FunctionContext* context, const std::vector<AITask>
     return "n/a";
 }
 
+const std::string& get_dashscope_euid_header() {
+    static std::string euid = []() {
+        const char* uid = std::getenv("ALIYUN_ACCOUNT_ID");
+        const char* module_code = std::getenv("AI_FUNCTION_COMMODITY_CODE");
+        if (uid == nullptr || module_code == nullptr || uid[0] == '\0' || module_code[0] == '\0') {
+            LOG(INFO) << "[AI] x-dashscope-euid header disabled: ALIYUN_ACCOUNT_ID or AI_FUNCTION_COMMODITY_CODE not set";
+            return std::string();
+        }
+        rapidjson::StringBuffer buf;
+        rapidjson::Writer<rapidjson::StringBuffer> w(buf);
+        w.StartObject();
+        w.Key("bizType");
+        w.String("B2B");
+        w.Key("moduleType");
+        w.String("Third-partyproducts");
+        w.Key("moduleCode");
+        w.String(module_code);
+        w.Key("accountType");
+        w.String("Aliyun");
+        w.Key("accountId");
+        w.String(uid);
+        w.EndObject();
+        std::string result(buf.GetString(), buf.GetSize());
+        LOG(INFO) << "[AI] x-dashscope-euid header initialized, accountId=" << uid;
+        return result;
+    }();
+    return euid;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -350,6 +379,11 @@ Status AiFunctions::dispatch_chat_tasks(FunctionContext* context, size_t num_row
     if (provider == nullptr) provider = AIProviderRegistry::instance()->default_provider();
     auto auth_headers = api_key.empty() ? std::vector<std::pair<std::string, std::string>>{}
                                         : provider->get_auth_headers(api_key);
+
+    const auto& euid = get_dashscope_euid_header();
+    if (!euid.empty()) {
+        auth_headers.emplace_back("x-dashscope-euid", euid);
+    }
 
     const std::atomic<bool>* cancel_flag =
             context->state() != nullptr ? &context->state()->cancelled_ref() : nullptr;

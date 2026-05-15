@@ -170,12 +170,11 @@ StatusOr<std::shared_ptr<AiHttpContext>> AiHttpClient::post_async(
     ctx->_cntl.http_request().SetHeader("Host", host);
     ctx->_cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
     ctx->_cntl.http_request().set_content_type("application/json");
-    if (auth_headers.empty()) {
+    if (!api_key.empty()) {
         ctx->_cntl.http_request().SetHeader("Authorization", "Bearer " + api_key);
-    } else {
-        for (const auto& [key, value] : auth_headers) {
-            ctx->_cntl.http_request().SetHeader(key, value);
-        }
+    }
+    for (const auto& [key, value] : auth_headers) {
+        ctx->_cntl.http_request().SetHeader(key, value);
     }
     ctx->_cntl.request_attachment().append(post_data);
 
