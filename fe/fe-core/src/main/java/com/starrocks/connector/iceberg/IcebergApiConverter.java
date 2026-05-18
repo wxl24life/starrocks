@@ -55,7 +55,6 @@ import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.view.SQLViewRepresentation;
 import org.apache.iceberg.view.View;
-import org.apache.iceberg.view.ViewVersion;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -384,13 +383,10 @@ public class IcebergApiConverter {
         SQLViewRepresentation sqlView = icebergView.sqlFor("starrocks");
         String comment = icebergView.properties().get(COMMENT);
         List<Column> columns = toFullSchemas(icebergView.schema());
-        ViewVersion currentVersion = icebergView.currentVersion();
-        String defaultCatalogName = currentVersion.defaultCatalog();
-        String defaultDbName = currentVersion.defaultNamespace().level(0);
         String viewName = icebergView.name();
         String location = icebergView.location();
         IcebergView view = new IcebergView(CONNECTOR_ID_GENERATOR.getNextId().asInt(), catalogName, dbName, viewName,
-                columns, sqlView.sql(), defaultCatalogName, defaultDbName, location);
+                columns, sqlView.sql(), location);
         view.setComment(comment);
         return view;
     }

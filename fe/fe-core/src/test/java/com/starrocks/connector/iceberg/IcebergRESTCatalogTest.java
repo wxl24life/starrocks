@@ -207,8 +207,7 @@ public class IcebergRESTCatalogTest {
             @Mock
             Table getTable(ConnectContext context, String dbName, String tblName) {
                 return new IcebergView(1, "iceberg_rest_catalog", "db", "view",
-                        Lists.newArrayList(), "mocked", "iceberg_rest_catalog", "db",
-                        "location");
+                        Lists.newArrayList(), "mocked", "location");
             }
         };
 
