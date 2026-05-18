@@ -66,7 +66,6 @@ public class PaimonConnector implements Connector {
     private final Options paimonOptions;
     private final boolean enableLakeOptimizer;
     private final ConnectorProperties connectorProperties;
-    private String ramUser = "";
 
     public PaimonConnector(ConnectorContext context) {
         Map<String, String> properties = context.getProperties();
@@ -253,7 +252,7 @@ public class PaimonConnector implements Connector {
         } else {
             paimonCatalog = new DefaultPaimonCatalog(catalogName, paimonNativeCatalog);
         }
-        return new PaimonMetadata(catalogName, hdfsEnvironment, paimonCatalog, connectorProperties);
+        return new PaimonMetadata(hdfsEnvironment, paimonCatalog, connectorProperties);
     }
 
     @Override

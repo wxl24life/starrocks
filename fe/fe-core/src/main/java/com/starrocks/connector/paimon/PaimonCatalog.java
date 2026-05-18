@@ -21,7 +21,6 @@ import com.starrocks.common.DdlException;
 import com.starrocks.sql.ast.CreateTableStmt;
 import com.starrocks.sql.ast.DropPartitionClause;
 import com.starrocks.sql.ast.DropTableStmt;
-import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.table.source.InnerTableScan;
 import org.apache.paimon.table.source.Split;
 
@@ -57,8 +56,6 @@ public interface PaimonCatalog {
     void refreshTable(String srDbName, Table table, List<String> partitionNames);
 
     void traceCatalogMetrics(String prefix, PaimonMetricRegistry metricRegistry);
-
-    Catalog getNativeCatalog();
 
     List<Split> getSplits(Table table, Map<String, Partition> partitions,
                           Integer totalPartitionCount, long snapshotId, InnerTableScan scan);

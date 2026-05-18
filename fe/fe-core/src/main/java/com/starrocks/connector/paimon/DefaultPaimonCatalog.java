@@ -82,11 +82,6 @@ public class DefaultPaimonCatalog implements PaimonCatalog {
     }
 
     @Override
-    public Catalog getNativeCatalog() {
-        return paimonNativeCatalog;
-    }
-
-    @Override
     public List<String> listDbNames() {
         return paimonNativeCatalog.listDatabases();
     }

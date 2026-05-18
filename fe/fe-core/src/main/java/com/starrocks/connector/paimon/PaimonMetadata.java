@@ -94,18 +94,16 @@ public class PaimonMetadata implements ConnectorMetadata {
     public static final String PAIMON_PARTITION_NULL_VALUE = "null";
     private final PaimonCatalog paimonCatalog;
     private final HdfsEnvironment hdfsEnvironment;
-    private final String catalogName;
     private final Map<Identifier, Table> tables = new ConcurrentHashMap<>();
     private final Map<String, Database> databases = new ConcurrentHashMap<>();
     private final Map<PredicateSearchKey, PaimonSplitsInfo> paimonSplits = new ConcurrentHashMap<>();
     private final ConnectorProperties properties;
     private final Map<Identifier, Map<String, Partition>> partitionInfos = new ConcurrentHashMap<>();
 
-    public PaimonMetadata(String catalogName, HdfsEnvironment hdfsEnvironment, PaimonCatalog paimonCatalog,
+    public PaimonMetadata(HdfsEnvironment hdfsEnvironment, PaimonCatalog paimonCatalog,
                           ConnectorProperties properties) {
         this.paimonCatalog = paimonCatalog;
         this.hdfsEnvironment = hdfsEnvironment;
-        this.catalogName = catalogName;
         this.properties = properties;
     }
 

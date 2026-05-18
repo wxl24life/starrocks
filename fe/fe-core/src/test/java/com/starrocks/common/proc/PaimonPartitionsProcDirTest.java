@@ -56,7 +56,7 @@ public class PaimonPartitionsProcDirTest {
 
     @BeforeEach
     public void setUp() throws DdlException, AnalysisException {
-        this.metadata = new PaimonMetadata("paimon_catalog", new HdfsEnvironment(),
+        this.metadata = new PaimonMetadata(new HdfsEnvironment(),
                 new DefaultPaimonCatalog("paimon_catalog", paimonNativeCatalog), null);
     }
 
