@@ -1385,6 +1385,14 @@ vectorized_functions = [
     # gin functions
     [190000, 'tokenize', True, False, 'ARRAY_VARCHAR', ['VARCHAR', 'VARCHAR'], 'GinFunctions::tokenize', 'GinFunctions::tokenize_prepare', 'GinFunctions::tokenize_close'],
 
+    # paimon full-text search functions (prefix / wildcard)
+    # match_all / match_any / match_phrase are SQL keywords (MATCH_ALL etc.) parsed as
+    # MatchExprOperator, so they don't need FunctionSet registration.
+    # match_prefix and match_wildcard are function-call style and need registration here.
+    # BE pointer is nullptr: the unified global index path rewrites them before BE execution.
+    [191003, 'match_prefix',   True, False, 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'nullptr'],
+    [191004, 'match_wildcard', True, False, 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'nullptr'],
+
 ]
 
 # AI functions — registered with TFunctionBinaryType.AI

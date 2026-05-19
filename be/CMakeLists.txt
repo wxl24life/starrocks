@@ -288,6 +288,12 @@ set_target_properties(paimon-global-index PROPERTIES IMPORTED_LOCATION ${PAIMON_
 add_library(paimon-lumina-index SHARED IMPORTED)
 set_target_properties(paimon-lumina-index PROPERTIES IMPORTED_LOCATION ${PAIMON_LIBRARY_ROOT}/libpaimon_lumina_index.so)
 
+add_library(paimon-lucene-index SHARED IMPORTED)
+set_target_properties(paimon-lucene-index PROPERTIES IMPORTED_LOCATION ${PAIMON_LIBRARY_ROOT}/libpaimon_lucene_index.so)
+
+add_library(paimon-tantivy-support SHARED IMPORTED)
+set_target_properties(paimon-tantivy-support PROPERTIES IMPORTED_LOCATION ${PAIMON_LIBRARY_ROOT}/libpaimon_tantivy_support.so)
+
 add_library(paimon-lumina SHARED IMPORTED)
 set_target_properties(paimon-lumina PROPERTIES IMPORTED_LOCATION ${PAIMON_LIBRARY_ROOT}/liblumina.so)
 
@@ -964,6 +970,12 @@ set(STARROCKS_DEPENDENCIES ${STARROCKS_DEPENDENCIES}
     # NEEDED list (because liblumina.so has no SONAME), and the BE would fail
     # to start on hosts that don't have the build-time path layout.
     paimon-lumina-index
+    # Same pattern: libpaimon_lucene_index.so registers LuceneGlobalIndexFactory
+    # via REGISTER_PAIMON_FACTORY for FTS (full-text search) global index support.
+    paimon-lucene-index
+    # Same pattern: libpaimon_tantivy_support.so registers TantivyGlobalIndexFactory
+    # via REGISTER_PAIMON_FACTORY for tantivy FTS global index support.
+    paimon-tantivy-support
 )
 
 # Set thirdparty libraries
