@@ -43,7 +43,7 @@ under the License.
         <jacoco.version>0.8.8</jacoco.version>
         <paimon.version>1-ali-26.1-lake-optimizer</paimon.version>
         <lance.version>0.35.0-ali-1.2</lance.version>
-        <dlf.sdk.version>1-ali-26.0</dlf.sdk.version>
+        <dlf.sdk.version>1-ali-26.1</dlf.sdk.version>
         <dlf.iceberg.plugin.version>1.1.0-SNAPSHOT</dlf.iceberg.plugin.version>
         <fluss.version>0.9-ali-0.1</fluss.version>
         <flink.version>1.20.1</flink.version>
@@ -691,19 +691,7 @@ under the License.
             <exclusions>
                 <exclusion>
                     <groupId>org.apache.paimon</groupId>
-                    <artifactId>paimon-common</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.paimon</groupId>
-                    <artifactId>paimon-api</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.paimon</groupId>
-                    <artifactId>paimon-format</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.paimon</groupId>
-                    <artifactId>paimon-core</artifactId>
+                    <artifactId>*</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
