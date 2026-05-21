@@ -204,7 +204,7 @@ private:
     std::map<std::string, std::int64_t> _inline_compacted_sstables;
 
     // Track the minimum rssid_rowid of current transaction (for inline compaction optimization)
-    uint32_t _current_txn_rss_rowid_min{UINT32_MAX};
+    uint64_t _current_txn_rss_rowid_min{UINT64_MAX};
 };
 
 } // namespace lake

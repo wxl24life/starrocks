@@ -308,7 +308,7 @@ Status LakePersistentIndex::upsert(size_t n, const Slice* keys, const IndexValue
     KeyIndexSet& key_indexes = not_founds;
     RETURN_IF_ERROR(get_from_sstables(n, keys, old_values, &key_indexes, -1));
     if (is_memtable_full()) {
-        uint32_t max_rss_rowid = _memtable->max_rss_rowid();
+        uint64_t max_rss_rowid = _memtable->max_rss_rowid();
         _current_txn_rss_rowid_min = std::min(_current_txn_rss_rowid_min, max_rss_rowid);
         RETURN_IF_ERROR(flush_memtable());
         if (config::lake_pk_index_publish_enable_inline_major_compaction) {
@@ -649,7 +649,7 @@ Status LakePersistentIndex::commit(MetaFileBuilder* builder) {
     _need_rebuild_file_cnt = need_rebuild_file_cnt(*builder->tablet_meta(), sstable_meta);
 
     // Reset transaction-level rssid tracking after commit
-    _current_txn_rss_rowid_min = UINT32_MAX;
+    _current_txn_rss_rowid_min = UINT64_MAX;
 
     return Status::OK();
 }
