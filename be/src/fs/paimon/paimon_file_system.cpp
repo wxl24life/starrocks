@@ -15,9 +15,14 @@
 #include "paimon_file_system.h"
 
 #include <iostream>
+
+#include "common/config.h"
+#include "exec/counted_seekable_input_stream.h"
 #include "fmt/format.h"
 #include "fs/fs.h"
 #include "gen_cpp/CloudConfiguration_types.h"
+#include "io/cache_input_stream.h"
+#include "io/shared_buffered_input_stream.h"
 
 namespace starrocks {
 
@@ -29,8 +34,17 @@ const char* PaimonFileSystemFactory::Identifier() const {
 }
 
 paimon::Result<std::unique_ptr<paimon::FileSystem>> PaimonFileSystemFactory::Create(
-        const std::string& path, const std::map<std::string, std::string>& options) const {
-    return std::make_unique<PaimonFileSystem>(options);
+        const std::string& /*path*/, const std::map<std::string, std::string>& /*options*/) const {
+    // All real call sites construct PaimonFileSystem explicitly with the FE-supplied
+    // TCloudConfiguration and inject it via ReadContextBuilder::WithFileSystem(), so
+    // this factory fallback should never be reached. The previous implementation
+    // hard-coded TCloudType::ALIYUN, which would silently sign requests with the
+    // wrong credentials on non-OSS backends. Surface the contract violation here so
+    // the offending paimon-cpp code path is visible in logs rather than hiding
+    // behind a confusing "AccessDenied" downstream error.
+    return paimon::Status::IOError(
+            "PaimonFileSystemFactory::Create is not supported; PaimonFileSystem must be "
+            "constructed explicitly and injected via WithFileSystem().");
 }
 
 REGISTER_PAIMON_FACTORY(PaimonFileSystemFactory);
@@ -69,12 +83,14 @@ PaimonFileStatus::PaimonFileStatus(uint64_t len, int64_t last_modification_time,
 
 PaimonFileStatus::~PaimonFileStatus() = default;
 
-PaimonFileSystem::PaimonFileSystem(const std::map<std::string, std::string>& options) : _options(options) {
-    std::string path = _options[PaimonOptions::ROOT_PATH];
-
-    _cloud_configuration.__set_cloud_type(TCloudType::ALIYUN);
-    _cloud_configuration.__set_cloud_properties(_options);
-
+PaimonFileSystem::PaimonFileSystem(const std::string& path, const TCloudConfiguration& cloud_conf,
+                                   const DataCacheOptions& datacache_options, HdfsScanStats* fs_stats,
+                                   HdfsScanStats* app_stats)
+        : _cloud_configuration(cloud_conf),
+          _enable_datacache(datacache_options.enable_datacache),
+          _datacache_options(datacache_options),
+          _fs_stats(fs_stats),
+          _app_stats(app_stats) {
     FSOptions fs_options(&_cloud_configuration);
     auto st = starrocks::FileSystem::CreateUniqueFromString(path, fs_options);
     if (!st.ok()) {
@@ -100,14 +116,83 @@ paimon::Result<std::unique_ptr<paimon::OutputStream>> PaimonFileSystem::Create(c
 }
 
 paimon::Result<std::unique_ptr<paimon::InputStream>> PaimonFileSystem::Open(const std::string& path) const {
-    VLOG(10) << "Open path " << path;
+    return Open(path, -1);
+}
+
+paimon::Result<std::unique_ptr<paimon::InputStream>> PaimonFileSystem::Open(const std::string& path,
+                                                                           int64_t file_size) const {
+    VLOG(10) << "Open path " << path << " file_size=" << file_size;
     RandomAccessFileOptions options;
     auto st = _fs->new_random_access_file(options, path);
     if (!st.ok()) {
         return paimon::Status::IOError(
                 fmt::format("Failed to open file {}, reason: {}", path, st.status().detailed_message()));
     }
-    return std::make_unique<PaimonInputStream>(std::move(st).value());
+    auto raw_file = std::move(st).value();
+    const std::string& filename = raw_file->filename();
+
+    // Wrap the raw fs stream so every actual storage IO (network OSS read,
+    // post-cache disk read) lands in _fs_stats. Layered below
+    // SharedBufferedInputStream / CacheInputStream so cache hits don't count
+    // towards FS-level IO. Mirrors HdfsScanner::create_random_access_file.
+    std::shared_ptr<io::SeekableInputStream> input_stream = raw_file->stream();
+    if (_fs_stats != nullptr) {
+        input_stream = std::make_shared<CountedSeekableInputStream>(input_stream, _fs_stats);
+    }
+
+    if (!_enable_datacache) {
+        auto counted_file = std::make_unique<RandomAccessFile>(input_stream, filename);
+        if (file_size >= 0) {
+            counted_file->set_size(file_size);
+        }
+        return std::make_unique<PaimonInputStream>(std::move(counted_file));
+    }
+
+    // file_size < 0 sentinel: caller doesn't know the size, fetch via HEAD.
+    if (file_size < 0) {
+        auto size_st = raw_file->get_size();
+        if (!size_st.ok()) {
+            return paimon::Status::IOError(fmt::format("Failed to get file size for {}, reason: {}", path,
+                                                       size_st.status().detailed_message()));
+        }
+        file_size = size_st.value();
+    }
+
+    auto shared_buffered_input_stream =
+            std::make_shared<io::SharedBufferedInputStream>(input_stream, filename, file_size);
+    const io::SharedBufferedInputStream::CoalesceOptions coalesce_options = {
+            .max_dist_size = config::io_coalesce_read_max_distance_size,
+            .max_buffer_size = config::io_coalesce_read_max_buffer_size};
+    shared_buffered_input_stream->set_coalesce_options(coalesce_options);
+
+    // modification_time=0 is safe for Paimon since data files are immutable
+    auto cache_input_stream =
+            std::make_shared<io::CacheInputStream>(shared_buffered_input_stream, filename, file_size, 0);
+    cache_input_stream->set_enable_populate_cache(_datacache_options.enable_populate_datacache);
+    cache_input_stream->set_enable_async_populate_mode(_datacache_options.enable_datacache_async_populate_mode);
+    cache_input_stream->set_enable_cache_io_adaptor(_datacache_options.enable_datacache_io_adaptor);
+    cache_input_stream->set_priority(_datacache_options.datacache_priority);
+    cache_input_stream->set_ttl_seconds(_datacache_options.datacache_ttl_seconds);
+    cache_input_stream->set_enable_block_buffer(config::datacache_block_buffer_enable);
+    shared_buffered_input_stream->set_align_size(cache_input_stream->get_align_size());
+
+    {
+        std::lock_guard<std::mutex> lock(_streams_mutex);
+        _cache_streams.push_back(cache_input_stream);
+        _shared_buffered_streams.push_back(shared_buffered_input_stream);
+    }
+
+    // Wrap the final post-cache stream so paimon-cpp's reader-visible reads
+    // (cache hit + cache miss alike) land in _app_stats. Must be the outermost
+    // wrapper so its io_ns reflects total time spent in IO.
+    std::shared_ptr<io::SeekableInputStream> final_stream = cache_input_stream;
+    if (_app_stats != nullptr) {
+        final_stream = std::make_shared<CountedSeekableInputStream>(final_stream, _app_stats);
+    }
+
+    auto cache_file = std::make_unique<RandomAccessFile>(final_stream, filename);
+    cache_file->set_size(file_size);
+    return std::make_unique<PaimonInputStream>(std::move(cache_file));
 }
 
 paimon::Status PaimonFileSystem::Delete(const std::string& path, bool recursive) const {
@@ -412,6 +497,50 @@ paimon::Result<int64_t> PaimonOutputStream::GetPos() const {
 
 paimon::Result<std::string> PaimonOutputStream::GetUri() const {
     return _file->filename();
+}
+
+io::CacheInputStream::Stats PaimonFileSystem::get_datacache_stats() const {
+    io::CacheInputStream::Stats total;
+    std::lock_guard<std::mutex> lock(_streams_mutex);
+    for (const auto& stream : _cache_streams) {
+        const auto& s = stream->stats();
+        total.read_cache_ns += s.read_cache_ns;
+        total.write_cache_ns += s.write_cache_ns;
+        total.read_cache_count += s.read_cache_count;
+        total.write_cache_count += s.write_cache_count;
+        total.write_mem_cache_bytes += s.write_mem_cache_bytes;
+        total.write_disk_cache_bytes += s.write_disk_cache_bytes;
+        total.read_cache_bytes += s.read_cache_bytes;
+        total.read_mem_cache_bytes += s.read_mem_cache_bytes;
+        total.read_disk_cache_bytes += s.read_disk_cache_bytes;
+        total.write_cache_bytes += s.write_cache_bytes;
+        total.skip_read_cache_count += s.skip_read_cache_count;
+        total.skip_read_cache_bytes += s.skip_read_cache_bytes;
+        total.skip_write_cache_count += s.skip_write_cache_count;
+        total.skip_write_cache_bytes += s.skip_write_cache_bytes;
+        total.write_cache_fail_count += s.write_cache_fail_count;
+        total.write_cache_fail_bytes += s.write_cache_fail_bytes;
+        total.read_block_buffer_bytes += s.read_block_buffer_bytes;
+        total.read_block_buffer_count += s.read_block_buffer_count;
+    }
+    return total;
+}
+
+PaimonFileSystem::SharedBufferedStats PaimonFileSystem::get_shared_buffered_stats() const {
+    SharedBufferedStats total;
+    std::lock_guard<std::mutex> lock(_streams_mutex);
+    for (const auto& stream : _shared_buffered_streams) {
+        total.shared_io_count += stream->shared_io_count();
+        total.shared_io_bytes += stream->shared_io_bytes();
+        total.hit_io_count += stream->hit_io_count();
+        total.hit_io_bytes += stream->hit_io_bytes();
+        total.shared_align_io_bytes += stream->shared_align_io_bytes();
+        total.shared_io_timer += stream->shared_io_timer();
+        total.direct_io_count += stream->direct_io_count();
+        total.direct_io_bytes += stream->direct_io_bytes();
+        total.direct_io_timer += stream->direct_io_timer();
+    }
+    return total;
 }
 
 } // namespace starrocks

@@ -576,6 +576,10 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
     public static final String ENABLE_PAIMON_NATIVE_WRITER = "enable_paimon_native_writer";
     public static final String PAIMON_NATIVE_COMMIT_USER = "paimon_native_commit_user";
     public static final String PAIMON_FORCE_NATIVE_READER = "paimon_force_native_reader";
+    public static final String PAIMON_NATIVE_READER_ENABLE_MULTI_THREAD_ROW_TO_BATCH =
+            "paimon_native_reader_enable_multi_thread_row_to_batch";
+    public static final String PAIMON_NATIVE_READER_ROW_TO_BATCH_THREAD_NUM =
+            "paimon_native_reader_row_to_batch_thread_num";
     public static final String ENABLE_DYNAMIC_PRUNE_SCAN_RANGE = "enable_dynamic_prune_scan_range";
     public static final String IO_TASKS_PER_SCAN_OPERATOR = "io_tasks_per_scan_operator";
     public static final String CONNECTOR_IO_TASKS_PER_SCAN_OPERATOR = "connector_io_tasks_per_scan_operator";
@@ -2225,6 +2229,24 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
     @VariableMgr.VarAttr(name = PAIMON_FORCE_NATIVE_READER)
     private boolean paimonForceNativeReader = false;
 
+    // PK merge-on-read parallelism switch. Paimon PK tables read via
+    // MergeFileSplitRead: data files of the same key range are sort-merged into
+    // a KeyValue stream, which then has to be projected back to arrow batches
+    // before reaching SR. By default that projection (KeyValueProjectionReader)
+    // is single-threaded; enabling this swaps it for AsyncKeyValueProjectionReader,
+    // which dispatches projection across `row_to_batch_thread_num` threads.
+    // No-op for append-only tables (they go through RawFileSplitRead and never
+    // produce a KeyValue stream), i.e. the common cloud OLAP scan. Default false;
+    // turn on only for PK tables where merge-on-read shows up as a CPU bottleneck.
+    @VariableMgr.VarAttr(name = PAIMON_NATIVE_READER_ENABLE_MULTI_THREAD_ROW_TO_BATCH)
+    private boolean paimonNativeReaderEnableMultiThreadRowToBatch = false;
+
+    // Thread pool size for AsyncKeyValueProjectionReader (above). Ignored when
+    // enable_multi_thread_row_to_batch=false. Pick based on per-scanner DOP —
+    // too high will starve other scanners on the same BE.
+    @VariableMgr.VarAttr(name = PAIMON_NATIVE_READER_ROW_TO_BATCH_THREAD_NUM)
+    private int paimonNativeReaderRowToBatchThreadNum = 1;
+
     @VarAttr(name = ENABLE_QUERY_CACHE)
     private boolean enableQueryCache = false;
 
@@ -2988,6 +3010,14 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
 
     public boolean getPaimonForceNativeReader() {
         return paimonForceNativeReader;
+    }
+
+    public boolean getPaimonNativeReaderEnableMultiThreadRowToBatch() {
+        return paimonNativeReaderEnableMultiThreadRowToBatch;
+    }
+
+    public int getPaimonNativeReaderRowToBatchThreadNum() {
+        return paimonNativeReaderRowToBatchThreadNum;
     }
 
     public void setCboCTEMaxLimit(int cboCTEMaxLimit) {
@@ -5319,6 +5349,8 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setPaimon_native_commit_user(paimonNativeCommitUser);
+        tResult.setPaimon_native_reader_enable_multi_thread_row_to_batch(paimonNativeReaderEnableMultiThreadRowToBatch);
+        tResult.setPaimon_native_reader_row_to_batch_thread_num(paimonNativeReaderRowToBatchThreadNum);
         tResult.setCatalog(catalog);
         tResult.setMem_limit(maxExecMemByte);
         tResult.setQuery_mem_limit(queryMemLimit);

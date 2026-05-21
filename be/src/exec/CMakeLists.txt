@@ -105,6 +105,8 @@ set(EXEC_FILES
     hdfs_scanner_parquet.cpp
     hdfs_scanner_text.cpp
     hdfs_scanner_partition.cpp
+    paimon/paimon_context_factory.cpp
+    paimon/paimon_native_reader.cpp
     paimon/paimon_scanner.cpp
     paimon/paimon_evaluator.cpp
     cache_select_scanner.cpp

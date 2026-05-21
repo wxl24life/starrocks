@@ -67,14 +67,10 @@ Status PaimonNativeWriter::do_init(RuntimeState* runtime_state) {
     RETURN_IF_ERROR(get_arrow_schema(runtime_state->timezone()));
 
     std::map<std::string, std::string> paimon_options = _paimon_table->get_paimon_options();
-    const std::string& root_path = paimon_options.at(PaimonOptions::ROOT_PATH);
+    const std::string root_path = paimon_options.at(PaimonOptions::ROOT_PATH);
     auto it = paimon_options.find(PARTITION_DEFAULT_NAME);
     if (it != paimon_options.end()) {
         _partition_default_value = it->second;
-    }
-
-    for (const auto& [key, value] : _cloud_conf.cloud_properties) {
-        paimon_options[key] = value;
     }
 
     std::string paimon_native_commit_user = runtime_state->query_options().paimon_native_commit_user;
@@ -83,11 +79,14 @@ Status PaimonNativeWriter::do_init(RuntimeState* runtime_state) {
     }
 
     paimon::WriteContextBuilder builder(root_path, paimon_native_commit_user);
-    // TODO: use global writer id
+    // Inject a PaimonFileSystem built directly from the FE-supplied TCloudConfiguration so we
+    // do not have to splice cloud_properties into the option map. The global
+    // PaimonFileSystemFactory path was disabled in the reader refactor.
     paimon::Result<std::unique_ptr<paimon::WriteContext>> result =
             builder.SetOptions(paimon_options)
-                    .AddOption(paimon::Options::FILE_SYSTEM, PaimonFileSystemFactory::IDENTIFIER)
                     .AddOption(PaimonOptions::ROOT_PATH, root_path)
+                    .WithFileSystem(std::make_shared<PaimonFileSystem>(root_path, _cloud_conf,
+                                                                       DataCacheOptions{}))
                     .WithWriteId(0)
                     .Finish();
     if (!result.ok()) {

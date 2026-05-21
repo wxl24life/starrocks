@@ -57,11 +57,11 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataOutputViewStreamWrapper;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FormatTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.format.FormatDataSplit;
 import org.apache.paimon.table.source.DataSplit;
-import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.Split;
@@ -491,9 +491,13 @@ public class PaimonScanNode extends ScanNode {
             } else {
                 throw new RuntimeException("Unsupported split type: " + split.getClass().getName());
             }
-            FileStoreTable nativeTable = (FileStoreTable) paimonTable.getNativeTable();
-            hdfsScanRange.setPaimon_table_path(nativeTable.location().toString());
-            hdfsScanRange.setPaimon_schema_id(nativeTable.schema().id());
+            // DEPRECATED. Also set on the per-range struct so old BE versions that
+            // still read paimon_table_path from THdfsScanRange keep working across
+            // FE/BE rolling upgrades. The new location is TPaimonTable.paimon_table_path.
+            // TODO: remove in the next release after all deployments have rolled past
+            // this commit.
+            hdfsScanRange.setPaimon_table_path(
+                    ((FileStoreTable) paimonTable.getNativeTable()).location().toString());
         } else {
             hdfsScanRange.setUse_paimon_jni_reader(true);
             hdfsScanRange.setUse_paimon_native_reader(false);

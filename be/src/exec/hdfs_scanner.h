@@ -179,6 +179,8 @@ struct HdfsScanProfile {
 
     RuntimeProfile::Counter* shared_buffered_shared_io_count = nullptr;
     RuntimeProfile::Counter* shared_buffered_shared_io_bytes = nullptr;
+    RuntimeProfile::Counter* shared_buffered_hit_io_count = nullptr;
+    RuntimeProfile::Counter* shared_buffered_hit_io_bytes = nullptr;
     RuntimeProfile::Counter* shared_buffered_shared_align_io_bytes = nullptr;
     RuntimeProfile::Counter* shared_buffered_shared_io_timer = nullptr;
     RuntimeProfile::Counter* shared_buffered_direct_io_count = nullptr;
@@ -277,12 +279,20 @@ struct HdfsScannerParams {
     int64_t connector_max_split_size = 0;
 
     ColumnIdToGlobalDictMap* global_dictmaps = &EMPTY_GLOBAL_DICTMAPS;
-    // paimon table path
+
+    // paimon table path (sourced from PaimonTableDescriptor; carried here for
+    // convenient access by paimon scanners)
     std::string paimon_table_path;
     // paimon split info
     std::string paimon_split_info;
-    // paimon schema id
-    int64_t paimon_schema_id;
+    // paimon native reader: enable multi-thread row to batch conversion
+    bool paimon_native_reader_enable_multi_thread_row_to_batch = false;
+    // paimon native reader: number of threads for row to batch conversion
+    int paimon_native_reader_row_to_batch_thread_num = 1;
+    // paimon table schema JSON sourced from PaimonTableDescriptor; lets the
+    // paimon native reader skip the OSS LIST/GET on schema during TableRead::Create.
+    // Empty string means FE did not provide a schema (consumer falls back to OSS read).
+    std::string paimon_table_schema_json;
 
     THdfsFileFormat::type file_format;
 };

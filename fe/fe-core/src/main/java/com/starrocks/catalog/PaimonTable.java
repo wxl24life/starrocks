@@ -36,6 +36,8 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.utils.JsonSerdeUtil;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -344,7 +346,18 @@ public class PaimonTable extends Table {
         tPaimonTable.setPartition_keys(paimonNativeTable.partitionKeys());
         tPaimonTable.setBucket_num(getBucketNumFromOptions());
         tPaimonTable.setBucket_keys(getBucketKey());
-        
+
+        // Per-table info consumed by the BE paimon native reader path
+        if (paimonNativeTable instanceof FileStoreTable) {
+            FileStoreTable fsTable = (FileStoreTable) paimonNativeTable;
+            tPaimonTable.setPaimon_table_path(fsTable.location().toString());
+            try {
+                tPaimonTable.setPaimon_table_schema_json(JsonSerdeUtil.toJson(fsTable.schema()));
+            } catch (Exception e) {
+                LOG.warn("Fail to serialize paimon table schema for {}: {}", tableName, e.getMessage());
+            }
+        }
+
         TTableDescriptor tTableDescriptor = new TTableDescriptor(id, TTableType.PAIMON_TABLE,
                 fullSchema.size(), 0, tableName, databaseName);
         tTableDescriptor.setPaimonTable(tPaimonTable);

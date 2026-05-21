@@ -18,6 +18,7 @@
 #include "column/column_helper.h"
 #include "column/type_traits.h"
 #include "connector/deletion_vector/deletion_vector.h"
+#include "exec/counted_seekable_input_stream.h"
 #include "exec/exec_node.h"
 #include "fs/hdfs/fs_hdfs.h"
 #include "io/cache_select_input_stream.hpp"
@@ -32,46 +33,6 @@
 namespace starrocks {
 
 static const std::string kCountOptColumnName = "___count___";
-
-class CountedSeekableInputStream final : public io::SeekableInputStreamWrapper {
-public:
-    explicit CountedSeekableInputStream(const std::shared_ptr<io::SeekableInputStream>& stream, HdfsScanStats* stats)
-            : io::SeekableInputStreamWrapper(stream.get(), kDontTakeOwnership), _stream(stream), _stats(stats) {}
-
-    ~CountedSeekableInputStream() override = default;
-
-    StatusOr<int64_t> read(void* data, int64_t size) override {
-        SCOPED_RAW_TIMER(&_stats->io_ns);
-        _stats->io_count += 1;
-        ASSIGN_OR_RETURN(auto nread, _stream->read(data, size));
-        _stats->bytes_read += nread;
-        return nread;
-    }
-
-    Status read_at_fully(int64_t offset, void* data, int64_t size) override {
-        SCOPED_RAW_TIMER(&_stats->io_ns);
-        _stats->io_count += 1;
-        _stats->bytes_read += size;
-        return _stream->read_at_fully(offset, data, size);
-    }
-
-    StatusOr<std::string_view> peek(int64_t count) override {
-        auto st = _stream->peek(count);
-        return st;
-    }
-
-    StatusOr<int64_t> read_at(int64_t offset, void* out, int64_t count) override {
-        SCOPED_RAW_TIMER(&_stats->io_ns);
-        _stats->io_count += 1;
-        ASSIGN_OR_RETURN(auto nread, _stream->read_at(offset, out, count));
-        _stats->bytes_read += nread;
-        return nread;
-    }
-
-private:
-    std::shared_ptr<io::SeekableInputStream> _stream;
-    HdfsScanStats* _stats;
-};
 
 bool HdfsScannerParams::is_lazy_materialization_slot(SlotId slot_id) const {
     // if there is no conjuncts, then there is no lazy materialization slot.
@@ -537,6 +498,8 @@ void HdfsScanner::update_counter() {
     if (_shared_buffered_input_stream) {
         COUNTER_UPDATE(profile->shared_buffered_shared_io_count, _shared_buffered_input_stream->shared_io_count());
         COUNTER_UPDATE(profile->shared_buffered_shared_io_bytes, _shared_buffered_input_stream->shared_io_bytes());
+        COUNTER_UPDATE(profile->shared_buffered_hit_io_count, _shared_buffered_input_stream->hit_io_count());
+        COUNTER_UPDATE(profile->shared_buffered_hit_io_bytes, _shared_buffered_input_stream->hit_io_bytes());
         COUNTER_UPDATE(profile->shared_buffered_shared_align_io_bytes,
                        _shared_buffered_input_stream->shared_align_io_bytes());
         COUNTER_UPDATE(profile->shared_buffered_shared_io_timer, _shared_buffered_input_stream->shared_io_timer());

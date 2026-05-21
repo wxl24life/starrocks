@@ -14,92 +14,32 @@
 
 #pragma once
 
-#include <exec/arrow_to_starrocks_converter.h>
+#include <memory>
+
 #include <exec/hdfs_scanner.h>
-#include <paimon/reader/batch_reader.h>
+#include <gen_cpp/CloudConfiguration_types.h>
 
-#include "common/statusor.h"
-#include "exprs/expr.h"
-
-using namespace paimon;
+#include "exec/paimon/paimon_native_reader.h"
 
 namespace starrocks {
 
-struct PaimonScanStats {
-    int64_t raw_rows_read = 0;
-    int64_t rows_read = 0;
-    int64_t late_materialize_skip_rows = 0;
-
-    int64_t io_ns = 0;
-    int64_t io_count = 0;
-    int64_t bytes_read = 0;
-
-    int64_t expr_filter_ns = 0;
-    int64_t column_read_ns = 0;
-    int64_t column_convert_ns = 0;
-    int64_t reader_init_ns = 0;
-
-    // late materialize round-by-round
-    int64_t group_min_round_cost = 0;
-};
-
-struct PaimonScannerParams {
-    // paimon table path
-    std::string table_path;
-
-    // paimon split info
-    std::string paimon_split_info;
-
-    // paimon schema id
-    int64_t schema_id;
-
-    // materialized columns.
-    std::vector<SlotDescriptor*> materialize_slots;
-    std::vector<int> materialize_index_in_chunk;
-};
-
 class PaimonScanner : public HdfsScanner {
 public:
-    PaimonScanner() = default;
+    explicit PaimonScanner(const TCloudConfiguration& cloud_conf) : _cloud_conf(cloud_conf) {}
     ~PaimonScanner() override = default;
 
-    // std::shared_ptr<paimon::Predicate> convert_array_to_column(const std::unordered_map<int, std::vector<ExprContext*>>& pairs);
     Status do_open(RuntimeState* runtime_state) override;
-    bool chunk_is_full() const;
     void do_close(RuntimeState* runtime_state) noexcept override;
-    bool batch_is_exhausted() const;
     Status do_get_next(RuntimeState* runtime_state, ChunkPtr* chunk) override;
     Status do_init(RuntimeState* runtime_state, const HdfsScannerParams& scanner_params) override;
     void do_update_counter(HdfsScanProfile* profile) override;
 
-    int64_t num_bytes_read() const { return _app_stats.bytes_read; }
-    int64_t raw_rows_read() const { return _app_stats.raw_rows_read; }
-    int64_t num_rows_read() const { return _app_stats.rows_read; }
-    int64_t cpu_time_spent() const { return _total_running_time - _app_stats.io_ns; }
-    int64_t io_time_spent() const { return _app_stats.io_ns; }
-
 private:
-    RuntimeState* _runtime_state = nullptr;
-    RuntimeProfile* _profile;
-    int64_t _total_running_time = 0;
-
-    std::unique_ptr<BatchReader> _reader = nullptr;
-
-    ObjectPool _pool;
-    size_t _max_chunk_size;
-    size_t _batch_start_idx;
-    size_t _chunk_start_idx;
-    std::vector<std::unique_ptr<ConvertFuncTree>> _conv_funcs;
     Filter _chunk_filter;
-    ArrowConvertContext _conv_ctx;
-    Status next_batch();
-    Status initialize_src_chunk(ChunkPtr* chunk);
-    Status append_batch_to_src_chunk(ChunkPtr* chunk);
-    Status finalize_src_chunk(ChunkPtr* chunk);
-    StatusOr<ChunkPtr> materialize(const starrocks::ChunkPtr& src, starrocks::ChunkPtr& cast);
-    size_t _max_batch_rows;
-    std::shared_ptr<arrow::RecordBatch> _arrow_batch;
-    std::vector<Expr*> _cast_exprs;
-    bool _scanner_eof;
+    std::unique_ptr<PaimonNativeReader> _reader;
+    // Cloud credentials forwarded from THdfsScanNode.cloud_configuration. The
+    // PaimonFileSystem we construct in PaimonNativeReader uses this directly so
+    // JindoSDK / OSS clients can sign requests with the right credentials.
+    TCloudConfiguration _cloud_conf;
 };
 } // namespace starrocks

@@ -522,6 +522,10 @@ void HiveDataSource::_init_counter(RuntimeState* state) {
                 ADD_CHILD_COUNTER(_runtime_profile, "SharedAlignIOBytes", TUnit::BYTES, prefix);
         _profile.shared_buffered_shared_io_count =
                 ADD_CHILD_COUNTER(_runtime_profile, "SharedIOCount", TUnit::UNIT, prefix);
+        _profile.shared_buffered_hit_io_bytes =
+                ADD_CHILD_COUNTER(_runtime_profile, "SharedHitIOBytes", TUnit::BYTES, prefix);
+        _profile.shared_buffered_hit_io_count =
+                ADD_CHILD_COUNTER(_runtime_profile, "SharedHitIOCount", TUnit::UNIT, prefix);
         _profile.shared_buffered_shared_io_timer = ADD_CHILD_TIMER(_runtime_profile, "SharedIOTime", prefix);
         _profile.shared_buffered_direct_io_bytes =
                 ADD_CHILD_COUNTER(_runtime_profile, "DirectIOBytes", TUnit::BYTES, prefix);
@@ -762,9 +766,24 @@ Status HiveDataSource::_init_scanner(RuntimeState* state) {
     if (scan_range.__isset.use_paimon_native_reader) {
         use_paimon_native_reader = scan_range.use_paimon_native_reader;
         scanner_params.paimon_split_info = scan_range.paimon_split_info_binary;
-        scanner_params.paimon_schema_id = scan_range.paimon_schema_id;
-        scanner_params.paimon_table_path = scan_range.paimon_table_path;
         scanner_params.file_format = scan_range.file_format;
+        const auto* paimon_table_desc = dynamic_cast<const PaimonTableDescriptor*>(_hive_table);
+        if (!paimon_table_desc->get_paimon_table_path().empty()) {
+            scanner_params.paimon_table_path = paimon_table_desc->get_paimon_table_path();
+        } else if (scan_range.__isset.paimon_table_path) {
+            // Compatible with old parameter
+            scanner_params.paimon_table_path = scan_range.paimon_table_path;
+        }
+        scanner_params.paimon_table_schema_json = paimon_table_desc->get_paimon_table_schema_json();
+        const auto& query_opts = state->query_options();
+        if (query_opts.__isset.paimon_native_reader_enable_multi_thread_row_to_batch) {
+            scanner_params.paimon_native_reader_enable_multi_thread_row_to_batch =
+                    query_opts.paimon_native_reader_enable_multi_thread_row_to_batch;
+        }
+        if (query_opts.__isset.paimon_native_reader_row_to_batch_thread_num) {
+            scanner_params.paimon_native_reader_row_to_batch_thread_num =
+                    query_opts.paimon_native_reader_row_to_batch_thread_num;
+        }
     }
     bool use_fluss_jni_reader = false;
     if (scan_range.__isset.use_fluss_jni_reader) {
@@ -796,7 +815,8 @@ Status HiveDataSource::_init_scanner(RuntimeState* state) {
     } else if (use_paimon_jni_reader) {
         scanner = create_paimon_jni_scanner(jni_scanner_create_options).release();
     } else if (use_paimon_native_reader) {
-        scanner = new PaimonScanner();
+        scanner = new PaimonScanner(hdfs_scan_node.__isset.cloud_configuration ? hdfs_scan_node.cloud_configuration
+                                                                                : TCloudConfiguration{});
     } else if (use_fluss_jni_reader) {
         scanner = create_fluss_jni_scanner(jni_scanner_create_options).release();
     } else if (use_hudi_jni_reader) {

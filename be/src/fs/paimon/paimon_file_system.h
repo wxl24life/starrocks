@@ -13,7 +13,12 @@
 // limitations under the License.
 #pragma once
 
+#include <mutex>
+
+#include "cache/block_cache/cache_options.h"
 #include "gen_cpp/CloudConfiguration_types.h"
+#include "io/cache_input_stream.h"
+#include "io/shared_buffered_input_stream.h"
 #include "paimon/fs/file_system.h"
 #include "paimon/fs/file_system_factory.h"
 
@@ -24,6 +29,7 @@ class FileSystem;
 class WritableFile;
 class RandomAccessFile;
 struct FSOptions;
+struct HdfsScanStats;
 
 class PaimonInputStream : public paimon::InputStream {
 public:
@@ -88,9 +94,25 @@ private:
 
 class PaimonFileSystem : public paimon::FileSystem {
 public:
-    PaimonFileSystem(const std::map<std::string, std::string>& options);
+    // `path` is the table root anchor used to resolve relative paths. `cloud_conf`
+    // is forwarded from FE so JindoSDK / OSS clients sign requests with the right
+    // credentials. `datacache_options` controls cache populate / priority / ttl.
+    // `fs_stats` / `app_stats` (optional, may be nullptr for the write path) are
+    // wired into CountedSeekableInputStream wrappers in Open() so that the
+    // surrounding HdfsScanner machinery (and fe-audit scanBytes) sees actual IO
+    // numbers — fs_stats tracks raw OSS bytes, app_stats tracks bytes the
+    // paimon-cpp reader consumed post-cache.
+    // Instances are constructed by `PaimonNativeReader::_create_paimon_fs` and
+    // injected into paimon-cpp via `ReadContextBuilder::WithFileSystem`. The
+    // global `PaimonFileSystemFactory` path is intentionally disabled — see
+    // `PaimonFileSystemFactory::Create`.
+    PaimonFileSystem(const std::string& path, const TCloudConfiguration& cloud_conf,
+                     const DataCacheOptions& datacache_options, HdfsScanStats* fs_stats = nullptr,
+                     HdfsScanStats* app_stats = nullptr);
     ~PaimonFileSystem() override;
     paimon::Result<std::unique_ptr<paimon::InputStream>> Open(const std::string& path) const override;
+    paimon::Result<std::unique_ptr<paimon::InputStream>> Open(const std::string& path,
+                                                              int64_t file_size) const override;
     paimon::Result<std::unique_ptr<paimon::OutputStream>> Create(const std::string& path,
                                                                  bool overwrite) const override;
     paimon::Status Mkdirs(const std::string& path) const override;
@@ -103,12 +125,39 @@ public:
                                   std::vector<std::unique_ptr<paimon::FileStatus>>* file_status_list) const override;
     paimon::Result<bool> Exists(const std::string& path) const override;
 
+    bool datacache_enabled() const { return _enable_datacache; }
+
+    io::CacheInputStream::Stats get_datacache_stats() const;
+
+    // Aggregate stats across all SharedBufferedInputStreams held by this FS,
+    // taken under _streams_mutex so concurrent prefetch Open() can't race the
+    // vector with the reader of these stats.
+    struct SharedBufferedStats {
+        int64_t shared_io_count = 0;
+        int64_t shared_io_bytes = 0;
+        int64_t hit_io_count = 0;
+        int64_t hit_io_bytes = 0;
+        int64_t shared_align_io_bytes = 0;
+        int64_t shared_io_timer = 0;
+        int64_t direct_io_count = 0;
+        int64_t direct_io_bytes = 0;
+        int64_t direct_io_timer = 0;
+    };
+    SharedBufferedStats get_shared_buffered_stats() const;
+
 private:
     Status delete_internal(const std::string& path, bool is_dir, bool recursive) const;
 
-    std::map<std::string, std::string> _options;
     TCloudConfiguration _cloud_configuration;
     std::unique_ptr<starrocks::FileSystem> _fs;
+    bool _enable_datacache = false;
+    DataCacheOptions _datacache_options{};
+    HdfsScanStats* _fs_stats = nullptr;
+    HdfsScanStats* _app_stats = nullptr;
+
+    mutable std::mutex _streams_mutex;
+    mutable std::vector<std::shared_ptr<io::CacheInputStream>> _cache_streams;
+    mutable std::vector<std::shared_ptr<io::SharedBufferedInputStream>> _shared_buffered_streams;
 };
 
 class PaimonFileSystemFactory : public paimon::FileSystemFactory {

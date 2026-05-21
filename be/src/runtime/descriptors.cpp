@@ -338,6 +338,8 @@ PaimonTableDescriptor::PaimonTableDescriptor(const TTableDescriptor& tdesc, Obje
     _bucket_num = tdesc.paimonTable.bucket_num;
     _bucket_keys = tdesc.paimonTable.bucket_keys;
     _partition_columns = tdesc.paimonTable.partition_columns;
+    _paimon_table_path = tdesc.paimonTable.paimon_table_path;
+    _paimon_table_schema_json = tdesc.paimonTable.paimon_table_schema_json;
     for (const auto& entry : tdesc.paimonTable.partitions) {
         auto* partition = pool->add(new HdfsPartitionDescriptor(entry.second));
         _partition_id_to_desc_map[entry.first] = partition;

@@ -320,6 +320,8 @@ public:
     int32_t get_bucket_num() const { return _bucket_num; }
     const std::vector<std::string>& get_bucket_keys() const;
     bool has_base_path() const override { return true; }
+    const std::string& get_paimon_table_path() const { return _paimon_table_path; }
+    const std::string& get_paimon_table_schema_json() const { return _paimon_table_schema_json; }
 
 private:
     std::map<std::string, std::string> _paimon_options;
@@ -330,6 +332,8 @@ private:
     std::vector<std::string> _partition_keys;
     int32_t _bucket_num;
     std::vector<std::string> _bucket_keys;
+    std::string _paimon_table_path;
+    std::string _paimon_table_schema_json;
 };
 
 class FlussTableDescriptor : public HiveTableDescriptor {

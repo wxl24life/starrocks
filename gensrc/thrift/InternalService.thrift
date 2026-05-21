@@ -341,6 +341,11 @@ struct TQueryOptions {
 
   142: optional bool enable_pipeline_event_scheduler;
 
+  // paimon native reader: enable multi-thread row to batch conversion
+  144: optional bool paimon_native_reader_enable_multi_thread_row_to_batch;
+  // paimon native reader: number of threads for row to batch conversion
+  145: optional i32 paimon_native_reader_row_to_batch_thread_num;
+
   150: optional map<string, string> ann_params;
   151: optional double pq_refine_factor;
   152: optional double k_factor;

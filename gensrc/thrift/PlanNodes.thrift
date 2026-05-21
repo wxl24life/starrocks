@@ -443,11 +443,10 @@ struct THdfsScanRange {
     // whether to use paimon native scanner to read data of paimon table
     36: optional bool use_paimon_native_reader
 
-    // paimon table path
+    // DEPRECATED. Moved to TPaimonTable.paimon_table_path.
+    // Kept on the per-range struct so old BE versions that still read it from
+    // THdfsScanRange keep working across FE/BE rolling upgrades.
     37: optional string paimon_table_path
-
-    // paimon schema id
-    38: optional i64 paimon_schema_id
 
     // paimon split info for org.apache.paimon.table.source.DataSplit.serialize
     39: optional binary paimon_split_info_binary

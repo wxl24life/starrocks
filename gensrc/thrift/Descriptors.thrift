@@ -598,6 +598,15 @@ struct TPaimonTable {
     10: optional map<i64, THdfsPartition> partitions
     // The prefixes of locations of partitions in this table
     11: optional list<string> partition_prefixes
+
+    // paimon table base path (FileStoreTable.location().toString()).
+    // Previously sent per-range on THdfsScanRange.paimon_table_path (field 33),
+    // moved here as it's table-level.
+    12: optional string paimon_table_path
+    // Paimon TableSchema serialized as JSON (paimon's JsonSerdeUtil.toJson),
+    // parsed by paimon-cpp TableSchema::FromJsonString; lets the native reader
+    // skip the OSS LIST + GET on the schema file inside TableRead::Create.
+    13: optional string paimon_table_schema_json
 }
 
 struct TFlussTable {
