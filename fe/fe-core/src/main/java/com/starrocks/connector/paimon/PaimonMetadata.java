@@ -59,8 +59,10 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.globalindex.GlobalIndexResult;
 import org.apache.paimon.globalindex.IndexedSplit;
+import org.apache.paimon.index.GlobalIndexMeta;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataInputViewStreamWrapper;
+import org.apache.paimon.manifest.IndexManifestEntry;
 import org.apache.paimon.metrics.Gauge;
 import org.apache.paimon.metrics.Metric;
 import org.apache.paimon.operation.metrics.ScanMetrics;
@@ -595,14 +597,13 @@ public class PaimonMetadata implements ConnectorMetadata {
             return null;
         }
         List<Range> shardRanges = new ArrayList<>();
-        for (Split split : fileStoreTable.newReadBuilder().newScan().plan().splits()) {
-            if (split instanceof DataSplit) {
-                for (DataFileMeta file : ((DataSplit) split).dataFiles()) {
-                    shardRanges.add(file.nonNullRowIdRange());
-                }
+        for (IndexManifestEntry entry : fileStoreTable.store().newIndexFileHandler().scanEntries()) {
+            GlobalIndexMeta meta = entry.indexFile().globalIndexMeta();
+            if (meta != null) {
+                shardRanges.add(meta.rowRange());
             }
         }
-        return org.apache.paimon.utils.Range.sortAndMergeOverlap(shardRanges, true);
+        return org.apache.paimon.utils.Range.sortAndMergeOverlap(shardRanges, false);
     }
 
     @Override
