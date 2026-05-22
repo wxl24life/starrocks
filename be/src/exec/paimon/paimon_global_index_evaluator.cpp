@@ -18,6 +18,7 @@
 #include <paimon/predicate/full_text_search.h>
 #include <paimon/utils/roaring_bitmap64.h>
 
+#include "common/config.h"
 #include "paimon_adapters.h"
 
 namespace starrocks {
@@ -226,9 +227,10 @@ StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> PaimonGlobalIndexTopNEvalua
 
         // lumina index options with default. Default search.list_size matches FE-side
         // PaimonGlobalIndexBackendSelector (1024); upscale linearly when localN exceeds it.
-        std::map<std::string, std::string> index_options = {{"lumina.diskann.search.list_size", "1024"},
-                                                            {"lumina.search.parallel_number", "5"},
-                                                            {"lumina.diskann.search.beam_width", "4"}};
+        std::map<std::string, std::string> index_options = {
+                {"lumina.diskann.search.list_size", "1024"},
+                {"lumina.search.parallel_number", std::to_string(config::lumina_search_parallel_number)},
+                {"lumina.diskann.search.beam_width", "4"}};
         if (_n > 1024) {
             index_options["lumina.diskann.search.list_size"] = std::to_string(_n * 3 / 2);
         }

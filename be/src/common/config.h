@@ -932,6 +932,10 @@ CONF_Int64(pipeline_sink_buffer_size, "64");
 // The degree of parallelism of brpc.
 CONF_Int64(pipeline_sink_brpc_dop, "64");
 CONF_mInt64(paimon_sink_commit_chunk_num, "16");
+// Number of parallel worker threads the lumina vector-ANN search uses per query when
+// scanning a Paimon global (vector) index. Set to 1 to disable intra-query search
+// concurrency. mutable: updatable at runtime via the update_config API.
+CONF_mInt32(lumina_search_parallel_number, "5");
 // Enable native Arrow types (Date32, Timestamp, etc.) when converting StarRocks types to Arrow types.
 // If true (default), DATE is converted to Arrow Date32Type, and DATETIME is converted to Arrow TimestampType.
 // If false, DATE and DATETIME are converted to Arrow utf8() type for backward compatibility.
