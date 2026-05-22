@@ -144,15 +144,22 @@ public class PaimonUtils {
 
     @NotNull
     public static GlobalIndexResultAggregator createAggregator(GlobalIndexResult globalIndexResult) {
+        // GlobalIndexResult.or(other) is a default method that RETURNS a new GlobalIndexResult;
+        // it does NOT mutate `this`. The previous code did `globalIndexResult.or(partial);`
+        // and threw the return value away, so terminate() always returned only the first
+        // shard's bitmap. Symptom on ft_test.http_logs MATCH 'teambio148': SQL returned 797
+        // rows vs ~60747 ground truth (lower(request) LIKE '%teambio148%'). Hold the
+        // aggregated result in a mutable holder and assign each OR back.
+        final GlobalIndexResult[] holder = new GlobalIndexResult[] {globalIndexResult};
         return new GlobalIndexResultAggregator() {
             @Override
             public void iterate(GlobalIndexResult partial) {
-                globalIndexResult.or(partial);
+                holder[0] = holder[0].or(partial);
             }
 
             @Override
             public GlobalIndexResult terminate() {
-                return globalIndexResult;
+                return holder[0];
             }
         };
     }
