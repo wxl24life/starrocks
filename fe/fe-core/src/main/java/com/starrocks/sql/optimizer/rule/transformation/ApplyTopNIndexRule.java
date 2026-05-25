@@ -102,6 +102,15 @@ public class ApplyTopNIndexRule extends TransformationRule {
         super(RuleType.TF_APPLY_INDEX_RULE, Pattern.create(OperatorType.LOGICAL_TOPN, type));
     }
 
+    private static ScalarOperator getScoreExpr(Ordering ordering, LogicalScanOperator lso) {
+        ScalarOperator scoreExpr = ordering.getColumnRef();
+        if (lso.getProjection() != null && lso.getProjection().getColumnRefMap() != null &&
+                lso.getProjection().getColumnRefMap().containsKey(scoreExpr)) {
+            scoreExpr = lso.getProjection().getColumnRefMap().get(scoreExpr);
+        }
+        return scoreExpr;
+    }
+
     @Override
     public boolean check(OptExpression input, OptimizerContext context) {
         try (Timer ignored = Tracers.watchScope(INDEX, "ApplyTopNIndexRule::check")) {
@@ -136,14 +145,8 @@ public class ApplyTopNIndexRule extends TransformationRule {
 
         // Extract the score expression from the ORDER BY clause.
         // The score expression is used to rank results in the index.
-        // Projection is required: ORDER BY column ref must be resolvable to its defining expression
-        // via the scan's projection map. If the planner ever drops the projection here, fall back
-        // safely instead of NPE-ing the optimizer.
-        if (lso.getProjection() == null || lso.getProjection().getColumnRefMap() == null) {
-            return false;
-        }
         Ordering ordering = orderByElements.get(0);
-        ScalarOperator scoreExpr = lso.getProjection().getColumnRefMap().get(ordering.getColumnRef());
+        ScalarOperator scoreExpr = getScoreExpr(ordering, lso);
         if (scoreExpr == null) {
             return false;
         }
@@ -193,7 +196,7 @@ public class ApplyTopNIndexRule extends TransformationRule {
         LogicalScanOperator lso = (LogicalScanOperator) input.getInputs().get(0).getOp();
 
         Ordering ordering = lto.getOrderByElements().get(0);
-        ScalarOperator scoreExpr = lso.getProjection().getColumnRefMap().get(ordering.getColumnRef());
+        ScalarOperator scoreExpr = getScoreExpr(ordering, lso);
         Optional<ConnectorMetadata> metadata = GlobalStateMgr.getCurrentState().getMetadataMgr()
                 .getOptionalMetadata(lso.getTable().getCatalogName());
         assert metadata.isPresent();
