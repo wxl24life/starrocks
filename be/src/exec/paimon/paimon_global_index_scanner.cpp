@@ -14,8 +14,10 @@
 
 #include "paimon_global_index_scanner.h"
 
+#include <paimon/executor.h>
 #include <paimon/global_index/bitmap_global_index_result.h>
 #include <paimon/global_index/global_index_scan.h>
+#include <paimon/utils/row_range_index.h>
 
 #include <string>
 
@@ -89,22 +91,26 @@ StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> PaimonGlobalIndexScanner::e
 
     std::shared_ptr<paimon::MemoryPool> memory_pool = paimon::GetMemoryPool();
 
-    // GlobalIndexScan + RangeScan are heavy to construct (open file system, fetch index meta).
-    // Build them once and let the visitor's column_readers_getter only invoke CreateReaders for
-    // each predicate node.
+    // GlobalIndexScan is heavy to construct (open file system, fetch index meta). Build it once,
+    // together with the row-range filter for this shard, and let the visitor's
+    // column_readers_getter only invoke CreateReaders for each predicate node.
     ASSIGN_OR_RETURN_WITH_MSG_PAIMON(
             const auto global_index_scan,
-            paimon::GlobalIndexScan::Create(table_path, std::nullopt, std::nullopt, {}, file_system, memory_pool),
+            paimon::GlobalIndexScan::Create(table_path, std::nullopt, std::nullopt, {}, file_system,
+                                            paimon::GetGlobalDefaultExecutor(), memory_pool),
             fmt::format("create GlobalIndexScan fail, table_path:{}", table_path));
+    // CreateRangeScan was removed upstream; the [from, to) row range is now passed to CreateReaders
+    // as a RowRangeIndex that limits the scan to this shard's row ids.
     ASSIGN_OR_RETURN_WITH_MSG_PAIMON(
-            const auto range_scanner, global_index_scan->CreateRangeScan(paimon::Range(from, to)),
-            fmt::format("create RangeScanner fail, from:{}, to:{}", from, to));
+            auto row_range_index, paimon::RowRangeIndex::Create({paimon::Range(from, to)}),
+            fmt::format("create RowRangeIndex fail, from:{}, to:{}", from, to));
+    const std::optional<paimon::RowRangeIndex> row_range(std::move(row_range_index));
 
     auto column_readers_getter = [&](const std::string_view column_name)
             -> StatusOr<std::vector<std::shared_ptr<paimon::GlobalIndexReader>>> {
-        ASSIGN_OR_RETURN_WITH_MSG_PAIMON(auto readers,
-                                         range_scanner->CreateReaders(std::string(column_name)),
-                                         fmt::format("create Readers fail, column:{}", column_name));
+        ASSIGN_OR_RETURN_WITH_MSG_PAIMON(
+                auto readers, global_index_scan->CreateReaders(std::string(column_name), row_range),
+                fmt::format("create Readers fail, column:{}", column_name));
         return readers;
     };
 

@@ -124,8 +124,8 @@ public:
     // global `PaimonFileSystemFactory` path is intentionally disabled — see
     // `PaimonFileSystemFactory::Create`.
     PaimonFileSystem(const std::string& path, const TCloudConfiguration& cloud_conf,
-                     const DataCacheOptions& datacache_options, HdfsScanStats* fs_stats = nullptr,
-                     HdfsScanStats* app_stats = nullptr);
+                     const DataCacheOptions& datacache_options = DataCacheOptions{},
+                     HdfsScanStats* fs_stats = nullptr, HdfsScanStats* app_stats = nullptr);
     ~PaimonFileSystem() override;
     paimon::Result<std::unique_ptr<paimon::InputStream>> Open(const std::string& path) const override;
     paimon::Result<std::unique_ptr<paimon::InputStream>> Open(const std::string& path,
