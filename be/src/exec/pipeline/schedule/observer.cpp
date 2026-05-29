@@ -77,6 +77,7 @@ void PipelineObserver::_do_update(int event) {
 }
 
 std::string Observable::to_string() const {
+    std::lock_guard<std::mutex> l(_mutex);
     std::string str;
     for (auto* observer : _observers) {
         str += observer->driver()->to_readable_string() + "\n";
@@ -85,6 +86,7 @@ std::string Observable::to_string() const {
 }
 
 void Observable::notify_runtime_filter_timeout() {
+    std::lock_guard<std::mutex> l(_mutex);
     for (auto* observer : _observers) {
         observer->driver()->set_all_global_rf_timeout();
         observer->source_trigger();

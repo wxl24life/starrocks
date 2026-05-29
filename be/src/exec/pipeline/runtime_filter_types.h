@@ -152,6 +152,7 @@ public:
     void add_observer(RuntimeState* state, PipelineObserver* observer) {
         _local_rf_observable.add_observer(state, observer);
     }
+    void remove_observer(PipelineObserver* observer) { _local_rf_observable.remove_observer(observer); }
 
     auto notify() { _local_rf_observable.notify_source_observers(); }
     Observable& observer() { return _local_rf_observable; }

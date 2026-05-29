@@ -228,6 +228,7 @@ public:
     void add_observer(RuntimeState* state, pipeline::PipelineObserver* observer) {
         _observable.add_observer(state, observer);
     }
+    void remove_observer(pipeline::PipelineObserver* observer) { _observable.remove_observer(observer); }
 
     void set_has_push_down_to_storage(bool v) { _has_push_down_to_storage = v; }
     bool has_push_down_to_storage() const { return _has_push_down_to_storage; }

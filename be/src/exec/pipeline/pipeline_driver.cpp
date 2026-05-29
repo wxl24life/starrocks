@@ -694,6 +694,23 @@ void PipelineDriver::_try_to_release_buffer(RuntimeState* state, OperatorPtr& op
 }
 
 void PipelineDriver::finalize(RuntimeState* runtime_state, DriverState state) {
+    // Global/local runtime filters are delivered asynchronously (a global RF on the
+    // RuntimeFilterWorker thread, a local RF from the build-side driver) and the probe
+    // descriptors/holders outlive this driver -- they live in the fragment's object pool
+    // and the runtime filter hub. This driver registered its PipelineObserver into them
+    // during prepare(); detach it before teardown, otherwise a late runtime filter would
+    // call notify_*_observers() over a destructed PipelineObserver (use-after-free,
+    // crashing in set_runtime_filter -> PipelineObserver::_do_update). The matching
+    // pipeline timer observer is removed via unschedule() below.
+    if (runtime_state->enable_event_scheduler()) {
+        for (auto* desc : _global_rf_descriptors) {
+            desc->remove_observer(&_observer);
+        }
+        for (auto* holder : _local_rf_holders) {
+            holder->remove_observer(&_observer);
+        }
+    }
+
     stop_timers();
     int64_t time_spent = 0;
     // The driver may be destructed after finalizing, so use a temporal driver to record

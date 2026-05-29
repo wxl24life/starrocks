@@ -14,7 +14,9 @@
 
 #pragma once
 
+#include <algorithm>
 #include <atomic>
+#include <mutex>
 #include <vector>
 
 #include "exec/pipeline/pipeline_fwd.h"
@@ -102,22 +104,39 @@ public:
     Observable(const Observable&) = delete;
     Observable& operator=(const Observable&) = delete;
 
-    // Non-thread-safe, we only allow the need to do this in the fragment->prepare phase.
     void add_observer(RuntimeState* state, PipelineObserver* observer) {
         if (state->enable_event_scheduler()) {
             DCHECK(observer != nullptr);
+            std::lock_guard<std::mutex> l(_mutex);
             _observers.push_back(observer);
         }
     }
 
-    void detach_observers() { _observers.clear(); }
+    // Detach a single observer. Idempotent: it is a no-op when the observer was never
+    // added. This must be called when the PipelineObserver's owning PipelineDriver is
+    // finalized, otherwise an asynchronously-delivered runtime filter (e.g. on the
+    // RuntimeFilterWorker thread) could dereference the destructed observer (UAF).
+    void remove_observer(PipelineObserver* observer) {
+        std::lock_guard<std::mutex> l(_mutex);
+        auto it = std::find(_observers.begin(), _observers.end(), observer);
+        if (it != _observers.end()) {
+            _observers.erase(it);
+        }
+    }
+
+    void detach_observers() {
+        std::lock_guard<std::mutex> l(_mutex);
+        _observers.clear();
+    }
 
     void notify_source_observers() {
+        std::lock_guard<std::mutex> l(_mutex);
         for (auto* observer : _observers) {
             observer->source_trigger();
         }
     }
     void notify_sink_observers() {
+        std::lock_guard<std::mutex> l(_mutex);
         for (auto* observer : _observers) {
             observer->sink_trigger();
         }
@@ -125,11 +144,18 @@ public:
 
     void notify_runtime_filter_timeout();
 
-    size_t num_observers() const { return _observers.size(); }
+    size_t num_observers() const {
+        std::lock_guard<std::mutex> l(_mutex);
+        return _observers.size();
+    }
 
     std::string to_string() const;
 
 private:
+    // Guards _observers. notify_*() runs on asynchronous threads (RuntimeFilterWorker,
+    // pipeline timer) while remove_observer() runs on the driver-executor thread during
+    // finalize; the lock serializes them so a notify never touches a detached observer.
+    mutable std::mutex _mutex;
     std::vector<PipelineObserver*> _observers;
 };
 
