@@ -936,6 +936,11 @@ CONF_mInt64(paimon_sink_commit_chunk_num, "16");
 // scanning a Paimon global (vector) index. Set to 1 to disable intra-query search
 // concurrency. mutable: updatable at runtime via the update_config API.
 CONF_mInt32(lumina_search_parallel_number, "5");
+// Maximum number of worker threads in the dedicated thread pool that serves
+// PaimonInputStream::ReadAsync -- the asynchronous reads issued by the Paimon
+// global (vector) index during ANN search. Takes effect when the pool is first
+// created (the first vector-index query after BE start).
+CONF_Int32(paimon_async_read_thread_pool_size, "64");
 // Enable native Arrow types (Date32, Timestamp, etc.) when converting StarRocks types to Arrow types.
 // If true (default), DATE is converted to Arrow Date32Type, and DATETIME is converted to Arrow TimestampType.
 // If false, DATE and DATETIME are converted to Arrow utf8() type for backward compatibility.

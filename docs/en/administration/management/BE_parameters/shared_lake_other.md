@@ -420,6 +420,15 @@ This topic introduces the following types of FE configurations:
 - Description: Limits the maximum number of concurrently running connector (HDFS/remote) scanners that a ConnectorScanNode can have. During scan startup the node computes an estimated concurrency (based on memory, chunk size and scanner_row_num) and then caps it with this value to determine how many scanners and chunks to reserve and how many scanner threads to start. It is also consulted when scheduling pending scanners at runtime (to avoid oversubscription) and when deciding how many pending scanners can be re-submitted considering file-handle limits. Lowering this reduces threads, memory and open-file pressure at the cost of potential throughput; increasing it raises concurrency and resource usage.
 - Introduced in: v3.2.0
 
+### paimon_async_read_thread_pool_size
+
+- Default: 64
+- Type: Int
+- Unit: -
+- Is mutable: No
+- Description: The maximum number of worker threads in the dedicated thread pool that serves `PaimonInputStream::ReadAsync` — the asynchronous reads issued by the Paimon global (vector) index during ANN search. Each in-flight asynchronous read occupies one thread while it waits on remote I/O; when all threads are busy, further reads are queued. Takes effect when the pool is first created (the first vector-index query after BE starts).
+- Introduced in: v3.5.15
+
 ### query_max_memory_limit_percent
 
 - Default: 90

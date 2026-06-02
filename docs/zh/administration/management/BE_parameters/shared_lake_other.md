@@ -390,6 +390,15 @@ SELECT * FROM information_schema.be_configs [WHERE NAME LIKE "%<name_pattern>%"]
 - 描述：在存算分离集群中，RPC 请求的最大并发数。当达到此阈值时，新请求会被拒绝。将此项设置为 `0` 表示对并发不做限制。
 - 引入版本：-
 
+### paimon_async_read_thread_pool_size
+
+- 默认值：64
+- 类型：Int
+- 单位：-
+- 是否动态：否
+- 描述：专用线程池的最大工作线程数。该线程池用于处理 `PaimonInputStream::ReadAsync`,即 Paimon 全局(向量)索引在 ANN 检索过程中发起的异步读取请求。每个进行中的异步读取在等待远程 I/O 时会占用一个线程;当所有线程繁忙时,后续读取请求会进入队列等待。该参数在线程池首次创建时(BE 启动后的首个向量索引查询)生效。
+- 引入版本：v3.5.15
+
 ### query_max_memory_limit_percent
 
 - 默认值：90

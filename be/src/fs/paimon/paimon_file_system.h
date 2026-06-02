@@ -13,7 +13,9 @@
 // limitations under the License.
 #pragma once
 
+#include <memory>
 #include <mutex>
+#include <string>
 
 #include "cache/block_cache/cache_options.h"
 #include "gen_cpp/CloudConfiguration_types.h"
@@ -33,7 +35,8 @@ struct HdfsScanStats;
 
 class PaimonInputStream : public paimon::InputStream {
 public:
-    PaimonInputStream(std::unique_ptr<RandomAccessFile> file);
+    PaimonInputStream(std::unique_ptr<RandomAccessFile> file, std::shared_ptr<starrocks::FileSystem> fs,
+                      std::string path);
     ~PaimonInputStream() override;
     paimon::Status Close() override;
     paimon::Status Seek(int64_t offset, paimon::SeekOrigin origin) override;
@@ -46,7 +49,21 @@ public:
     paimon::Result<uint64_t> Length() const override;
 
 private:
+    // Resolve the file size exactly once and cache it, so every fresh stream opened by a
+    // positional read can skip its own size lookup (e.g. an S3 HeadObject). Returns -1 if
+    // the size could not be determined.
+    int64_t ensure_file_size();
+
+    // The shared cursor file. Used only by the sequential cursor API (Read(buf,size),
+    // Seek, GetPos, Length), which is single-threaded by paimon's InputStream contract.
     std::unique_ptr<RandomAccessFile> _file;
+    // File system + path are used by the positional/async API to open independent,
+    // per-call streams. Held by shared_ptr so the stream stays valid even if the
+    // owning PaimonFileSystem is destroyed first.
+    std::shared_ptr<starrocks::FileSystem> _fs;
+    std::string _path;
+    std::once_flag _size_once;
+    int64_t _cached_size{-1};
 };
 
 class PaimonOutputStream : public paimon::OutputStream {
@@ -149,7 +166,7 @@ private:
     Status delete_internal(const std::string& path, bool is_dir, bool recursive) const;
 
     TCloudConfiguration _cloud_configuration;
-    std::unique_ptr<starrocks::FileSystem> _fs;
+    std::shared_ptr<starrocks::FileSystem> _fs;
     bool _enable_datacache = false;
     DataCacheOptions _datacache_options{};
     HdfsScanStats* _fs_stats = nullptr;

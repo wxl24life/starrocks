@@ -14,6 +14,8 @@
 
 #include "paimon_file_system.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <iostream>
 
 #include "common/config.h"
@@ -23,8 +25,69 @@
 #include "gen_cpp/CloudConfiguration_types.h"
 #include "io/cache_input_stream.h"
 #include "io/shared_buffered_input_stream.h"
+#include "util/monotime.h"
+#include "util/threadpool.h"
 
 namespace starrocks {
+namespace {
+
+// Dedicated, process-lifetime thread pool that runs PaimonInputStream::ReadAsync tasks.
+// Lazily built on first use; intentionally leaked so it is never torn down at static
+// destruction time (which could race with other process singletons). Returns nullptr
+// if the pool could not be created -- callers then fall back to an inline read.
+ThreadPool* get_paimon_async_read_pool() {
+    static ThreadPool* pool = []() -> ThreadPool* {
+        std::unique_ptr<ThreadPool> built;
+        Status st = ThreadPoolBuilder("paimon_aio")
+                            .set_min_threads(0)
+                            .set_max_threads(std::max(1, config::paimon_async_read_thread_pool_size))
+                            .set_max_queue_size(INT32_MAX)
+                            .set_idle_timeout(MonoDelta::FromMilliseconds(10000))
+                            .build(&built);
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to create paimon async read thread pool, reason: " << st.message();
+            return nullptr;
+        }
+        LOG(INFO) << "Created paimon async read thread pool, max_threads="
+                  << std::max(1, config::paimon_async_read_thread_pool_size);
+        return built.release();
+    }();
+    return pool;
+}
+
+// Perform a positional read by opening an independent, short-lived RandomAccessFile.
+// Because the file owns its own offset and prefetch buffer, any number of these calls
+// may run concurrently without locking. `file_size`, when >= 0, is passed through so
+// the underlying file system can skip its own size lookup (e.g. an S3 HeadObject).
+paimon::Status read_fully_with_fresh_stream(const std::shared_ptr<starrocks::FileSystem>& fs, const std::string& path,
+                                            int64_t file_size, char* buffer, uint32_t size, uint64_t offset) {
+    if (fs == nullptr) {
+        LOG(WARNING) << "paimon positioned read has no file system, file=" << path;
+        return paimon::Status::IOError(fmt::format("file '{}' has no file system for positioned read", path));
+    }
+    FileInfo file_info;
+    file_info.path = path;
+    if (file_size >= 0) {
+        file_info.size = file_size;
+    }
+    auto rf = fs->new_random_access_file(RandomAccessFileOptions(), file_info);
+    if (!rf.ok()) {
+        LOG(WARNING) << "paimon positioned read failed to open file=" << path
+                     << ", reason: " << rf.status().detailed_message();
+        return paimon::Status::IOError(fmt::format("Failed to open file {} for positioned read, reason: {}", path,
+                                                   rf.status().detailed_message()));
+    }
+    auto status = (*rf)->read_at_fully(offset, buffer, size);
+    if (!status.ok()) {
+        LOG(WARNING) << "paimon positioned read failed, file=" << path << ", offset=" << offset
+                     << ", request_size=" << size << ", reason: " << status.detailed_message();
+        return paimon::Status::IOError(
+                fmt::format("Failed to read file {}, reason: {}", path, status.detailed_message()));
+    }
+    return paimon::Status::OK();
+}
+
+} // namespace
 
 const char PaimonFileSystemFactory::IDENTIFIER[] = "paimon";
 const std::string PaimonOptions::ROOT_PATH = "path";
@@ -145,7 +208,7 @@ paimon::Result<std::unique_ptr<paimon::InputStream>> PaimonFileSystem::Open(cons
         if (file_size >= 0) {
             counted_file->set_size(file_size);
         }
-        return std::make_unique<PaimonInputStream>(std::move(counted_file));
+        return std::make_unique<PaimonInputStream>(std::move(counted_file), _fs, path);
     }
 
     // file_size < 0 sentinel: caller doesn't know the size, fetch via HEAD.
@@ -192,7 +255,7 @@ paimon::Result<std::unique_ptr<paimon::InputStream>> PaimonFileSystem::Open(cons
 
     auto cache_file = std::make_unique<RandomAccessFile>(final_stream, filename);
     cache_file->set_size(file_size);
-    return std::make_unique<PaimonInputStream>(std::move(cache_file));
+    return std::make_unique<PaimonInputStream>(std::move(cache_file), _fs, path);
 }
 
 paimon::Status PaimonFileSystem::Delete(const std::string& path, bool recursive) const {
@@ -372,9 +435,25 @@ paimon::Status PaimonFileSystem::ListFileStatus(
     return paimon::Status::OK();
 }
 
-PaimonInputStream::PaimonInputStream(std::unique_ptr<RandomAccessFile> file) : _file(std::move(file)) {}
+PaimonInputStream::PaimonInputStream(std::unique_ptr<RandomAccessFile> file, std::shared_ptr<starrocks::FileSystem> fs,
+                                     std::string path)
+        : _file(std::move(file)), _fs(std::move(fs)), _path(std::move(path)) {}
 
 PaimonInputStream::~PaimonInputStream() = default;
+
+int64_t PaimonInputStream::ensure_file_size() {
+    std::call_once(_size_once, [this]() {
+        auto st = _file->get_size();
+        if (st.ok()) {
+            _cached_size = static_cast<int64_t>(st.value());
+        } else {
+            LOG(WARNING) << "paimon failed to resolve file size, file=" << _path
+                         << ", reason: " << st.status().detailed_message();
+            _cached_size = -1;
+        }
+    });
+    return _cached_size;
+}
 
 paimon::Result<int32_t> PaimonInputStream::Read(char* buffer, uint32_t size) {
     auto st = _file->read(buffer, size);
@@ -399,10 +478,12 @@ paimon::Result<uint64_t> PaimonInputStream::Length() const {
 }
 
 paimon::Result<int32_t> PaimonInputStream::Read(char* buffer, uint32_t size, uint64_t offset) {
-    auto status = _file->read_at_fully(offset, buffer, size);
+    // Positional reads must be safe under concurrency: open an independent stream so we
+    // never touch the shared cursor file's mutable offset / prefetch buffer.
+    const int64_t file_size = ensure_file_size();
+    paimon::Status status = read_fully_with_fresh_stream(_fs, _path, file_size, buffer, size, offset);
     if (!status.ok()) {
-        return paimon::Status::IOError(
-                fmt::format("Failed to read file {}, reason: {}", _file->filename(), status.detailed_message()));
+        return status;
     }
     return static_cast<int32_t>(size);
 }
@@ -449,15 +530,26 @@ paimon::Result<std::string> PaimonInputStream::GetUri() const {
 
 void PaimonInputStream::ReadAsync(char* buffer, uint32_t size, uint64_t offset,
                                   std::function<void(paimon::Status)>&& callback) {
-    paimon::Result<int32_t> read_size = Read(buffer, size, offset);
-    paimon::Status status = paimon::Status::OK();
-    if (read_size.ok() && (uint32_t)read_size.value() != size) {
-        status = paimon::Status::IOError(
-                fmt::format("file '{}' async read size {} != expected {}", _file->filename(), read_size.value(), size));
-    } else if (!read_size.ok()) {
-        status = read_size.status();
+    // Resolve the file size once, on the caller thread, so the worker can open a fresh
+    // stream without an extra size lookup. Only the very first positional read pays this.
+    const int64_t file_size = ensure_file_size();
+    // The task is fully self-contained: it captures the file system, path and buffer by
+    // value and holds no reference to `this`, so it remains valid even if this
+    // PaimonInputStream is destroyed before the task runs.
+    std::function<void()> task = [fs = _fs, path = _path, file_size, buffer, size, offset,
+                                  cb = std::move(callback)]() {
+        cb(read_fully_with_fresh_stream(fs, path, file_size, buffer, size, offset));
+    };
+    ThreadPool* pool = get_paimon_async_read_pool();
+    Status submit_st =
+            pool != nullptr ? pool->submit_func(task) : Status::InternalError("paimon async read pool unavailable");
+    if (!submit_st.ok()) {
+        // Pool unavailable or queue rejected the task: run it inline so the callback is
+        // still invoked exactly once and is never dropped.
+        LOG(WARNING) << "paimon async read falls back to inline execution, file=" << _path << ", offset=" << offset
+                     << ", reason: " << submit_st.message();
+        task();
     }
-    callback(status);
 }
 
 PaimonOutputStream::PaimonOutputStream(std::unique_ptr<WritableFile> file) : _file(std::move(file)) {}

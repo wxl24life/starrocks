@@ -48,6 +48,7 @@ set(EXEC_FILES
         ./fs/key_cache_test.cpp
         ./fs/output_stream_wrapper_test.cpp
         ./fs/poco_http_client_test.cpp
+        ./fs/paimon/paimon_file_system_test.cpp
         ./exec/column_value_range_test.cpp
         ./exec/plain_text_builder_test.cpp
         ./exec/es/es_query_builder_test.cpp
