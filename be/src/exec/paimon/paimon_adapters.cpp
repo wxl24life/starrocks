@@ -83,8 +83,13 @@ StringCaseMap<PaimonLiteralFromJsonGetter> type_name_to_paimon_literal_from_json
         {"DOUBLE",
          [](const rapidjson::Value& value) -> paimon::Literal { return paimon::Literal(value.Get<double>()); }},
         {"VARCHAR", [](const rapidjson::Value& value) -> paimon::Literal {
-             const auto str = std::string_view(value.GetString());
-             return paimon::Literal(paimon::FieldType::STRING, str.data(), str.size());
+             // Use the (ptr, length) constructor — std::string_view(const char*) would call
+             // strlen() on the result of GetString(), which is a NULL pointer for any non-string
+             // rapidjson::Value in a release build (RAPIDJSON_ASSERT compiled out) and crashes.
+             if (!value.IsString()) {
+                 return paimon::Literal(paimon::FieldType::STRING, "", 0);
+             }
+             return paimon::Literal(paimon::FieldType::STRING, value.GetString(), value.GetStringLength());
          }}};
 
 StringCaseMap<paimon::VectorSearch::DistanceType> fn_name_to_paimon_vector_search_distance_type = {

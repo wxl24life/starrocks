@@ -14,7 +14,11 @@
 
 #pragma once
 
+#include <fmt/format.h>
 #include <rapidjson/document.h>
+
+#include "common/status.h"
+#include "common/statusor.h"
 
 namespace ScalarOperatorUtil {
 constexpr auto ARGUMENTS = "a";
@@ -37,6 +41,41 @@ constexpr auto ColumnRefOperator = "cr";
 } // namespace ScalarOperatorUtil
 
 namespace starrocks {
+
+// Safely extract a string field from a rapidjson object node.
+//
+// Why: rapidjson::Value::GetString() is UB if the value is not a string — in release
+// builds (RAPIDJSON_ASSERT compiled out) it returns an arbitrary pointer that may be
+// NULL, and `std::string_view(const char*)` then calls strlen() on it → SIGSEGV.
+// This wrapper validates IsObject + HasMember + IsString and uses the (ptr, length)
+// string_view constructor, which never calls strlen.
+inline StatusOr<std::string_view> safe_get_string_member(const rapidjson::Value& node, const char* key) {
+    if (!node.IsObject()) {
+        return Status::InternalError(
+                fmt::format("global index condition: node is not an object (looking up '{}')", key));
+    }
+    if (!node.HasMember(key)) {
+        return Status::InternalError(fmt::format("global index condition: missing field '{}'", key));
+    }
+    const auto& v = node[key];
+    if (!v.IsString()) {
+        return Status::InternalError(fmt::format("global index condition: field '{}' is not a string", key));
+    }
+    return std::string_view(v.GetString(), v.GetStringLength());
+}
+
+// Companion to safe_get_string_member, for fields whose value is expected to be a
+// nested JSON value (object or array) handed to a child visitor.
+inline StatusOr<const rapidjson::Value*> safe_get_member(const rapidjson::Value& node, const char* key) {
+    if (!node.IsObject()) {
+        return Status::InternalError(
+                fmt::format("global index condition: node is not an object (looking up '{}')", key));
+    }
+    if (!node.HasMember(key)) {
+        return Status::InternalError(fmt::format("global index condition: missing field '{}'", key));
+    }
+    return &node[key];
+}
 
 // Consistent with BinaryType.java
 constexpr auto BinaryType_EQ = "eq";
@@ -81,31 +120,77 @@ public:
 
 template <class R>
 R visitIndexConditionNode(const rapidjson::Value& node, GlobalIndexConditionVisitor<R>& visitor) {
-    const std::string_view operator_type(node[ScalarOperatorUtil::OPERATOR_TYPE].GetString());
+    auto operator_type_or = safe_get_string_member(node, ScalarOperatorUtil::OPERATOR_TYPE);
+    if (!operator_type_or.ok()) {
+        return R(operator_type_or.status());
+    }
+    const std::string_view operator_type = operator_type_or.value();
+
     if (operator_type == ScalarOperatorUtil::ArrayOperator) {
-        return visitor.visitArrayOperator(std::string_view(node[ScalarOperatorUtil::ITEM_TYPE].GetString()),
-                                          node[ScalarOperatorUtil::CHILDREN]);
+        auto item_type_or = safe_get_string_member(node, ScalarOperatorUtil::ITEM_TYPE);
+        if (!item_type_or.ok()) {
+            return R(item_type_or.status());
+        }
+        auto children_or = safe_get_member(node, ScalarOperatorUtil::CHILDREN);
+        if (!children_or.ok()) {
+            return R(children_or.status());
+        }
+        return visitor.visitArrayOperator(item_type_or.value(), *children_or.value());
     }
     if (operator_type == ScalarOperatorUtil::BinaryPredicateOperator) {
-        return visitor.visitBinaryPredicateOperator(std::string_view(node[ScalarOperatorUtil::BINARY_TYPE].GetString()),
-                                                    node[ScalarOperatorUtil::CHILDREN]);
+        auto binary_type_or = safe_get_string_member(node, ScalarOperatorUtil::BINARY_TYPE);
+        if (!binary_type_or.ok()) {
+            return R(binary_type_or.status());
+        }
+        auto children_or = safe_get_member(node, ScalarOperatorUtil::CHILDREN);
+        if (!children_or.ok()) {
+            return R(children_or.status());
+        }
+        return visitor.visitBinaryPredicateOperator(binary_type_or.value(), *children_or.value());
     }
     if (operator_type == ScalarOperatorUtil::CallOperator) {
-        return visitor.visitCallOperator(std::string_view(node[ScalarOperatorUtil::FN_NAME].GetString()),
-                                         node[ScalarOperatorUtil::ARGUMENTS]);
+        auto fn_name_or = safe_get_string_member(node, ScalarOperatorUtil::FN_NAME);
+        if (!fn_name_or.ok()) {
+            return R(fn_name_or.status());
+        }
+        auto arguments_or = safe_get_member(node, ScalarOperatorUtil::ARGUMENTS);
+        if (!arguments_or.ok()) {
+            return R(arguments_or.status());
+        }
+        return visitor.visitCallOperator(fn_name_or.value(), *arguments_or.value());
     }
     if (operator_type == ScalarOperatorUtil::CompoundPredicateOperator) {
-        return visitor.visitCompoundPredicateOperator(
-                std::string_view(node[ScalarOperatorUtil::COMPOUND_TYPE].GetString()),
-                node[ScalarOperatorUtil::CHILDREN]);
+        auto compound_type_or = safe_get_string_member(node, ScalarOperatorUtil::COMPOUND_TYPE);
+        if (!compound_type_or.ok()) {
+            return R(compound_type_or.status());
+        }
+        auto children_or = safe_get_member(node, ScalarOperatorUtil::CHILDREN);
+        if (!children_or.ok()) {
+            return R(children_or.status());
+        }
+        return visitor.visitCompoundPredicateOperator(compound_type_or.value(), *children_or.value());
     }
     if (operator_type == ScalarOperatorUtil::ConstantOperator) {
-        return visitor.visitConstantOperator(std::string_view(node[ScalarOperatorUtil::TYPE].GetString()),
-                                             std::string_view(node[ScalarOperatorUtil::VALUE].GetString()));
+        auto type_or = safe_get_string_member(node, ScalarOperatorUtil::TYPE);
+        if (!type_or.ok()) {
+            return R(type_or.status());
+        }
+        auto value_or = safe_get_string_member(node, ScalarOperatorUtil::VALUE);
+        if (!value_or.ok()) {
+            return R(value_or.status());
+        }
+        return visitor.visitConstantOperator(type_or.value(), value_or.value());
     }
     if (operator_type == ScalarOperatorUtil::ColumnRefOperator) {
-        return visitor.visitColumnRefOperator(std::string_view(node[ScalarOperatorUtil::TYPE].GetString()),
-                                              std::string_view(node[ScalarOperatorUtil::NAME].GetString()));
+        auto type_or = safe_get_string_member(node, ScalarOperatorUtil::TYPE);
+        if (!type_or.ok()) {
+            return R(type_or.status());
+        }
+        auto name_or = safe_get_string_member(node, ScalarOperatorUtil::NAME);
+        if (!name_or.ok()) {
+            return R(name_or.status());
+        }
+        return visitor.visitColumnRefOperator(type_or.value(), name_or.value());
     }
     return visitor.visit(operator_type);
 }

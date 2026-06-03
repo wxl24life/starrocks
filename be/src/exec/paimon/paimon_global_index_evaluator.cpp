@@ -50,12 +50,22 @@ StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> mergeReadColumnIndexes(
 
 StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> PaimonGlobalIndexPredicateEvaluator::visitBinaryPredicateOperator(
         std::string_view binary_type, const rapidjson::Value& children) {
+    if (!children.IsArray() || children.Size() < 2) {
+        return Status::InternalError(
+                fmt::format("binary predicate children must be an array of >=2 elements, got size={}",
+                            children.IsArray() ? children.Size() : 0));
+    }
     const auto& left = children[0];
     const auto& right = children[1];
-    if (left[ScalarOperatorUtil::OPERATOR_TYPE] == ScalarOperatorUtil::ColumnRefOperator &&
-        right[ScalarOperatorUtil::OPERATOR_TYPE] == ScalarOperatorUtil::ConstantOperator) {
-        const auto column_name = std::string_view(left[ScalarOperatorUtil::NAME].GetString());
-        const auto constant_type = std::string_view(right[ScalarOperatorUtil::TYPE].GetString());
+    auto left_op_or = safe_get_string_member(left, ScalarOperatorUtil::OPERATOR_TYPE);
+    auto right_op_or = safe_get_string_member(right, ScalarOperatorUtil::OPERATOR_TYPE);
+    if (left_op_or.ok() && right_op_or.ok() && left_op_or.value() == ScalarOperatorUtil::ColumnRefOperator &&
+        right_op_or.value() == ScalarOperatorUtil::ConstantOperator) {
+        ASSIGN_OR_RETURN(const auto column_name, safe_get_string_member(left, ScalarOperatorUtil::NAME));
+        ASSIGN_OR_RETURN(const auto constant_type, safe_get_string_member(right, ScalarOperatorUtil::TYPE));
+        if (!right.HasMember(ScalarOperatorUtil::VALUE)) {
+            return Status::InternalError("binary predicate right operand missing 'value' field");
+        }
         ASSIGN_OR_RETURN(const auto readers, _readers_getter(column_name));
         ASSIGN_OR_RETURN(const auto paimon_literal,
                          translateToPaimonLiteral(std::string(constant_type), right[ScalarOperatorUtil::VALUE]));
@@ -128,8 +138,13 @@ static paimon::FullTextSearch::SearchType parseFTSSearchType(std::string_view fn
 StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> PaimonGlobalIndexPredicateEvaluator::visitCallOperator(
         std::string_view fn_name, const rapidjson::Value& arguments) {
     if (isFTSFunction(fn_name)) {
-        const auto column_name = std::string_view(arguments[0][ScalarOperatorUtil::NAME].GetString());
-        const auto query_str = std::string_view(arguments[1][ScalarOperatorUtil::VALUE].GetString());
+        if (!arguments.IsArray() || arguments.Size() < 2) {
+            return Status::InternalError(
+                    fmt::format("FTS function '{}' expects 2+ arguments, got {}", fn_name,
+                                arguments.IsArray() ? arguments.Size() : 0));
+        }
+        ASSIGN_OR_RETURN(const auto column_name, safe_get_string_member(arguments[0], ScalarOperatorUtil::NAME));
+        ASSIGN_OR_RETURN(const auto query_str, safe_get_string_member(arguments[1], ScalarOperatorUtil::VALUE));
 
         ASSIGN_OR_RETURN(const auto readers, _readers_getter(column_name));
 
@@ -150,15 +165,18 @@ StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> PaimonGlobalIndexPredicateE
 StatusOr<std::shared_ptr<paimon::GlobalIndexResult>>
 PaimonGlobalIndexPredicateEvaluator::visitCompoundPredicateOperator(std::string_view compound_type,
                                                                     const rapidjson::Value& children) {
-    if (compound_type == CompoundType_AND) {
+    if (compound_type == CompoundType_AND || compound_type == CompoundType_OR) {
+        if (!children.IsArray() || children.Size() < 2) {
+            return Status::InternalError(
+                    fmt::format("compound predicate '{}' children must be an array of >=2 elements, got size={}",
+                                compound_type, children.IsArray() ? children.Size() : 0));
+        }
         ASSIGN_OR_RETURN(const auto left, visitIndexConditionNode(children[0], *this));
         ASSIGN_OR_RETURN(const auto right, visitIndexConditionNode(children[1], *this));
-        ASSIGN_OR_RETURN_PAIMON(auto res, left->And(right));
-        return res;
-    }
-    if (compound_type == CompoundType_OR) {
-        ASSIGN_OR_RETURN(const auto left, visitIndexConditionNode(children[0], *this));
-        ASSIGN_OR_RETURN(const auto right, visitIndexConditionNode(children[1], *this));
+        if (compound_type == CompoundType_AND) {
+            ASSIGN_OR_RETURN_PAIMON(auto res, left->And(right));
+            return res;
+        }
         ASSIGN_OR_RETURN_PAIMON(auto res, left->Or(right));
         return res;
     }
@@ -191,12 +209,25 @@ bool isAnnFunction(const std::string_view fn_name) {
            equalsIgnoreCase(fn_name, "approx_l2_distance");
 }
 
-std::vector<float> getQueryVector(const rapidjson::Value& value) {
+StatusOr<std::vector<float>> getQueryVector(const rapidjson::Value& value) {
+    if (!value.IsObject() || !value.HasMember(ScalarOperatorUtil::CHILDREN)) {
+        return Status::InternalError("ANN query vector argument missing 'children' array");
+    }
+    const auto& children = value[ScalarOperatorUtil::CHILDREN];
+    if (!children.IsArray()) {
+        return Status::InternalError("ANN query vector 'children' is not an array");
+    }
     std::vector<float> query;
-    const auto array = value[ScalarOperatorUtil::CHILDREN].GetArray();
-    query.reserve(array.Size());
-    for (const auto& element : array) {
+    query.reserve(children.Size());
+    for (rapidjson::SizeType i = 0; i < children.Size(); ++i) {
+        const auto& element = children[i];
+        if (!element.IsObject() || !element.HasMember(ScalarOperatorUtil::VALUE)) {
+            return Status::InternalError(fmt::format("ANN query vector element[{}] missing 'value' field", i));
+        }
         const auto& v = element[ScalarOperatorUtil::VALUE];
+        if (!v.IsNumber()) {
+            return Status::InternalError(fmt::format("ANN query vector element[{}].value is not numeric", i));
+        }
         query.push_back(v.Get<float>());
     }
     return query;
@@ -205,8 +236,13 @@ std::vector<float> getQueryVector(const rapidjson::Value& value) {
 StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> PaimonGlobalIndexTopNEvaluator::visitCallOperator(
         std::string_view fn_name, const rapidjson::Value& arguments) {
     if (isAnnFunction(fn_name)) {
-        const auto column_name = std::string_view(arguments[0][ScalarOperatorUtil::NAME].GetString());
-        const auto query = getQueryVector(arguments[1]);
+        if (!arguments.IsArray() || arguments.Size() < 2) {
+            return Status::InternalError(
+                    fmt::format("ANN function '{}' expects 2+ arguments, got {}", fn_name,
+                                arguments.IsArray() ? arguments.Size() : 0));
+        }
+        ASSIGN_OR_RETURN(const auto column_name, safe_get_string_member(arguments[0], ScalarOperatorUtil::NAME));
+        ASSIGN_OR_RETURN(const auto query, getQueryVector(arguments[1]));
         ASSIGN_OR_RETURN(const auto readers, _readers_getter(column_name));
 
         // PreFilter: capture the BitmapGlobalIndexResult shared_ptr by value so the underlying
