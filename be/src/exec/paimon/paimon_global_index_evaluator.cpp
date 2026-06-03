@@ -15,7 +15,6 @@
 #include "paimon_global_index_evaluator.h"
 
 #include <fmt/format.h>
-#include <paimon/predicate/full_text_search.h>
 #include <paimon/utils/roaring_bitmap64.h>
 
 #include "common/config.h"
@@ -45,8 +44,6 @@ StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> mergeReadColumnIndexes(
     }
     return res;
 }
-
-// -------------------------------- predicate evaluator --------------------------------
 
 StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> PaimonGlobalIndexPredicateEvaluator::visitBinaryPredicateOperator(
         std::string_view binary_type, const rapidjson::Value& children) {
@@ -118,48 +115,6 @@ StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> PaimonGlobalIndexPredicateE
     // user-facing parse error. Returning nullptr would NPE inside visitCompoundPredicateOperator.
     return Status::InternalError(fmt::format(
             "binary predicate must be (column, literal); FE/BE prefilter contract violated: {}", binary_type));
-}
-
-static bool isFTSFunction(std::string_view fn_name) {
-    return equalsIgnoreCase(fn_name, "match_all") || equalsIgnoreCase(fn_name, "match_any") ||
-           equalsIgnoreCase(fn_name, "match_phrase") || equalsIgnoreCase(fn_name, "match_prefix") ||
-           equalsIgnoreCase(fn_name, "match_wildcard");
-}
-
-static paimon::FullTextSearch::SearchType parseFTSSearchType(std::string_view fn_name) {
-    if (equalsIgnoreCase(fn_name, "match_all")) return paimon::FullTextSearch::SearchType::MATCH_ALL;
-    if (equalsIgnoreCase(fn_name, "match_any")) return paimon::FullTextSearch::SearchType::MATCH_ANY;
-    if (equalsIgnoreCase(fn_name, "match_phrase")) return paimon::FullTextSearch::SearchType::PHRASE;
-    if (equalsIgnoreCase(fn_name, "match_prefix")) return paimon::FullTextSearch::SearchType::PREFIX;
-    if (equalsIgnoreCase(fn_name, "match_wildcard")) return paimon::FullTextSearch::SearchType::WILDCARD;
-    return paimon::FullTextSearch::SearchType::UNKNOWN;
-}
-
-StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> PaimonGlobalIndexPredicateEvaluator::visitCallOperator(
-        std::string_view fn_name, const rapidjson::Value& arguments) {
-    if (isFTSFunction(fn_name)) {
-        if (!arguments.IsArray() || arguments.Size() < 2) {
-            return Status::InternalError(
-                    fmt::format("FTS function '{}' expects 2+ arguments, got {}", fn_name,
-                                arguments.IsArray() ? arguments.Size() : 0));
-        }
-        ASSIGN_OR_RETURN(const auto column_name, safe_get_string_member(arguments[0], ScalarOperatorUtil::NAME));
-        ASSIGN_OR_RETURN(const auto query_str, safe_get_string_member(arguments[1], ScalarOperatorUtil::VALUE));
-
-        ASSIGN_OR_RETURN(const auto readers, _readers_getter(column_name));
-
-        auto fts = std::make_shared<paimon::FullTextSearch>(std::string(column_name), std::nullopt,
-                                                            std::string(query_str), parseFTSSearchType(fn_name),
-                                                            std::nullopt);
-
-        return mergeReadColumnIndexes(
-                readers, [&](const auto& reader) -> StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> {
-                    ASSIGN_OR_RETURN_PAIMON(auto result, reader->VisitFullTextSearch(fts));
-                    return result;
-                });
-    }
-    return Status::NotSupported(
-            fmt::format("PaimonGlobalIndexPredicateEvaluator: not support function: {}", fn_name));
 }
 
 StatusOr<std::shared_ptr<paimon::GlobalIndexResult>>

@@ -44,8 +44,6 @@ public:
     ~PaimonGlobalIndexPredicateEvaluator() override = default;
     StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> visitBinaryPredicateOperator(
             std::string_view binary_type, const rapidjson::Value& children) override;
-    StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> visitCallOperator(std::string_view fn_name,
-                                                                           const rapidjson::Value& arguments) override;
     StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> visitConstantOperator(std::string_view type,
                                                                                std::string_view value) override;
     StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> visitCompoundPredicateOperator(

@@ -21,10 +21,8 @@ import com.starrocks.connector.index.IndexCondition;
 import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.sql.optimizer.OptExpression;
 import com.starrocks.sql.optimizer.OptimizerContext;
-import com.starrocks.sql.optimizer.Utils;
 import com.starrocks.sql.optimizer.operator.OperatorBuilderFactory;
 import com.starrocks.sql.optimizer.operator.OperatorType;
-import com.starrocks.sql.optimizer.operator.ScanOperatorPredicates;
 import com.starrocks.sql.optimizer.operator.logical.LogicalScanOperator;
 import com.starrocks.sql.optimizer.operator.pattern.Pattern;
 import com.starrocks.sql.optimizer.operator.scalar.ScalarOperator;
@@ -82,20 +80,6 @@ public class ApplyPredicateIndexRule extends TransformationRule {
                 .setIndexCondition(new IndexCondition(prefilter))
                 .setPredicate(postfilter)
                 .build();
-
-        // PARTITION_PRUNE_RULES runs before APPLY_INDEX_RULES, so classifyConjuncts
-        // already copied the original predicate into ScanOperatorPredicates.nonPartitionConjuncts.
-        // Remove the prefilter predicates that were extracted into IndexCondition so they
-        // don't get pushed to the BE data scanner (which would fail with "Match can only
-        // used as pushdown predicate on column with GIN").
-        try {
-            java.util.Set<ScalarOperator> prefilterSet =
-                    new java.util.HashSet<>(Utils.extractConjuncts(prefilter));
-            ScanOperatorPredicates scanPreds = newScanOperator.getScanOperatorPredicates();
-            scanPreds.getNonPartitionConjuncts().removeIf(prefilterSet::contains);
-        } catch (com.starrocks.common.AnalysisException e) {
-            LOG.warn("ApplyPredicateIndexRule: failed to clean nonPartitionConjuncts", e);
-        }
 
         return Lists.newArrayList(new OptExpression(newScanOperator));
     }

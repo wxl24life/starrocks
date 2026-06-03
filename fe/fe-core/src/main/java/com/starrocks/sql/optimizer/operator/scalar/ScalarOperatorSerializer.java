@@ -14,7 +14,6 @@
 
 package com.starrocks.sql.optimizer.operator.scalar;
 
-import com.starrocks.analysis.MatchType;
 import com.starrocks.catalog.ArrayType;
 import com.starrocks.catalog.Type;
 
@@ -139,27 +138,7 @@ public class ScalarOperatorSerializer {
                 map.put(NAME, variable.getName());
                 return map;
             }
-
-            @Override
-            public Map<String, Object> visitMatchExprOperator(MatchExprOperator matchExpr, Void context) {
-                Map<String, Object> map = new LinkedHashMap<>();
-                map.put(OPERATOR_TYPE, OPERATOR_TYPES.get(CallOperator.class));
-                map.put(FN_NAME, matchTypeToFnName(matchExpr.getMatchType()));
-                map.put(ARGUMENTS, matchExpr.getChildren().stream()
-                        .map(it -> it.accept(this, null))
-                        .collect(Collectors.toList()));
-                return map;
-            }
         }, null);
-    }
-
-    private static String matchTypeToFnName(MatchType matchType) {
-        switch (matchType) {
-            case MATCH_ALL: return "match_all";
-            case MATCH_ANY: return "match_any";
-            case MATCH_PHRASE: return "match_phrase";
-            default: return matchType.name().toLowerCase();
-        }
     }
 
     public static String toSql(ScalarOperator scalarOperator) {
@@ -229,14 +208,6 @@ public class ScalarOperatorSerializer {
             @Override
             public String visitVariableReference(ColumnRefOperator variable, Void context) {
                 return String.format("`%d: %s`", variable.getId(), variable.getName());
-            }
-
-            @Override
-            public String visitMatchExprOperator(MatchExprOperator matchExpr, Void context) {
-                return String.format("%s %s %s",
-                        toSql(matchExpr.getChild(0)),
-                        matchExpr.getMatchType().name(),
-                        toSql(matchExpr.getChild(1)));
             }
         }, null);
     }

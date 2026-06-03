@@ -28,7 +28,6 @@ import com.starrocks.sql.optimizer.operator.scalar.BinaryPredicateOperator;
 import com.starrocks.sql.optimizer.operator.scalar.CallOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ColumnRefOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ConstantOperator;
-import com.starrocks.sql.optimizer.operator.scalar.MatchExprOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ScalarOperator;
 import com.starrocks.sql.optimizer.operator.scalar.ScalarOperatorUtil;
 import com.starrocks.sql.optimizer.operator.scalar.ScalarOperatorVisitor;
@@ -60,11 +59,6 @@ public class IndexAnalyzer {
             FunctionSet.APPROX_L2_DISTANCE
     );
 
-    private static final Set<String> FTS_CALL_FUNCTIONS = Set.of(
-            "match_prefix",
-            "match_wildcard"
-    );
-
     private record BinaryPredicateIndexSpec(Table.TableType tableType, String indexName,
                                             List<BinaryType> supportedBinaryTypes) {
     }
@@ -82,16 +76,6 @@ public class IndexAnalyzer {
             // Backward-compat with legacy LuminaVectorGlobalIndexerFactory identifier; Paimon docs
             // explicitly keep accepting this identifier for existing tables.
             new VectorIndexSpec(Table.TableType.PAIMON, "lumina-vector-ann")
-    );
-
-    private record FTSIndexSpec(Table.TableType tableType, String indexName) {
-    }
-
-    private static final List<FTSIndexSpec> FTS_INDEX_SUPPORT = List.of(
-            new FTSIndexSpec(Table.TableType.PAIMON, "lucene"),
-            new FTSIndexSpec(Table.TableType.PAIMON, "lucene-fts"),
-            new FTSIndexSpec(Table.TableType.PAIMON, "tantivy-fts"),
-            new FTSIndexSpec(Table.TableType.PAIMON, "tantivy-fulltext")
     );
 
     private final Table table;
@@ -145,49 +129,6 @@ public class IndexAnalyzer {
                 }
             }
             // todo: check score filter
-            return PredicateStageType.Postfilter;
-        }
-
-        @Override
-        public PredicateStageType visitMatchExprOperator(MatchExprOperator predicate, Void ignore) {
-            ScalarOperator child0 = predicate.getChild(0);
-            if (child0 instanceof ColumnRefOperator) {
-                String columnName = ((ColumnRefOperator) child0).getName();
-                Set<String> indexNames = columnIndexes.get(columnName);
-                if (indexNames != null) {
-                    for (String indexName : indexNames) {
-                        for (FTSIndexSpec spec : FTS_INDEX_SUPPORT) {
-                            if (table.getType() == spec.tableType() &&
-                                    spec.indexName().equalsIgnoreCase(indexName)) {
-                                return PredicateStageType.Prefilter;
-                            }
-                        }
-                    }
-                }
-            }
-            return PredicateStageType.Postfilter;
-        }
-
-        @Override
-        public PredicateStageType visitCall(CallOperator call, Void ignore) {
-            String fnName = call.getFnName();
-            if (FTS_CALL_FUNCTIONS.contains(fnName.toLowerCase())) {
-                ScalarOperator arg0 = call.getChild(0);
-                if (arg0 instanceof ColumnRefOperator) {
-                    String columnName = ((ColumnRefOperator) arg0).getName();
-                    Set<String> indexNames = columnIndexes.get(columnName);
-                    if (indexNames != null) {
-                        for (String indexName : indexNames) {
-                            for (FTSIndexSpec spec : FTS_INDEX_SUPPORT) {
-                                if (table.getType() == spec.tableType() &&
-                                        spec.indexName().equalsIgnoreCase(indexName)) {
-                                    return PredicateStageType.Prefilter;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
             return PredicateStageType.Postfilter;
         }
 
