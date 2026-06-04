@@ -16,11 +16,14 @@
 
 #include <paimon/executor.h>
 #include <paimon/global_index/bitmap_global_index_result.h>
+#include <paimon/global_index/global_index_reader_cache.h>
 #include <paimon/global_index/global_index_scan.h>
+#include <paimon/global_index/lumina/lumina_options.h>
 #include <paimon/utils/row_range_index.h>
 
 #include <string>
 
+#include "common/config.h"
 #include "fs/paimon/paimon_file_system.h"
 #include "global_index_common.h"
 #include "paimon_global_index_evaluator.h"
@@ -81,6 +84,15 @@ StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> PaimonGlobalIndexScanner::e
     const int64_t& shard_id = _scanner_params.paimon_global_index_shard_id;
     const std::string_view& condition = _scanner_params.paimon_global_index_condition;
     const std::string& table_path = _scanner_params.paimon_table_path;
+
+    // Push R11 optimization toggles from BE configs into paimon-cpp static state on every
+    // query entry. Cheap (atomic store) and lets ADMIN SET tweak behaviour live without
+    // BE restart. SetCapacity / SetReadAheadBytes are idempotent; calling per-query is safe.
+    const int32_t cache_cap_cfg = config::paimon_global_index_reader_cache_capacity;
+    const int32_t readahead_kb_cfg = config::paimon_lumina_file_reader_readahead_kb;
+    paimon::GlobalIndexReaderCache::Instance().SetCapacity(cache_cap_cfg > 0 ? static_cast<size_t>(cache_cap_cfg) : 0);
+    paimon::lumina::SetLuminaFileReaderReadAheadBytes(
+            readahead_kb_cfg > 0 ? static_cast<uint64_t>(readahead_kb_cfg) * 1024 : 0);
 
     MonotonicStopWatch total_sw;
     total_sw.start();

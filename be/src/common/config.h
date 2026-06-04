@@ -948,6 +948,19 @@ CONF_mInt32(lumina_diskann_search_list_size, "1024");
 // reads per step. Default 4 follows lumina's recommendation; sweep {2,4,8} on
 // the cluster to pick the latency/recall sweet spot.
 CONF_mInt32(lumina_diskann_search_beam_width, "4");
+// LRU capacity (entries) of paimon-cpp's GlobalIndexReaderCache. 0 disables the
+// cache. Each entry holds one opened lumina reader (graph + quantizer + InputStream)
+// keyed by (root_path, field_id, range, index_file_path). Eliminates the per-query
+// LuminaSearcher::Open + quantizer zero-init seen at 4% CPU in R10 perf. Safe to
+// enable cluster-wide once validated by sweep; memory cost ~100 MB per entry.
+CONF_mInt32(paimon_global_index_reader_cache_capacity, "0");
+// Read-ahead buffer size (KiB) for paimon-cpp's LuminaFileReader sync Read(). 0
+// disables read-ahead (passthrough = pre-R11 behavior). When > 0, sync Read() fills
+// an internal buffer with max(size, this) bytes per refill (capped at 16 MiB) and
+// serves subsequent sequential sub-reads from it, amortizing the multi-layer stella
+// InputStream / IOBuffer::copy_to memcpy overhead seen at 14-36% CPU in R10 perf.
+// ReadAsync() is unchanged. Tune by sweep {0, 64, 256, 1024} for the workload.
+CONF_mInt32(paimon_lumina_file_reader_readahead_kb, "0");
 // Maximum number of worker threads in the dedicated thread pool that serves
 // PaimonInputStream::ReadAsync -- the asynchronous reads issued by the Paimon
 // global (vector) index during ANN search. Takes effect when the pool is first

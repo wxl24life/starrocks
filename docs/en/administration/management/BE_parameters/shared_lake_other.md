@@ -447,6 +447,24 @@ This topic introduces the following types of FE configurations:
 - Description: Number of parallel worker threads the lumina vector-ANN search uses per query when scanning a Paimon global (vector) index. Set to 1 to disable intra-query search concurrency. Takes effect on the next ANN query.
 - Introduced in: v3.5.15
 
+### paimon_global_index_reader_cache_capacity
+
+- Default: 0
+- Type: Int
+- Unit: entries
+- Is mutable: Yes
+- Description: LRU capacity (number of entries) of paimon-cpp's `GlobalIndexReaderCache`. When `> 0`, each opened lumina reader (graph + quantizer + InputStream) is cached and reused across queries with the same `(root_path, field_id, range, index_file_path)`. Eliminates the per-query `LuminaSearcher::Open` + quantizer zero-init cost (~4% CPU per query per perf data). When `0` (default), the cache is disabled — each query reopens the reader from scratch (pre-R11 behaviour). Memory cost is approximately 100 MiB per entry; set to `16-64` for clusters serving a handful of vector tables, larger for dense multi-tenant deployments.
+- Introduced in: v3.5.16
+
+### paimon_lumina_file_reader_readahead_kb
+
+- Default: 0
+- Type: Int
+- Unit: KiB
+- Is mutable: Yes
+- Description: Read-ahead buffer size (KiB) for paimon-cpp's `LuminaFileReader::Read()`. When `> 0`, sync `Read()` fills an internal buffer with `max(requested, this)`-byte chunks (capped at 16 MiB) and serves subsequent sequential sub-reads from it, amortizing the multi-layer StarRocks InputStream + IOBuffer::copy_to memcpy overhead. `ReadAsync()` is unaffected. When `0` (default), the original direct-passthrough path is used (pre-R11 behaviour). Best-effort optimization; benefits depend on lumina's actual read locality.
+- Introduced in: v3.5.16
+
 ### paimon_async_read_thread_pool_size
 
 - Default: 64
