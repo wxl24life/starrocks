@@ -216,13 +216,16 @@ StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> PaimonGlobalIndexTopNEvalua
 
         ASSIGN_OR_RETURN(auto distance_type, translateToPaimonVectorSearchDistanceType(std::string(fn_name)));
 
-        // lumina index options with default. Default search.list_size matches FE-side
-        // PaimonGlobalIndexBackendSelector (1024); upscale linearly when localN exceeds it.
+        // lumina index options. list_size + beam_width come from BE mutable configs so we can
+        // sweep them at runtime via ADMIN SET FRONTEND CONFIG without rebuilding. When the
+        // requested topN exceeds the configured list_size (FE-side PaimonGlobalIndexBackendSelector
+        // currently caps at 1024), upscale linearly so the visitor still returns enough candidates.
+        const int32_t cfg_list_size = config::lumina_diskann_search_list_size;
         std::map<std::string, std::string> index_options = {
-                {"lumina.diskann.search.list_size", "1024"},
+                {"lumina.diskann.search.list_size", std::to_string(cfg_list_size)},
                 {"lumina.search.parallel_number", std::to_string(config::lumina_search_parallel_number)},
-                {"lumina.diskann.search.beam_width", "4"}};
-        if (_n > 1024) {
+                {"lumina.diskann.search.beam_width", std::to_string(config::lumina_diskann_search_beam_width)}};
+        if (_n > cfg_list_size) {
             index_options["lumina.diskann.search.list_size"] = std::to_string(_n * 3 / 2);
         }
 

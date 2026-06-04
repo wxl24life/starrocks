@@ -936,6 +936,18 @@ CONF_mInt64(paimon_sink_commit_chunk_num, "16");
 // scanning a Paimon global (vector) index. Set to 1 to disable intra-query search
 // concurrency. mutable: updatable at runtime via the update_config API.
 CONF_mInt32(lumina_search_parallel_number, "5");
+// DiskANN graph-search candidate list size (the "L" parameter) used by the lumina
+// backend for ANN topN queries on Paimon global vector indexes. Larger -> higher
+// recall but more distance computations + sector reads. The evaluator overrides
+// this value only when the requested topN exceeds it (uses _n*3/2 in that case).
+// Profile data (R7.5) suggests 1024 saturates small/medium datasets — sweep
+// {64,128,256,512,1024} vs. recall to pick the smallest acceptable value.
+CONF_mInt32(lumina_diskann_search_list_size, "1024");
+// DiskANN beam width — how many neighbors are expanded per BFS step during graph
+// traversal. Larger -> potentially fewer iterations but more parallel sector
+// reads per step. Default 4 follows lumina's recommendation; sweep {2,4,8} on
+// the cluster to pick the latency/recall sweet spot.
+CONF_mInt32(lumina_diskann_search_beam_width, "4");
 // Maximum number of worker threads in the dedicated thread pool that serves
 // PaimonInputStream::ReadAsync -- the asynchronous reads issued by the Paimon
 // global (vector) index during ANN search. Takes effect when the pool is first

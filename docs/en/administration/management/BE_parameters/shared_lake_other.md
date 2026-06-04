@@ -420,6 +420,33 @@ This topic introduces the following types of FE configurations:
 - Description: Limits the maximum number of concurrently running connector (HDFS/remote) scanners that a ConnectorScanNode can have. During scan startup the node computes an estimated concurrency (based on memory, chunk size and scanner_row_num) and then caps it with this value to determine how many scanners and chunks to reserve and how many scanner threads to start. It is also consulted when scheduling pending scanners at runtime (to avoid oversubscription) and when deciding how many pending scanners can be re-submitted considering file-handle limits. Lowering this reduces threads, memory and open-file pressure at the cost of potential throughput; increasing it raises concurrency and resource usage.
 - Introduced in: v3.2.0
 
+### lumina_diskann_search_beam_width
+
+- Default: 4
+- Type: Int
+- Unit: -
+- Is mutable: Yes
+- Description: DiskANN graph beam width — how many neighbors are expanded per BFS step during graph traversal in the lumina backend used by Paimon global vector indexes. Larger values may reduce iteration count but issue more parallel sector reads per step; smaller values reduce read amplification at the cost of more iterations. Tune together with `lumina_diskann_search_list_size`. Takes effect on the next ANN query.
+- Introduced in: v3.5.16
+
+### lumina_diskann_search_list_size
+
+- Default: 1024
+- Type: Int
+- Unit: -
+- Is mutable: Yes
+- Description: DiskANN graph-search candidate list size (the "L" parameter) used by the lumina backend for ANN topN queries on Paimon global vector indexes. Larger values increase recall at the cost of more distance computations and sector reads. The evaluator overrides this value only when the requested topN exceeds it (uses `_n*3/2` in that case). Tune together with `lumina_diskann_search_beam_width`. Takes effect on the next ANN query.
+- Introduced in: v3.5.16
+
+### lumina_search_parallel_number
+
+- Default: 5
+- Type: Int
+- Unit: -
+- Is mutable: Yes
+- Description: Number of parallel worker threads the lumina vector-ANN search uses per query when scanning a Paimon global (vector) index. Set to 1 to disable intra-query search concurrency. Takes effect on the next ANN query.
+- Introduced in: v3.5.15
+
 ### paimon_async_read_thread_pool_size
 
 - Default: 64
