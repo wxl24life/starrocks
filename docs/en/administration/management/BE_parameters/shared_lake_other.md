@@ -429,6 +429,15 @@ This topic introduces the following types of FE configurations:
 - Description: The maximum number of worker threads in the dedicated thread pool that serves `PaimonInputStream::ReadAsync` — the asynchronous reads issued by the Paimon global (vector) index during ANN search. Each in-flight asynchronous read occupies one thread while it waits on remote I/O; when all threads are busy, further reads are queued. Takes effect when the pool is first created (the first vector-index query after BE starts).
 - Introduced in: v3.5.15
 
+### paimon_cached_positional_read_enable
+
+- Default: true
+- Type: Boolean
+- Unit: -
+- Is mutable: Yes
+- Description: When `true` (default), `PaimonInputStream`'s positional (`Read(buf, size, offset)`) and asynchronous (`ReadAsync`) reads route through the same `CacheInputStream`-wrapped file that sequential reads use, so they also benefit from BE DataCache. Concurrent positional callers on a single `PaimonInputStream` are serialized via an internal mutex to protect the `SharedBufferedInputStream` prefetch buffer and `CacheInputStream` state underneath. When `false`, positional and async reads fall back to the legacy behaviour: each call opens an independent raw stream that bypasses DataCache (lock-free but cache-misses every time). Set to `false` only as an emergency rollback if a workload exposes pathological positional concurrency on a single stream — Lumina's current ANN search path uses sync sequential reads, so the cached path's mutex sees ~zero contention in production.
+- Introduced in: v3.5.16
+
 ### query_max_memory_limit_percent
 
 - Default: 90

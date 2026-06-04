@@ -35,8 +35,12 @@ struct HdfsScanStats;
 
 class PaimonInputStream : public paimon::InputStream {
 public:
+    // `cache_enabled` records whether `_file` is wrapped with CacheInputStream by the
+    // owning PaimonFileSystem::Open(). When true, positional and async reads route
+    // through `_file` (with `_positional_mutex` serializing) so they hit DataCache;
+    // when false, they fall back to opening a fresh raw stream per call (legacy path).
     PaimonInputStream(std::unique_ptr<RandomAccessFile> file, std::shared_ptr<starrocks::FileSystem> fs,
-                      std::string path);
+                      std::string path, bool cache_enabled = false);
     ~PaimonInputStream() override;
     paimon::Status Close() override;
     paimon::Status Seek(int64_t offset, paimon::SeekOrigin origin) override;
@@ -54,16 +58,29 @@ private:
     // the size could not be determined.
     int64_t ensure_file_size();
 
-    // The shared cursor file. Used only by the sequential cursor API (Read(buf,size),
-    // Seek, GetPos, Length), which is single-threaded by paimon's InputStream contract.
+    // The shared cursor file. Used by the sequential cursor API (Read(buf,size),
+    // Seek, GetPos, Length) which is single-threaded by paimon's InputStream contract,
+    // AND by the positional/async APIs when `_cache_enabled` is true -- those calls
+    // serialize through `_positional_mutex` and use read_at_fully() (which does not
+    // mutate the cursor) so the sequential cursor invariant is preserved.
     std::unique_ptr<RandomAccessFile> _file;
     // File system + path are used by the positional/async API to open independent,
-    // per-call streams. Held by shared_ptr so the stream stays valid even if the
-    // owning PaimonFileSystem is destroyed first.
+    // per-call streams (legacy path, when `_cache_enabled` is false). Held by shared_ptr
+    // so the stream stays valid even if the owning PaimonFileSystem is destroyed first.
     std::shared_ptr<starrocks::FileSystem> _fs;
     std::string _path;
     std::once_flag _size_once;
     int64_t _cached_size{-1};
+    // True iff `_file` is wrapped with CacheInputStream (DataCache layer is in effect).
+    // Drives the routing decision in Read(offset) / ReadAsync between the cached path
+    // and the legacy fresh-stream path.
+    bool _cache_enabled;
+    // Serializes positional reads on `_file` when `_cache_enabled` is true. Concurrent
+    // positional calls would otherwise race the SharedBufferedInputStream prefetch
+    // buffer + CacheInputStream internal state underneath. Lumina's production search
+    // (M4 strace) issues sync sequential reads only, so this mutex sees ~zero contention;
+    // if positional becomes hot, switch to a pool of cached file handles.
+    mutable std::mutex _positional_mutex;
 };
 
 class PaimonOutputStream : public paimon::OutputStream {

@@ -203,12 +203,24 @@ paimon::Result<std::unique_ptr<paimon::InputStream>> PaimonFileSystem::Open(cons
         input_stream = std::make_shared<CountedSeekableInputStream>(input_stream, _fs_stats);
     }
 
-    if (!_enable_datacache) {
+    // [R12.8 backstop] Honor process-wide `config::datacache_enable` even when the
+    // FE-supplied `_datacache_options.enable_datacache` is false. Without this, any FE
+    // path that constructs PaimonFileSystem without wiring datacache_options (e.g. a
+    // future caller missing the plumbing) would silently fall through to a raw,
+    // uncached stream and we wouldn't notice until a regression in OSS traffic shows
+    // up. When the backstop kicks in we also force populate=true so the cache actually
+    // fills on cold reads; per-query options (priority/ttl/io_adaptor/async_populate)
+    // fall back to their sensible defaults.
+    const bool use_cache = _enable_datacache || config::datacache_enable;
+    const bool backstop_only = !_enable_datacache && config::datacache_enable;
+
+    if (!use_cache) {
         auto counted_file = std::make_unique<RandomAccessFile>(input_stream, filename);
         if (file_size >= 0) {
             counted_file->set_size(file_size);
         }
-        return std::make_unique<PaimonInputStream>(std::move(counted_file), _fs, path);
+        return std::make_unique<PaimonInputStream>(std::move(counted_file), _fs, path,
+                                                    /*cache_enabled=*/false);
     }
 
     // file_size < 0 sentinel: caller doesn't know the size, fetch via HEAD.
@@ -231,7 +243,10 @@ paimon::Result<std::unique_ptr<paimon::InputStream>> PaimonFileSystem::Open(cons
     // modification_time=0 is safe for Paimon since data files are immutable
     auto cache_input_stream =
             std::make_shared<io::CacheInputStream>(shared_buffered_input_stream, filename, file_size, 0);
-    cache_input_stream->set_enable_populate_cache(_datacache_options.enable_populate_datacache);
+    // When the backstop is the only thing enabling cache, force populate=true so cache
+    // actually fills. Otherwise honor per-query options as before.
+    cache_input_stream->set_enable_populate_cache(backstop_only ? true
+                                                                : _datacache_options.enable_populate_datacache);
     cache_input_stream->set_enable_async_populate_mode(_datacache_options.enable_datacache_async_populate_mode);
     cache_input_stream->set_enable_cache_io_adaptor(_datacache_options.enable_datacache_io_adaptor);
     cache_input_stream->set_priority(_datacache_options.datacache_priority);
@@ -255,7 +270,8 @@ paimon::Result<std::unique_ptr<paimon::InputStream>> PaimonFileSystem::Open(cons
 
     auto cache_file = std::make_unique<RandomAccessFile>(final_stream, filename);
     cache_file->set_size(file_size);
-    return std::make_unique<PaimonInputStream>(std::move(cache_file), _fs, path);
+    return std::make_unique<PaimonInputStream>(std::move(cache_file), _fs, path,
+                                                /*cache_enabled=*/true);
 }
 
 paimon::Status PaimonFileSystem::Delete(const std::string& path, bool recursive) const {
@@ -436,8 +452,11 @@ paimon::Status PaimonFileSystem::ListFileStatus(
 }
 
 PaimonInputStream::PaimonInputStream(std::unique_ptr<RandomAccessFile> file, std::shared_ptr<starrocks::FileSystem> fs,
-                                     std::string path)
-        : _file(std::move(file)), _fs(std::move(fs)), _path(std::move(path)) {}
+                                     std::string path, bool cache_enabled)
+        : _file(std::move(file)),
+          _fs(std::move(fs)),
+          _path(std::move(path)),
+          _cache_enabled(cache_enabled) {}
 
 PaimonInputStream::~PaimonInputStream() = default;
 
@@ -478,8 +497,24 @@ paimon::Result<uint64_t> PaimonInputStream::Length() const {
 }
 
 paimon::Result<int32_t> PaimonInputStream::Read(char* buffer, uint32_t size, uint64_t offset) {
-    // Positional reads must be safe under concurrency: open an independent stream so we
-    // never touch the shared cursor file's mutable offset / prefetch buffer.
+    // [R12.8 fix] When `_file` is wrapped with CacheInputStream, route positional reads
+    // through it via read_at_fully() so they hit DataCache. read_at_fully does not
+    // mutate the cursor (so concurrent sequential Read(buf,size) callers see no
+    // surprise), and `_positional_mutex` serializes any racing positional callers to
+    // protect the SharedBufferedInputStream prefetch buffer + CacheInputStream internal
+    // state underneath. Cache-disabled path (or rollback flag) falls back to opening a
+    // fresh raw stream per call -- the legacy behavior, which keeps positional reads
+    // lock-free but bypasses DataCache entirely.
+    if (_cache_enabled && config::paimon_cached_positional_read_enable) {
+        std::lock_guard<std::mutex> lock(_positional_mutex);
+        auto st = _file->read_at_fully(offset, buffer, size);
+        if (!st.ok()) {
+            return paimon::Status::IOError(fmt::format("Failed to read file {} at offset {}, reason: {}",
+                                                       _file->filename(), offset, st.detailed_message()));
+        }
+        return static_cast<int32_t>(size);
+    }
+    // Cache disabled (or emergency rollback): independent stream per call, no cache.
     const int64_t file_size = ensure_file_size();
     paimon::Status status = read_fully_with_fresh_stream(_fs, _path, file_size, buffer, size, offset);
     if (!status.ok()) {
@@ -530,12 +565,39 @@ paimon::Result<std::string> PaimonInputStream::GetUri() const {
 
 void PaimonInputStream::ReadAsync(char* buffer, uint32_t size, uint64_t offset,
                                   std::function<void(paimon::Status)>&& callback) {
-    // Resolve the file size once, on the caller thread, so the worker can open a fresh
-    // stream without an extra size lookup. Only the very first positional read pays this.
-    const int64_t file_size = ensure_file_size();
-    // The task is fully self-contained: it captures the file system, path and buffer by
-    // value and holds no reference to `this`, so it remains valid even if this
+    // [R12.8 fix] When `_cache_enabled`, route async positional reads through the
+    // cached `_file` so they hit DataCache. Captures `this` (vs the legacy path which
+    // is self-contained); caller must keep this PaimonInputStream alive until the
+    // callback fires -- same lifetime contract the legacy path implicitly requires for
+    // `buffer`. paimon-cpp's LuminaFileReader holds a shared_ptr<InputStream> that
+    // owns this through the search call, so the contract is satisfied in practice.
+    if (_cache_enabled && config::paimon_cached_positional_read_enable) {
+        std::function<void()> task = [this, buffer, size, offset, cb = std::move(callback)]() {
+            std::lock_guard<std::mutex> lock(_positional_mutex);
+            auto st = _file->read_at_fully(offset, buffer, size);
+            if (!st.ok()) {
+                cb(paimon::Status::IOError(fmt::format("Failed to read file {} at offset {}, reason: {}",
+                                                       _file->filename(), offset, st.detailed_message())));
+                return;
+            }
+            cb(paimon::Status::OK());
+        };
+        ThreadPool* pool = get_paimon_async_read_pool();
+        Status submit_st = pool != nullptr
+                                   ? pool->submit_func(task)
+                                   : Status::InternalError("paimon async read pool unavailable");
+        if (!submit_st.ok()) {
+            LOG(WARNING) << "paimon cached async read falls back to inline execution, file=" << _path
+                         << ", offset=" << offset << ", reason: " << submit_st.message();
+            task();
+        }
+        return;
+    }
+
+    // Cache disabled (or emergency rollback): legacy fresh-stream path, self-contained
+    // task that does NOT capture `this`, so it remains safe even if this
     // PaimonInputStream is destroyed before the task runs.
+    const int64_t file_size = ensure_file_size();
     std::function<void()> task = [fs = _fs, path = _path, file_size, buffer, size, offset,
                                   cb = std::move(callback)]() {
         cb(read_fully_with_fresh_stream(fs, path, file_size, buffer, size, offset));
@@ -544,8 +606,6 @@ void PaimonInputStream::ReadAsync(char* buffer, uint32_t size, uint64_t offset,
     Status submit_st =
             pool != nullptr ? pool->submit_func(task) : Status::InternalError("paimon async read pool unavailable");
     if (!submit_st.ok()) {
-        // Pool unavailable or queue rejected the task: run it inline so the callback is
-        // still invoked exactly once and is never dropped.
         LOG(WARNING) << "paimon async read falls back to inline execution, file=" << _path << ", offset=" << offset
                      << ", reason: " << submit_st.message();
         task();

@@ -941,6 +941,16 @@ CONF_mInt32(lumina_search_parallel_number, "5");
 // global (vector) index during ANN search. Takes effect when the pool is first
 // created (the first vector-index query after BE start).
 CONF_Int32(paimon_async_read_thread_pool_size, "64");
+// When true (default), PaimonInputStream's positional and async reads route through
+// the CacheInputStream-wrapped file so they also benefit from DataCache. When false,
+// they fall back to the legacy fresh-stream behavior (each positional/async read opens
+// an independent raw stream that bypasses DataCache). Emergency rollback only -- the
+// cached path serializes positional reads via a mutex, so workloads that issue heavy
+// concurrent positional reads on a single InputStream may show contention. Lumina's
+// current production search path uses sync sequential reads (no positional reads
+// observed in M4 strace), so the mutex sees ~zero contention; flip to false only if a
+// future workload exposes pathological positional concurrency.
+CONF_mBool(paimon_cached_positional_read_enable, "true");
 // Enable native Arrow types (Date32, Timestamp, etc.) when converting StarRocks types to Arrow types.
 // If true (default), DATE is converted to Arrow Date32Type, and DATETIME is converted to Arrow TimestampType.
 // If false, DATE and DATETIME are converted to Arrow utf8() type for backward compatibility.
