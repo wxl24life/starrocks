@@ -15,10 +15,13 @@
 package com.starrocks.sql.optimizer.operator.scalar;
 
 import com.starrocks.catalog.ArrayType;
+import com.starrocks.catalog.FunctionSet;
 import com.starrocks.catalog.Type;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -51,7 +54,38 @@ public class ScalarOperatorSerializer {
             ColumnRefOperator.class, "cr"
     );
 
+    // ANN distance functions are symmetric in their two arguments, so writing
+    // `approx_cosine_similarity([query], col)` and `approx_cosine_similarity(col, [query])`
+    // are semantically equivalent. The BE Paimon Global Index TopN evaluator,
+    // however, only knows how to read (column_ref, query_vector) order — it dereferences
+    // arguments[0] as the column NAME field. Normalize here so the JSON sent to BE is
+    // always column-first, regardless of how the user wrote the SQL.
+    private static final Set<String> ANN_FUNCTIONS = Set.of(
+            FunctionSet.APPROX_COSINE_SIMILARITY,
+            FunctionSet.APPROX_INNER_PRODUCT,
+            FunctionSet.APPROX_L2_DISTANCE
+    );
+
     private ScalarOperatorSerializer() {
+    }
+
+    /**
+     * If `call` is an ANN function and the column ref is the second argument, return a
+     * (column_ref, other) view. Otherwise return the original arguments unchanged.
+     * Does NOT mutate the input CallOperator.
+     */
+    private static List<ScalarOperator> normalizeAnnArgs(CallOperator call) {
+        List<ScalarOperator> args = call.getArguments();
+        if (!ANN_FUNCTIONS.contains(call.getFnName()) || args.size() != 2) {
+            return args;
+        }
+        if (args.get(0) instanceof ColumnRefOperator) {
+            return args;
+        }
+        if (args.get(1) instanceof ColumnRefOperator) {
+            return List.of(args.get(1), args.get(0));
+        }
+        return args;
     }
 
     public static Object toJson(ScalarOperator x) {
@@ -92,7 +126,8 @@ public class ScalarOperatorSerializer {
                 Map<String, Object> map = new LinkedHashMap<>();
                 map.put(OPERATOR_TYPE, OPERATOR_TYPES.get(call.getClass()));
                 map.put(FN_NAME, call.getFnName());
-                map.put(ARGUMENTS, call.getArguments().stream()
+                List<ScalarOperator> args = normalizeAnnArgs(call);
+                map.put(ARGUMENTS, args.stream()
                         .map(it -> it.accept(this, null))
                         .collect(Collectors.toList()));
                 return map;
