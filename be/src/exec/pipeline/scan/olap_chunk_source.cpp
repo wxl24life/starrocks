@@ -51,10 +51,10 @@
 namespace starrocks::pipeline {
 
 OlapChunkSource::OlapChunkSource(ScanOperator* op, RuntimeProfile* runtime_profile, MorselPtr&& morsel,
-                                 OlapScanNode* scan_node, OlapScanContext* scan_ctx)
+                                 OlapScanNode* scan_node, OlapScanContextPtr scan_ctx)
         : ChunkSource(op, runtime_profile, std::move(morsel), scan_ctx->get_chunk_buffer()),
           _scan_node(scan_node),
-          _scan_ctx(scan_ctx),
+          _scan_ctx(std::move(scan_ctx)),
           _limit(scan_node->limit()),
           _scan_range(down_cast<ScanMorsel*>(_morsel.get())->get_olap_scan_range()) {}
 

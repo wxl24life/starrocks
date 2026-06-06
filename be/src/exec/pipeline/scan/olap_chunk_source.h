@@ -20,6 +20,7 @@
 #include "exec/olap_scan_prepare.h"
 #include "exec/olap_utils.h"
 #include "exec/pipeline/scan/chunk_source.h"
+#include "exec/pipeline/scan/olap_scan_context.h"
 #include "exec/workgroup/work_group_fwd.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
@@ -39,12 +40,11 @@ class TableMetrics;
 namespace pipeline {
 
 class ScanOperator;
-class OlapScanContext;
 
 class OlapChunkSource final : public ChunkSource {
 public:
     OlapChunkSource(ScanOperator* op, RuntimeProfile* runtime_profile, MorselPtr&& morsel, OlapScanNode* scan_node,
-                    OlapScanContext* scan_ctx);
+                    OlapScanContextPtr scan_ctx);
 
     ~OlapChunkSource() override;
 
@@ -73,7 +73,7 @@ private:
 private:
     TabletReaderParams _params{};
     OlapScanNode* _scan_node;
-    OlapScanContext* _scan_ctx;
+    OlapScanContextPtr _scan_ctx;
 
     int64_t _limit; // -1: no limit
     TInternalScanRange* _scan_range;
