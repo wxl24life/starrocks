@@ -14,8 +14,11 @@
 
 #pragma once
 
+#include <memory>
+
 #include "common/s3_uri.h"
 #include "fs/fs.h"
+#include "gen_cpp/CloudConfiguration_types.h"
 #include "jindosdk/jdo_api.h"
 #include "jindosdk/jdo_options.h"
 #include "util/random.h"
@@ -109,7 +112,21 @@ private:
 
 class JindoFileSystem : public FileSystem {
 public:
-    JindoFileSystem(const FSOptions& options) : _options(options) {}
+    // FSOptions stores `cloud_configuration` as a raw `const TCloudConfiguration*`
+    // that aliases caller-owned memory (e.g. PaimonFileSystem::_cloud_configuration,
+    // which itself lives inside HdfsScanner -> HiveDataSource). Once async paths
+    // (paimon_aio thread pool, paimon-cpp lumina SimpleThreadPool) outlive the
+    // owning HiveDataSource the alias dangles and `get_or_create_jindo_opts`
+    // dereferences freed memory inside `new_client`. Deep-copy the configuration
+    // here so JindoFileSystem owns its own snapshot for its whole lifetime; the
+    // shared_ptr<FileSystem> kept by PaimonInputStream then guarantees the
+    // snapshot survives every queued async op.
+    explicit JindoFileSystem(const FSOptions& options) : _options(options) {
+        if (_options.cloud_configuration != nullptr) {
+            _owned_cloud_configuration = std::make_unique<TCloudConfiguration>(*_options.cloud_configuration);
+            _options.cloud_configuration = _owned_cloud_configuration.get();
+        }
+    }
     ~JindoFileSystem() override = default;
 
     JindoFileSystem(const JindoFileSystem&) = delete;
@@ -176,6 +193,10 @@ public:
     StatusOr<SpaceInfo> space(const std::string& path) override;
 
 private:
+    // Owns the deep-copied TCloudConfiguration so `_options.cloud_configuration`
+    // stays valid for the lifetime of JindoFileSystem regardless of the caller's
+    // own teardown. Must precede `_options` so it is destroyed last.
+    std::unique_ptr<TCloudConfiguration> _owned_cloud_configuration;
     FSOptions _options;
 
     Status create_dir_internal(const std::string& dirname, bool recursive);

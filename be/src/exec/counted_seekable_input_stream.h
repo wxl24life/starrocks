@@ -28,8 +28,26 @@ namespace starrocks {
 // the final post-cache stream).
 class CountedSeekableInputStream final : public io::SeekableInputStreamWrapper {
 public:
+    // Existing API: borrow a HdfsScanStats* whose lifetime is managed externally.
+    // Safe only when the caller can guarantee the stats outlive every IO on this
+    // stream -- i.e. the synchronous scan path where HdfsScanner stays alive for
+    // the whole read sequence.
     explicit CountedSeekableInputStream(const std::shared_ptr<io::SeekableInputStream>& stream, HdfsScanStats* stats)
             : io::SeekableInputStreamWrapper(stream.get(), kDontTakeOwnership), _stream(stream), _stats(stats) {}
+
+    // Async-safe API: the stream takes shared ownership of the stats. Required
+    // for any caller whose stream may outlive the original stats owner -- e.g.
+    // PaimonFileSystem wrapping a cached `_file` whose ReadAsync lambdas are run
+    // on paimon_aio / paimon-cpp lumina worker threads after HdfsScanner (which
+    // by-value owns the original HdfsScanStats) has been torn down with
+    // HiveDataSource. The keepalive shared_ptr ensures `_stats` stays valid for
+    // every queued IO regardless of the upstream teardown order.
+    explicit CountedSeekableInputStream(const std::shared_ptr<io::SeekableInputStream>& stream,
+                                         std::shared_ptr<HdfsScanStats> stats_keepalive)
+            : io::SeekableInputStreamWrapper(stream.get(), kDontTakeOwnership),
+              _stream(stream),
+              _stats_keepalive(std::move(stats_keepalive)),
+              _stats(_stats_keepalive.get()) {}
 
     ~CountedSeekableInputStream() override = default;
 
@@ -60,6 +78,10 @@ public:
 
 private:
     std::shared_ptr<io::SeekableInputStream> _stream;
+    // Holds the stats alive for the duration of this stream when the caller went
+    // through the async-safe constructor. nullptr for the legacy raw-ptr path,
+    // in which case `_stats` aliases caller-managed memory.
+    std::shared_ptr<HdfsScanStats> _stats_keepalive;
     HdfsScanStats* _stats;
 };
 

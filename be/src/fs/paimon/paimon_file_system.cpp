@@ -152,8 +152,14 @@ PaimonFileSystem::PaimonFileSystem(const std::string& path, const TCloudConfigur
         : _cloud_configuration(cloud_conf),
           _enable_datacache(datacache_options.enable_datacache),
           _datacache_options(datacache_options),
-          _fs_stats(fs_stats),
-          _app_stats(app_stats) {
+          _external_fs_stats(fs_stats),
+          _external_app_stats(app_stats) {
+    if (fs_stats != nullptr) {
+        _owned_fs_stats = std::make_shared<HdfsScanStats>();
+    }
+    if (app_stats != nullptr) {
+        _owned_app_stats = std::make_shared<HdfsScanStats>();
+    }
     FSOptions fs_options(&_cloud_configuration);
     auto st = starrocks::FileSystem::CreateUniqueFromString(path, fs_options);
     if (!st.ok()) {
@@ -163,7 +169,28 @@ PaimonFileSystem::PaimonFileSystem(const std::string& path, const TCloudConfigur
     _fs = std::move(st).value();
 }
 
-PaimonFileSystem::~PaimonFileSystem() = default;
+PaimonFileSystem::~PaimonFileSystem() {
+    // Sync the owned counters wrapped into CountedSeekableInputStream back to the
+    // external HdfsScanScanner stats so the scanner profile sees the IO this
+    // PaimonFileSystem performed. Only `io_ns / io_count / bytes_read` are touched
+    // by CountedSeekableInputStream, so only those need to be merged; the rest of
+    // HdfsScanStats is parquet/orc-specific and stays zero on the ANN path.
+    //
+    // PaimonFileSystem is owned by PaimonGlobalIndexScanner via `_paimon_fs`
+    // shared_ptr; the scanner destructor releases that shared_ptr before its
+    // inherited `HdfsScanScanner::_fs_stats / _app_stats` value members go out
+    // of scope, so the external pointers here are guaranteed alive.
+    if (_external_fs_stats != nullptr && _owned_fs_stats != nullptr) {
+        _external_fs_stats->io_ns += _owned_fs_stats->io_ns;
+        _external_fs_stats->io_count += _owned_fs_stats->io_count;
+        _external_fs_stats->bytes_read += _owned_fs_stats->bytes_read;
+    }
+    if (_external_app_stats != nullptr && _owned_app_stats != nullptr) {
+        _external_app_stats->io_ns += _owned_app_stats->io_ns;
+        _external_app_stats->io_count += _owned_app_stats->io_count;
+        _external_app_stats->bytes_read += _owned_app_stats->bytes_read;
+    }
+}
 
 paimon::Result<std::unique_ptr<paimon::OutputStream>> PaimonFileSystem::Create(const std::string& path,
                                                                                bool overwrite) const {
@@ -195,12 +222,16 @@ paimon::Result<std::unique_ptr<paimon::InputStream>> PaimonFileSystem::Open(cons
     const std::string& filename = raw_file->filename();
 
     // Wrap the raw fs stream so every actual storage IO (network OSS read,
-    // post-cache disk read) lands in _fs_stats. Layered below
+    // post-cache disk read) lands in `_owned_fs_stats`. Layered below
     // SharedBufferedInputStream / CacheInputStream so cache hits don't count
     // towards FS-level IO. Mirrors HdfsScanner::create_random_access_file.
+    // Pass the owned shared_ptr (not the external raw ptr) so the stats survive
+    // every queued paimon_aio / paimon-cpp lumina async IO regardless of
+    // HiveDataSource teardown order; the destructor syncs the accumulated
+    // counters back to the external HdfsScanner stats.
     std::shared_ptr<io::SeekableInputStream> input_stream = raw_file->stream();
-    if (_fs_stats != nullptr) {
-        input_stream = std::make_shared<CountedSeekableInputStream>(input_stream, _fs_stats);
+    if (_owned_fs_stats != nullptr) {
+        input_stream = std::make_shared<CountedSeekableInputStream>(input_stream, _owned_fs_stats);
     }
 
     // [R12.8 backstop] Honor process-wide `config::datacache_enable` even when the
@@ -261,11 +292,12 @@ paimon::Result<std::unique_ptr<paimon::InputStream>> PaimonFileSystem::Open(cons
     }
 
     // Wrap the final post-cache stream so paimon-cpp's reader-visible reads
-    // (cache hit + cache miss alike) land in _app_stats. Must be the outermost
-    // wrapper so its io_ns reflects total time spent in IO.
+    // (cache hit + cache miss alike) land in `_owned_app_stats`. Must be the
+    // outermost wrapper so its io_ns reflects total time spent in IO. Owned
+    // shared_ptr passed for async-safety per the FS-level rationale above.
     std::shared_ptr<io::SeekableInputStream> final_stream = cache_input_stream;
-    if (_app_stats != nullptr) {
-        final_stream = std::make_shared<CountedSeekableInputStream>(final_stream, _app_stats);
+    if (_owned_app_stats != nullptr) {
+        final_stream = std::make_shared<CountedSeekableInputStream>(final_stream, _owned_app_stats);
     }
 
     auto cache_file = std::make_unique<RandomAccessFile>(final_stream, filename);
@@ -565,38 +597,37 @@ paimon::Result<std::string> PaimonInputStream::GetUri() const {
 
 void PaimonInputStream::ReadAsync(char* buffer, uint32_t size, uint64_t offset,
                                   std::function<void(paimon::Status)>&& callback) {
-    // [R12.8 fix] When `_cache_enabled`, route async positional reads through the
-    // cached `_file` so they hit DataCache. Captures `this` (vs the legacy path which
-    // is self-contained); caller must keep this PaimonInputStream alive until the
-    // callback fires -- same lifetime contract the legacy path implicitly requires for
-    // `buffer`. paimon-cpp's LuminaFileReader holds a shared_ptr<InputStream> that
-    // owns this through the search call, so the contract is satisfied in practice.
+    // Cached `_file` path: route through the cached RandomAccessFile so positional
+    // reads hit DataCache + reuse the open JindoSDK chain. Run inline on the caller
+    // thread — paimon-cpp's LuminaFileReader::ReadAsync is already invoked from
+    // lumina's own SimpleThreadPool worker, so the StarRocks scan thread sees no
+    // additional blocking, and `_file->read_at_fully` is a fast in-memory copy
+    // backed by DataCache. Running inline also avoids capturing `this` into a
+    // queued task, which would re-introduce the heap-use-after-free that
+    // CountedSeekableInputStream::read_at_fully hit when the owning HiveDataSource
+    // finished before the queued ReadAsync task could run. The two remaining
+    // lifetime invariants the cached read relies on:
+    //   * CountedSeekableInputStream holds a shared_ptr<HdfsScanStats> keepalive
+    //     so `_stats` survives HiveDataSource teardown,
+    //   * JindoFileSystem deep-copies `cloud_configuration` so downstream
+    //     JindoClient ops don't dereference freed FSOptions.
+    // are established below by PaimonFileSystem / JindoFileSystem construction.
     if (_cache_enabled && config::paimon_cached_positional_read_enable) {
-        std::function<void()> task = [this, buffer, size, offset, cb = std::move(callback)]() {
-            std::lock_guard<std::mutex> lock(_positional_mutex);
-            auto st = _file->read_at_fully(offset, buffer, size);
-            if (!st.ok()) {
-                cb(paimon::Status::IOError(fmt::format("Failed to read file {} at offset {}, reason: {}",
-                                                       _file->filename(), offset, st.detailed_message())));
-                return;
-            }
-            cb(paimon::Status::OK());
-        };
-        ThreadPool* pool = get_paimon_async_read_pool();
-        Status submit_st = pool != nullptr
-                                   ? pool->submit_func(task)
-                                   : Status::InternalError("paimon async read pool unavailable");
-        if (!submit_st.ok()) {
-            LOG(WARNING) << "paimon cached async read falls back to inline execution, file=" << _path
-                         << ", offset=" << offset << ", reason: " << submit_st.message();
-            task();
+        std::lock_guard<std::mutex> lock(_positional_mutex);
+        auto st = _file->read_at_fully(offset, buffer, size);
+        if (!st.ok()) {
+            callback(paimon::Status::IOError(fmt::format("Failed to read file {} at offset {}, reason: {}",
+                                                         _file->filename(), offset, st.detailed_message())));
+            return;
         }
+        callback(paimon::Status::OK());
         return;
     }
 
-    // Cache disabled (or emergency rollback): legacy fresh-stream path, self-contained
-    // task that does NOT capture `this`, so it remains safe even if this
-    // PaimonInputStream is destroyed before the task runs.
+    // Legacy fresh-stream async path: capture `fs` (shared_ptr<FileSystem>) and `path`
+    // by value, open an independent RandomAccessFile per call inside the worker. Safe
+    // by construction (JindoFileSystem deep-copies cloud_configuration). Higher CPU
+    // because every call builds + frees the full JindoSDK chain.
     const int64_t file_size = ensure_file_size();
     std::function<void()> task = [fs = _fs, path = _path, file_size, buffer, size, offset,
                                   cb = std::move(callback)]() {
@@ -606,6 +637,8 @@ void PaimonInputStream::ReadAsync(char* buffer, uint32_t size, uint64_t offset,
     Status submit_st =
             pool != nullptr ? pool->submit_func(task) : Status::InternalError("paimon async read pool unavailable");
     if (!submit_st.ok()) {
+        // Pool unavailable or queue rejected the task: run it inline so the callback
+        // is still invoked exactly once and is never dropped.
         LOG(WARNING) << "paimon async read falls back to inline execution, file=" << _path << ", offset=" << offset
                      << ", reason: " << submit_st.message();
         task();

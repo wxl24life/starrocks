@@ -186,8 +186,19 @@ private:
     std::shared_ptr<starrocks::FileSystem> _fs;
     bool _enable_datacache = false;
     DataCacheOptions _datacache_options{};
-    HdfsScanStats* _fs_stats = nullptr;
-    HdfsScanStats* _app_stats = nullptr;
+    // External HdfsScanScanner-owned stats. Live as long as the owning HdfsScanner
+    // (HiveDataSource via ObjectPool). Used only to receive the final merged
+    // counters at PaimonFileSystem destruction; never handed to streams.
+    HdfsScanStats* _external_fs_stats = nullptr;
+    HdfsScanStats* _external_app_stats = nullptr;
+    // Owned shared_ptr<HdfsScanStats> snapshots wrapped into CountedSeekableInputStream
+    // via the async-safe ctor. Every wrapped stream copies the shared_ptr, so the
+    // counters survive any queued paimon_aio / paimon-cpp lumina worker IO regardless
+    // of HiveDataSource teardown order. PaimonFileSystem::~PaimonFileSystem syncs the
+    // accumulated values back to `_external_*_stats` while HdfsScanScanner is still
+    // alive (PaimonFileSystem itself is destroyed inside ObjectPool::clear()).
+    std::shared_ptr<HdfsScanStats> _owned_fs_stats;
+    std::shared_ptr<HdfsScanStats> _owned_app_stats;
 
     mutable std::mutex _streams_mutex;
     mutable std::vector<std::shared_ptr<io::CacheInputStream>> _cache_streams;
