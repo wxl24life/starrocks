@@ -1076,9 +1076,14 @@ if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" 
 endif()
 
 if (${WITH_TENANN} STREQUAL "ON")
+    # tenann bundles faiss, which is compiled with -fopenmp. A static archive does not
+    # carry its runtime deps, so the final executable must link the OpenMP runtime
+    # (libgomp/libomp) to resolve the omp_*/GOMP_* symbols.
+    find_package(OpenMP REQUIRED)
     set(STARROCKS_DEPENDENCIES
         ${STARROCKS_DEPENDENCIES}
         tenann
+        OpenMP::OpenMP_CXX
     )
 endif()
 
