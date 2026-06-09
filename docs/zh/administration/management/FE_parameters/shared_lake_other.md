@@ -650,6 +650,15 @@ ADMIN SET FRONTEND CONFIG ("key" = "value");
 - 描述：存算分离集群中，Tablet 修复时获取 Tablet 元数据的版本扫描最大批次大小。批次大小从 5 开始，每次翻倍增长，直到达到此最大值。较大的值允许单次批量获取更多版本，通过跨版本文件存在性缓存提高修复效率。如果设置的值小于 5，运行时会自动调整为 5。
 - 引入版本：v3.5.16, v4.0.9
 
+### `enable_paimon_global_index_metadata_query_cache`
+
+- 默认值: true
+- 类型: Boolean
+- 单位: -
+- 是否动态: 是
+- 描述: 在单次查询的 `PaimonMetadata` 实例生命周期内，是否复用 Paimon 全局索引的元数据（index shard 列表与 global index 映射）。开启后，Optimizer 中 `ApplyTopNIndexRule` 的 `check` 和 `transform` 两个阶段会共享同一次 `SnapshotManager.latestSnapshot()` 的结果，避免每次都触发 `RESTCatalog` → `DLFAuthProvider` → ECS metadata token HTTP 拉取，将每个 query 约 4 次 REST roundtrip 缩减为 1 次，消除并发 ANN 场景下针对 DLF REST catalog 的 planner 瓶颈。该 cache 仅存活一次 query（按 query id 由 `MetadataMgr.metadataCacheByQueryId` 管理），不存在跨 query 的脏读问题。设为 `false` 可回滚行为或做 A/B 对照。
+- 引入版本: v3.5.16
+
 ### `enable_iceberg_commit_queue`
 
 - 默认值: true

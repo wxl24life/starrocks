@@ -651,6 +651,15 @@ This topic introduces the following types of FE configurations:
 - Introduced in: v4.0
 
 
+### `enable_paimon_global_index_metadata_query_cache`
+
+- Default: true
+- Type: Boolean
+- Unit: -
+- Is mutable: Yes
+- Description: Whether to reuse Paimon global-index metadata (index shard list and global index map) within a single query's `PaimonMetadata` instance. With this enabled, the planner rule `ApplyTopNIndexRule`'s `check` and `transform` phases share one `SnapshotManager.latestSnapshot()` result instead of each driving a fresh `RESTCatalog` → `DLFAuthProvider` → ECS metadata token HTTP fetch. This collapses roughly four REST roundtrips per query down to one, and removes a planner bottleneck observed under concurrent ANN workloads against DLF REST catalogs. The cache lives exactly one query (keyed by query id via `MetadataMgr.metadataCacheByQueryId`), so there is no cross-query staleness. Set to `false` to roll back behavior or perform A/B comparisons.
+- Introduced in: v3.5.16
+
 ### `enable_iceberg_commit_queue`
 
 - Default: true

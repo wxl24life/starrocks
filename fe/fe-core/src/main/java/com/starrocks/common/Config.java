@@ -2876,6 +2876,16 @@ public class Config extends ConfigBase {
     public static boolean enable_paimon_refresh_manifest_files = false;
 
     /**
+     * Reuse Paimon global-index metadata results (index shard list, global index map) within a single
+     * query's PaimonMetadata instance. Eliminates redundant SnapshotManager.latestSnapshot() calls
+     * that each go through RESTCatalog → DLFAuthProvider → ECS metadata token fetch, which dominate
+     * FE planner time under concurrent ANN workloads (per-query 4 REST roundtrips → 1).
+     * Default true. Disable to roll back behavior or for A/B comparison.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_paimon_global_index_metadata_query_cache = true;
+
+    /**
      * enable lake optimizer, default false
      */
     @ConfField(mutable = true)

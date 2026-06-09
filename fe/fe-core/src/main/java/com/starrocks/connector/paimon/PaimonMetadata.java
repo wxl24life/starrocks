@@ -109,6 +109,16 @@ public class PaimonMetadata implements ConnectorMetadata {
     private final ConnectorProperties properties;
     private final Map<Identifier, Map<String, Partition>> partitionInfos = new ConcurrentHashMap<>();
 
+    // Query-scope cache for global-index metadata.
+    // PaimonMetadata is reused within a single query via MetadataMgr.metadataCacheByQueryId, so these
+    // maps live exactly one query. ApplyTopNIndexRule's check + transform each instantiate a fresh
+    // IndexAnalyzer that calls getGlobalIndexes / checkGlobalIndexAvailable / getGlobalIndexShardCount,
+    // and each call would otherwise drive SnapshotLoaderImpl.load() → new RESTCatalog → new
+    // DLFAuthProvider → cold-start ECS metadata token HTTP fetch. Caching collapses ~4 REST
+    // roundtrips per query to 1. Empty Optional means table had no FileStoreTable / no global index.
+    private final Map<Identifier, Optional<List<Range>>> indexShardListCache = new ConcurrentHashMap<>();
+    private final Map<Identifier, Map<String, Set<String>>> globalIndexesCache = new ConcurrentHashMap<>();
+
     public PaimonMetadata(HdfsEnvironment hdfsEnvironment, PaimonCatalog paimonCatalog,
                           ConnectorProperties properties) {
         this.paimonCatalog = paimonCatalog;
@@ -587,6 +597,16 @@ public class PaimonMetadata implements ConnectorMetadata {
      * Returns null if the table does not have a paimon-native FileStoreTable.
      */
     private List<Range> getIndexShardList(Table table) {
+        if (!com.starrocks.common.Config.enable_paimon_global_index_metadata_query_cache) {
+            return computeIndexShardList(table);
+        }
+        Identifier id = Identifier.create(table.getCatalogDBName(), table.getCatalogTableName());
+        return indexShardListCache
+                .computeIfAbsent(id, k -> Optional.ofNullable(computeIndexShardList(table)))
+                .orElse(null);
+    }
+
+    private List<Range> computeIndexShardList(Table table) {
         PaimonTable paimonTable = (PaimonTable) table;
         if (!(paimonTable.getNativeTable() instanceof FileStoreTable)) {
             return null;
@@ -630,6 +650,14 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public Map<String, Set<String>> getGlobalIndexes(Table table) {
+        if (!com.starrocks.common.Config.enable_paimon_global_index_metadata_query_cache) {
+            return computeGlobalIndexes(table);
+        }
+        Identifier id = Identifier.create(table.getCatalogDBName(), table.getCatalogTableName());
+        return globalIndexesCache.computeIfAbsent(id, k -> computeGlobalIndexes(table));
+    }
+
+    private Map<String, Set<String>> computeGlobalIndexes(Table table) {
         PaimonTable paimonTable = (PaimonTable) table;
         if (!(paimonTable.getNativeTable() instanceof FileStoreTable)) {
             return new HashMap<>();
