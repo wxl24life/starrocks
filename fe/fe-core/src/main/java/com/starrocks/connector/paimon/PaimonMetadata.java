@@ -220,11 +220,19 @@ public class PaimonMetadata implements ConnectorMetadata {
         RemoteFileInfo remoteFileInfo = new RemoteFileInfo();
         PaimonTable paimonTable = (PaimonTable) table;
         Identifier identifier = new Identifier(paimonTable.getCatalogDBName(), paimonTable.getCatalogTableName());
-        long snapshotId = resolveSnapshotId(paimonTable);
+        long snapshotId;
+        try (com.starrocks.common.profile.Timer t =
+                Tracers.watchScope(EXTERNAL, "getRemoteFiles.resolveSnapshotId")) {
+            snapshotId = resolveSnapshotId(paimonTable);
+        }
         PredicateSearchKey filter = PredicateSearchKey.of(paimonTable.getCatalogDBName(),
                 paimonTable.getCatalogTableName(), snapshotId, params.getPredicate());
         if (!paimonSplits.containsKey(filter)) {
-            ReadBuilder readBuilder = paimonTable.getNativeTable().newReadBuilder();
+            ReadBuilder readBuilder;
+            try (com.starrocks.common.profile.Timer t =
+                    Tracers.watchScope(EXTERNAL, "getRemoteFiles.newReadBuilder")) {
+                readBuilder = paimonTable.getNativeTable().newReadBuilder();
+            }
             // Drop synthetic columns that the planner injects but Paimon's schema does not know
             // about. Without this, indexOf returns -1 and RowType.project blows up with
             // "Index -1 out of bounds".
@@ -237,7 +245,11 @@ public class PaimonMetadata implements ConnectorMetadata {
                             com.starrocks.sql.optimizer.rule.transformation.ApplyTopNIndexRule.SCORE_COLUMN_NAME))
                     .mapToInt(name -> (paimonTable.getFieldNames().indexOf(name))).toArray();
             List<ScalarOperator> originalConjuncts = Utils.extractConjuncts(params.getPredicate());
-            List<Predicate> pushedPredicates = convertPredicates(paimonTable, originalConjuncts);
+            List<Predicate> pushedPredicates;
+            try (com.starrocks.common.profile.Timer t =
+                    Tracers.watchScope(EXTERNAL, "getRemoteFiles.convertPredicates")) {
+                pushedPredicates = convertPredicates(paimonTable, originalConjuncts);
+            }
             readBuilder = readBuilder.withFilter(pushedPredicates);
             if (projected.length > 0) {
                 readBuilder = readBuilder.withProjection(projected);
@@ -256,10 +268,13 @@ public class PaimonMetadata implements ConnectorMetadata {
             // globalIndex takes precedence over LakeOptimizer: when both apply, we must obtain a
             // DataEvolutionBatchScan (only produced by readBuilder.newScan() when the table has
             // dataEvolutionEnabled), not the external-entries scan path.
-            if (useGlobalIndex || !useLakeOptimizer) {
-                scan = (InnerTableScan) readBuilder.newScan();
-            } else {
-                scan = readBuilder.newExternalEntriesScan();
+            try (com.starrocks.common.profile.Timer t =
+                    Tracers.watchScope(EXTERNAL, "getRemoteFiles.newScan")) {
+                if (useGlobalIndex || !useLakeOptimizer) {
+                    scan = (InnerTableScan) readBuilder.newScan();
+                } else {
+                    scan = readBuilder.newExternalEntriesScan();
+                }
             }
             if (params.getGlobalIndexResult() != null) {
                 // withGlobalIndexResult must come after readBuilder's withFilter (already applied
@@ -283,8 +298,12 @@ public class PaimonMetadata implements ConnectorMetadata {
                 totalPartitionCount = cachedPartitionInfo.size();
             }
 
-            List<Split> splits = paimonCatalog.getSplits(table, partitions,
-                    totalPartitionCount, snapshotId, scan);
+            List<Split> splits;
+            try (com.starrocks.common.profile.Timer t =
+                    Tracers.watchScope(EXTERNAL, "getRemoteFiles.paimonCatalog.getSplits")) {
+                splits = paimonCatalog.getSplits(table, partitions,
+                        totalPartitionCount, snapshotId, scan);
+            }
             this.traceScanMetrics(paimonMetricRegistry, splits, table.getCatalogTableName(),
                     pushedPredicates, String.valueOf(Objects.hash(params.getPredicate())));
 
