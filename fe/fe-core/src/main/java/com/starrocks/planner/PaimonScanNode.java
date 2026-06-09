@@ -162,7 +162,10 @@ public class PaimonScanNode extends ScanNode {
         // Phase 1: if global index is applicable, evaluate it via internal SQL to get bitmap,
         //          then pass the bitmap to the subsequent split-fetch via GetRemoteFilesParams.
         if (indexCondition != null) {
-            this.globalIndexResult = new PaimonGlobalIndexService(paimonTable, indexCondition).evaluate();
+            try (Timer ignored = Tracers.watchScope(EXTERNAL,
+                    paimonTable.getCatalogTableName() + ".PaimonGlobalIndexService.evaluate")) {
+                this.globalIndexResult = new PaimonGlobalIndexService(paimonTable, indexCondition).evaluate();
+            }
         }
         List<String> fieldNames =
                 tupleDescriptor.getSlots().stream().map(s -> s.getColumn().getName()).collect(Collectors.toList());

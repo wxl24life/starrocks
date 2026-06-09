@@ -15,6 +15,7 @@
 package com.starrocks.connector.paimon;
 
 import com.starrocks.catalog.PaimonTable;
+import com.starrocks.common.profile.Timer;
 import com.starrocks.common.profile.Tracers;
 import com.starrocks.connector.index.IndexCondition;
 import com.starrocks.connector.index.IndexTable;
@@ -62,16 +63,25 @@ public class PaimonGlobalIndexService {
      * produces zero-row splits instead of failing the query.
      */
     public Object evaluate() {
-        String sql = buildSql();
+        String tracePrefix = "Paimon.GlobalIndex." + paimonTable.getCatalogTableName() + ".";
+        String sql;
+        try (Timer ignored = Tracers.watchScope(INDEX, tracePrefix + "evaluate.buildSql")) {
+            sql = buildSql();
+        }
         String debugCondition = indexCondition.toDebugString();
         LOG.info("evaluateGlobalIndexResult sql: {} condition: {}", sql, debugCondition);
-        String tracePrefix = "Paimon.GlobalIndex." + paimonTable.getCatalogTableName() + ".";
         Tracers.record(INDEX, tracePrefix + "evaluateGlobalIndex.condition", debugCondition);
 
-        Object aggregated = new InternalSqlExecutor().execute(sql, new ShardResultAggregator(indexCondition));
-        return aggregated != null
-                ? aggregated
-                : PaimonUtils.createEmptyGlobalIndexResult(indexCondition);
+        Object aggregated;
+        try (Timer ignored = Tracers.watchScope(INDEX, tracePrefix + "evaluate.internalSqlExec")) {
+            aggregated = new InternalSqlExecutor().execute(sql, new ShardResultAggregator(indexCondition));
+        }
+        if (aggregated != null) {
+            return aggregated;
+        }
+        try (Timer ignored = Tracers.watchScope(INDEX, tracePrefix + "evaluate.emptyResult")) {
+            return PaimonUtils.createEmptyGlobalIndexResult(indexCondition);
+        }
     }
 
     // index_result is VARBINARY; HTTP_PROTOCAL ndjson is text-only, so we wrap it in to_base64()
