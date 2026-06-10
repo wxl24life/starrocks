@@ -63,6 +63,17 @@ private:
         int64_t score_expr_eval_ns = 0;
         int64_t result_add_offset_ns = 0;
         int64_t result_serialize_ns = 0;
+        // Sub-phases inside paimon::GlobalIndexScan::Create (populated via ScanCreateBreakdown
+        // out-param). Sum approximately equals scan_create_ns. Surfaced separately in profile
+        // so the opaque GlobalIndexScanCreateTime can be attributed to schema/snapshot/manifest
+        // pieces.
+        int64_t scan_load_schema_ns = 0;
+        int64_t scan_merge_options_ns = 0;
+        int64_t scan_load_snapshot_ns = 0;
+        int64_t scan_path_factory_ns = 0;
+        int64_t scan_manifest_create_ns = 0;
+        int64_t scan_manifest_scan_ns = 0;
+        int64_t scan_executor_setup_ns = 0;
     };
     PhaseTimings _timings;
 

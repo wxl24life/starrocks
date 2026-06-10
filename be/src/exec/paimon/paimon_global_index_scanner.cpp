@@ -129,12 +129,21 @@ StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> PaimonGlobalIndexScanner::e
     // GlobalIndexScan is heavy to construct (open file system, fetch index meta). Build it once,
     // together with the row-range filter for this shard, and let the visitor's
     // column_readers_getter only invoke CreateReaders for each predicate node.
+    paimon::ScanCreateBreakdown scan_breakdown;
     ASSIGN_OR_RETURN_WITH_MSG_PAIMON(
             const auto global_index_scan,
             paimon::GlobalIndexScan::Create(table_path, std::nullopt, std::nullopt, {}, file_system,
-                                            paimon::GetGlobalDefaultExecutor(), memory_pool),
+                                            paimon::GetGlobalDefaultExecutor(), memory_pool,
+                                            &scan_breakdown),
             fmt::format("create GlobalIndexScan fail, table_path:{}", table_path));
     _timings.scan_create_ns += phase_sw.reset();
+    _timings.scan_load_schema_ns += scan_breakdown.load_schema_ns;
+    _timings.scan_merge_options_ns += scan_breakdown.merge_options_ns;
+    _timings.scan_load_snapshot_ns += scan_breakdown.load_snapshot_ns;
+    _timings.scan_path_factory_ns += scan_breakdown.path_factory_ns;
+    _timings.scan_manifest_create_ns += scan_breakdown.manifest_create_ns;
+    _timings.scan_manifest_scan_ns += scan_breakdown.manifest_scan_ns;
+    _timings.scan_executor_setup_ns += scan_breakdown.executor_setup_ns;
 
     // CreateRangeScan was removed upstream; the [from, to) row range is now passed to CreateReaders
     // as a RowRangeIndex that limits the scan to this shard's row ids.
@@ -243,6 +252,17 @@ void PaimonGlobalIndexScanner::do_update_counter(HdfsScanProfile* profile) {
     add_phase_timer("JsonParseTime", _timings.json_parse_ns);
     add_phase_timer("FileSystemBuildTime", _timings.fs_build_ns);
     add_phase_timer("GlobalIndexScanCreateTime", _timings.scan_create_ns);
+    // Sub-phases of GlobalIndexScanCreateTime (~236ms wall under c=50 contention). Approximate
+    // sum of the 7 ScanCreate_* sub-counters equals GlobalIndexScanCreateTime. Surfaced separately
+    // to attribute the opaque setup cost to SchemaManager.Latest / SnapshotManager.LatestSnapshot
+    // / FileStorePathFactory / IndexManifestFile::Create / index_file_handler->Scan / executor.
+    add_phase_timer("ScanCreate_LoadSchemaTime", _timings.scan_load_schema_ns);
+    add_phase_timer("ScanCreate_MergeOptionsTime", _timings.scan_merge_options_ns);
+    add_phase_timer("ScanCreate_LoadSnapshotTime", _timings.scan_load_snapshot_ns);
+    add_phase_timer("ScanCreate_PathFactoryTime", _timings.scan_path_factory_ns);
+    add_phase_timer("ScanCreate_ManifestCreateTime", _timings.scan_manifest_create_ns);
+    add_phase_timer("ScanCreate_ManifestScanTime", _timings.scan_manifest_scan_ns);
+    add_phase_timer("ScanCreate_ExecutorSetupTime", _timings.scan_executor_setup_ns);
     add_phase_timer("RowRangeIndexCreateTime", _timings.row_range_create_ns);
     add_phase_timer("PredicateEvalTime", _timings.predicate_eval_ns);
     add_phase_timer("ScoreExprEvalTime", _timings.score_expr_eval_ns);
