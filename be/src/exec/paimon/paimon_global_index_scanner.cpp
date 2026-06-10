@@ -96,6 +96,8 @@ StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> PaimonGlobalIndexScanner::e
     // R4: turn on paimon-cpp Schema+Snapshot cache. Default 0 = off, no behavior change.
     // Setting per-shard is idempotent and cheap (one atomic store on the singleton TTL).
     paimon::SetScanMetadataCacheTtlMs(config::paimon_scan_metadata_cache_ttl_ms);
+    // R5: turn on paimon-cpp manifest-scan cache, default 0 = off. Independent A/B knob.
+    paimon::SetManifestScanCacheTtlMs(config::paimon_manifest_scan_cache_ttl_ms);
 
     MonotonicStopWatch total_sw;
     total_sw.start();

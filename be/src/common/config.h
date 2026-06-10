@@ -968,6 +968,13 @@ CONF_mInt32(paimon_lumina_file_reader_readahead_kb, "0");
 // DataCacheReadTimer = 103 us). TTL ms; 0 disables; trade-off is up to TTL ms staleness for
 // schema and latest-snapshot pointer. Mutable, default 0 (opt-in). Recommended ~5000-10000.
 CONF_mInt64(paimon_scan_metadata_cache_ttl_ms, "0");
+// R5: process-wide cache for paimon-cpp's manifest-scan result inside
+// GlobalIndexScanImpl::Create. After R4 caches schema + snapshot, the remaining
+// ManifestScanTime is ~13-15 ms per shard. The manifest entry list is immutable for a given
+// (root_path, snapshot_id), so caching it is safe modulo the TTL staleness window. Independent
+// from `paimon_scan_metadata_cache_ttl_ms` so each lever can be A/B tested separately.
+// Mutable, default 0 (opt-in).
+CONF_mInt64(paimon_manifest_scan_cache_ttl_ms, "0");
 // Maximum number of worker threads in the dedicated thread pool that serves
 // PaimonInputStream::ReadAsync -- the asynchronous reads issued by the Paimon
 // global (vector) index during ANN search. Takes effect when the pool is first
