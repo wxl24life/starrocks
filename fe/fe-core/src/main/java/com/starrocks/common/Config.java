@@ -2886,6 +2886,29 @@ public class Config extends ConfigBase {
     public static boolean enable_paimon_global_index_metadata_query_cache = true;
 
     /**
+     * Cross-query cache for the latestSnapshot() id resolved per Paimon table.
+     * Default OFF — when enabled, eliminates the one REST round-trip per query that
+     * resolveSnapshotId() makes to ask the DLF REST catalog for the table's latest
+     * snapshot id. Each entry is reused for paimon_snapshot_id_cache_ttl_ms before
+     * being refreshed, which trades read-after-write freshness for QPS:
+     * a writer that lands a new snapshot is invisible to readers for up to the TTL.
+     * Inner SQL (PaimonGlobalIndexService.evaluate) also benefits since its scan
+     * runs through the same getRemoteFiles path.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_paimon_snapshot_id_cache = false;
+
+    /**
+     * TTL for enable_paimon_snapshot_id_cache entries, in milliseconds. The default
+     * 5000 ms is the smallest window that materially reduces REST traffic under
+     * sustained ANN workloads (per-query QPS) while keeping the visibility lag
+     * bounded for users who tolerate it. Set to 10000 for slightly more savings
+     * at the cost of up to 10s freshness lag.
+     */
+    @ConfField(mutable = true)
+    public static long paimon_snapshot_id_cache_ttl_ms = 5000;
+
+    /**
      * enable lake optimizer, default false
      */
     @ConfField(mutable = true)

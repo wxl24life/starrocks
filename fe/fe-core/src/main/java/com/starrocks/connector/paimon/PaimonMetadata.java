@@ -321,13 +321,57 @@ public class PaimonMetadata implements ConnectorMetadata {
         return Lists.newArrayList(remoteFileInfo);
     }
 
+    // Process-wide snapshot id cache, keyed by catalogName::db::table. See
+    // Config.enable_paimon_snapshot_id_cache for the trade-off: per-table snapshot id is
+    // reused for paimon_snapshot_id_cache_ttl_ms before re-fetching from the DLF REST
+    // catalog. Default OFF for safety; toggle on per cluster for high-QPS read workloads
+    // where snapshot freshness within ~5s is acceptable.
+    private static final java.util.concurrent.ConcurrentMap<String, CachedSnapshotEntry>
+            SHARED_SNAPSHOT_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static final class CachedSnapshotEntry {
+        final long snapshotId;
+        final long expireAtMs;
+
+        CachedSnapshotEntry(long snapshotId, long ttlMs) {
+            this.snapshotId = snapshotId;
+            this.expireAtMs = System.currentTimeMillis() + ttlMs;
+        }
+    }
+
     private long resolveSnapshotId(PaimonTable paimonTable) {
         if (paimonTable.getLakeOptimizerMode() == PaimonTable.LakeOptimizerMode.READY) {
             return paimonTable.getEndSnapshot();
         }
+        if (com.starrocks.common.Config.enable_paimon_snapshot_id_cache) {
+            String key = paimonTable.getCatalogName() + "::"
+                    + paimonTable.getCatalogDBName() + "::"
+                    + paimonTable.getCatalogTableName();
+            CachedSnapshotEntry cached = SHARED_SNAPSHOT_CACHE.get(key);
+            long now = System.currentTimeMillis();
+            if (cached != null && cached.expireAtMs > now) {
+                return cached.snapshotId;
+            }
+            long fresh = fetchLatestSnapshotIdOnce(paimonTable);
+            if (fresh > 0) {
+                long ttl = Math.max(0L,
+                        com.starrocks.common.Config.paimon_snapshot_id_cache_ttl_ms);
+                SHARED_SNAPSHOT_CACHE.put(key, new CachedSnapshotEntry(fresh, ttl));
+            }
+            return fresh;
+        }
+        return fetchLatestSnapshotIdOnce(paimonTable);
+    }
+
+    private long fetchLatestSnapshotIdOnce(PaimonTable paimonTable) {
         try {
-            if (paimonTable.getNativeTable().latestSnapshot().isPresent()) {
-                return paimonTable.getNativeTable().latestSnapshot().get().id();
+            // Cache the Optional locally — the original code called latestSnapshot() twice
+            // (isPresent + get), which under DLF REST catalog mode incurs two separate
+            // RESTApi.loadSnapshot HTTP fetches per query (each ~100-200ms under contention).
+            java.util.Optional<org.apache.paimon.Snapshot> latest =
+                    paimonTable.getNativeTable().latestSnapshot();
+            if (latest.isPresent()) {
+                return latest.get().id();
             }
         } catch (Exception e) {
             LOG.warn("Cannot get snapshot because {}", e.getMessage());
