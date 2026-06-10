@@ -961,6 +961,13 @@ CONF_mInt32(paimon_global_index_reader_cache_capacity, "0");
 // InputStream / IOBuffer::copy_to memcpy overhead seen at 14-36% CPU in R10 perf.
 // ReadAsync() is unchanged. Tune by sweep {0, 64, 256, 1024} for the workload.
 CONF_mInt32(paimon_lumina_file_reader_readahead_kb, "0");
+// R4: process-wide cache for paimon-cpp's TableSchema + latest Snapshot lookups inside
+// GlobalIndexScan::Create. R3.1 trace showed these two helpers dominate the 220 ms scan-create
+// wall (LoadSchemaTime ~140 ms + LoadSnapshotTime ~65 ms under c=50 contention, both
+// CPU/lock-bound inside SchemaManager / SnapshotManager — DataCache is already 100% hot per
+// DataCacheReadTimer = 103 us). TTL ms; 0 disables; trade-off is up to TTL ms staleness for
+// schema and latest-snapshot pointer. Mutable, default 0 (opt-in). Recommended ~5000-10000.
+CONF_mInt64(paimon_scan_metadata_cache_ttl_ms, "0");
 // Maximum number of worker threads in the dedicated thread pool that serves
 // PaimonInputStream::ReadAsync -- the asynchronous reads issued by the Paimon
 // global (vector) index during ANN search. Takes effect when the pool is first

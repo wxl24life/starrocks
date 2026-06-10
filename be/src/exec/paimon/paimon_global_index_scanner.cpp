@@ -93,6 +93,9 @@ StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> PaimonGlobalIndexScanner::e
     paimon::GlobalIndexReaderCache::Instance().SetCapacity(cache_cap_cfg > 0 ? static_cast<size_t>(cache_cap_cfg) : 0);
     paimon::lumina::SetLuminaFileReaderReadAheadBytes(
             readahead_kb_cfg > 0 ? static_cast<uint64_t>(readahead_kb_cfg) * 1024 : 0);
+    // R4: turn on paimon-cpp Schema+Snapshot cache. Default 0 = off, no behavior change.
+    // Setting per-shard is idempotent and cheap (one atomic store on the singleton TTL).
+    paimon::SetScanMetadataCacheTtlMs(config::paimon_scan_metadata_cache_ttl_ms);
 
     MonotonicStopWatch total_sw;
     total_sw.start();
