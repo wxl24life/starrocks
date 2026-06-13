@@ -198,6 +198,12 @@ public:
                                   const PUpdateTransactionStateRequest* request,
                                   PUpdateTransactionStateResponse* response, google::protobuf::Closure* done) override;
 
+    // R6 PoC — direct paimon-global-index evaluate (bypasses inner SQL plan/dispatch path).
+    void paimon_global_index_evaluate(google::protobuf::RpcController* controller,
+                                      const PPaimonGlobalIndexEvaluateRequest* request,
+                                      PPaimonGlobalIndexEvaluateResponse* response,
+                                      google::protobuf::Closure* done) override;
+
 private:
     void _transmit_chunk(::google::protobuf::RpcController* controller,
                          const ::starrocks::PTransmitChunkParams* request, ::starrocks::PTransmitChunkResult* response,

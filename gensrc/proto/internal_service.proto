@@ -629,6 +629,24 @@ message PMVMaintenanceTaskResult {
     required StatusPB status = 1;
 };
 
+// R6 PoC — direct FE→BE bypass for PaimonGlobalIndex evaluate path.
+// Replaces the inner SQL "SELECT to_base64(index_result) FROM <table>$global_index WHERE args='...'"
+// with a single BRPC call to the BE evaluator, skipping FE Parser/Optimizer/Coordinator + BE pipeline.
+message PPaimonGlobalIndexEvaluateRequest {
+    optional string index_condition_json = 1;     // serialized IndexCondition.toQueryJson()
+    optional string table_path = 2;               // paimon data path (oss://..., s3://...)
+    optional bytes cloud_configuration_thrift = 3;// thrift-serialized TCloudConfiguration
+    optional int64 range_from = 4;                // shard row-range [from, to)
+    optional int64 range_to = 5;
+    optional int64 shard_id = 6;
+    optional bytes datacache_options_thrift = 7;  // optional TDataCacheOptions
+};
+
+message PPaimonGlobalIndexEvaluateResponse {
+    required StatusPB status = 1;
+    optional bytes index_result = 2;              // serialized paimon::GlobalIndexResult; absent = no match
+};
+
 message ExecuteCommandRequestPB {
     optional string command = 1;
     optional string params = 2;
@@ -755,6 +773,8 @@ service PInternalService {
     rpc get_info(PProxyRequest) returns (PProxyResult);
     rpc get_pulsar_info(PPulsarProxyRequest) returns (PPulsarProxyResult);
     rpc get_file_schema(PGetFileSchemaRequest) returns (PGetFileSchemaResult);
+    // R6 PoC — paimon global-index evaluate direct path (bypasses inner SQL pipeline).
+    rpc paimon_global_index_evaluate(PPaimonGlobalIndexEvaluateRequest) returns (PPaimonGlobalIndexEvaluateResponse);
 
     // Transmit vectorized data between backends.
     rpc transmit_chunk(PTransmitChunkParams) returns (PTransmitChunkResult);

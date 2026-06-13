@@ -28,6 +28,8 @@ import com.starrocks.proto.PFetchDataResult;
 import com.starrocks.proto.PGetFileSchemaResult;
 import com.starrocks.proto.PListFailPointResponse;
 import com.starrocks.proto.PMVMaintenanceTaskResult;
+import com.starrocks.proto.PPaimonGlobalIndexEvaluateRequest;
+import com.starrocks.proto.PPaimonGlobalIndexEvaluateResponse;
 import com.starrocks.proto.PProcessDictionaryCacheRequest;
 import com.starrocks.proto.PProcessDictionaryCacheResult;
 import com.starrocks.proto.PProxyRequest;
@@ -154,5 +156,12 @@ public class PBackendServiceWithMetrics implements PBackendService {
     public Future<PUpdateTransactionStateResponse> updateTransactionState(PUpdateTransactionStateRequest request) {
         increaseMetrics();
         return pBackendService.updateTransactionState(request);
+    }
+
+    @Override
+    public Future<PPaimonGlobalIndexEvaluateResponse> paimonGlobalIndexEvaluateAsync(
+            PPaimonGlobalIndexEvaluateRequest request) {
+        increaseMetrics();
+        return pBackendService.paimonGlobalIndexEvaluateAsync(request);
     }
 }

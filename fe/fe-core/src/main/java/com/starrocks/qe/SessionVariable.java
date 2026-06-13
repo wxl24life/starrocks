@@ -574,6 +574,9 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
     public static final String HUDI_MOR_FORCE_JNI_READER = "hudi_mor_force_jni_reader";
     public static final String PAIMON_FORCE_JNI_READER = "paimon_force_jni_reader";
     public static final String ENABLE_PAIMON_NATIVE_WRITER = "enable_paimon_native_writer";
+    // R6 PoC — when true, PaimonGlobalIndexService.evaluate() bypasses the inner SQL pipeline and
+    // calls BE directly via brpc. Default off; flip on per-session for A/B benchmarking.
+    public static final String PAIMON_GLOBAL_INDEX_USE_THRIFT_BYPASS = "paimon_global_index_use_thrift_bypass";
     public static final String PAIMON_NATIVE_COMMIT_USER = "paimon_native_commit_user";
     public static final String PAIMON_FORCE_NATIVE_READER = "paimon_force_native_reader";
     public static final String PAIMON_NATIVE_READER_ENABLE_MULTI_THREAD_ROW_TO_BATCH =
@@ -2227,6 +2230,9 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
     @VariableMgr.VarAttr(name = ENABLE_PAIMON_NATIVE_WRITER)
     private boolean enablePaimonNativeWriter = true;
 
+    @VariableMgr.VarAttr(name = PAIMON_GLOBAL_INDEX_USE_THRIFT_BYPASS)
+    private boolean paimonGlobalIndexUseThriftBypass = false;
+
     @VariableMgr.VarAttr(name = PAIMON_NATIVE_COMMIT_USER)
     private String paimonNativeCommitUser = "";
 
@@ -3027,6 +3033,10 @@ public class SessionVariable implements Serializable, Writable, Cloneable {
 
     public boolean isEnablePaimonNativeWriter() {
         return enablePaimonNativeWriter;
+    }
+
+    public boolean isPaimonGlobalIndexUseThriftBypass() {
+        return paimonGlobalIndexUseThriftBypass;
     }
 
     public void setPaimonNativeCommitUser(String user) {

@@ -19,7 +19,9 @@ import com.starrocks.common.profile.Timer;
 import com.starrocks.common.profile.Tracers;
 import com.starrocks.connector.index.IndexCondition;
 import com.starrocks.connector.index.IndexTable;
+import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.InternalSqlExecutor;
+import com.starrocks.qe.SessionVariable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.globalindex.GlobalIndexResult;
@@ -64,12 +66,28 @@ public class PaimonGlobalIndexService {
      */
     public Object evaluate() {
         String tracePrefix = "Paimon.GlobalIndex." + paimonTable.getCatalogTableName() + ".";
+
+        // R6 PoC — opt-in bypass: skip inner SQL plan/dispatch and call BE evaluator via brpc.
+        // Default off. Even when on, fall back to SQL path if bypass returns null (PoC stub state).
+        ConnectContext ctx = ConnectContext.get();
+        SessionVariable sv = ctx != null ? ctx.getSessionVariable() : null;
+        if (sv != null && sv.isPaimonGlobalIndexUseThriftBypass()) {
+            try (Timer ignored = Tracers.watchScope(INDEX, tracePrefix + "evaluate.bypass")) {
+                Object bypassed = evaluateViaBypass();
+                if (bypassed != null) {
+                    return bypassed;
+                }
+                LOG.warn("paimon_global_index_use_thrift_bypass=true but bypass returned null; "
+                        + "falling back to SQL path for table {}", paimonTable.getCatalogTableName());
+            }
+        }
+
         String sql;
         try (Timer ignored = Tracers.watchScope(INDEX, tracePrefix + "evaluate.buildSql")) {
             sql = buildSql();
         }
         String debugCondition = indexCondition.toDebugString();
-        LOG.info("evaluateGlobalIndexResult sql: {} condition: {}", sql, debugCondition);
+        LOG.debug("evaluateGlobalIndexResult sql: {} condition: {}", sql, debugCondition);
         Tracers.record(INDEX, tracePrefix + "evaluateGlobalIndex.condition", debugCondition);
 
         Object aggregated;
@@ -82,6 +100,23 @@ public class PaimonGlobalIndexService {
         try (Timer ignored = Tracers.watchScope(INDEX, tracePrefix + "evaluate.emptyResult")) {
             return PaimonUtils.createEmptyGlobalIndexResult(indexCondition);
         }
+    }
+
+    /**
+     * R6 PoC stub. When the BE evaluator is wired (PInternalService.paimon_global_index_evaluate),
+     * this builds PPaimonGlobalIndexEvaluateRequest, picks an alive BE, awaits the RPC, and
+     * deserialises the response into a GlobalIndexResult.
+     *
+     * <p>Returns null to indicate "bypass not available" — caller falls back to the SQL path so
+     * functional correctness is preserved during PoC roll-out.
+     */
+    private Object evaluateViaBypass() {
+        // TODO(R6): implement once BE handler is no longer Unimplemented.
+        // 1. resolve target BE via systemInfoService.getBackendIds(true)
+        // 2. build PPaimonGlobalIndexEvaluateRequest from paimonTable + indexCondition + sessionVar
+        // 3. BackendServiceClient.getInstance().paimonGlobalIndexEvaluateAsync(beAddr, req).get(timeout)
+        // 4. deserialize index_result via GlobalIndexResultSerializer
+        return null;
     }
 
     // index_result is VARBINARY; HTTP_PROTOCAL ndjson is text-only, so we wrap it in to_base64()

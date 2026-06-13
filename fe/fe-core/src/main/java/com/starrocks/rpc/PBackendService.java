@@ -29,6 +29,8 @@ import com.starrocks.proto.PFetchDataResult;
 import com.starrocks.proto.PGetFileSchemaResult;
 import com.starrocks.proto.PListFailPointResponse;
 import com.starrocks.proto.PMVMaintenanceTaskResult;
+import com.starrocks.proto.PPaimonGlobalIndexEvaluateRequest;
+import com.starrocks.proto.PPaimonGlobalIndexEvaluateResponse;
 import com.starrocks.proto.PProcessDictionaryCacheRequest;
 import com.starrocks.proto.PProcessDictionaryCacheResult;
 import com.starrocks.proto.PProxyRequest;
@@ -105,5 +107,10 @@ public interface PBackendService {
 
     @ProtobufRPC(serviceName = "PInternalService", methodName = "update_transaction_state", onceTalkTimeout = 600000)
     Future<PUpdateTransactionStateResponse> updateTransactionState(PUpdateTransactionStateRequest request);
+
+    // R6 PoC — direct paimon-global-index evaluate bypass (skips inner SQL parse/plan/dispatch).
+    @ProtobufRPC(serviceName = "PInternalService", methodName = "paimon_global_index_evaluate",
+            attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 60000)
+    Future<PPaimonGlobalIndexEvaluateResponse> paimonGlobalIndexEvaluateAsync(PPaimonGlobalIndexEvaluateRequest request);
 }
 

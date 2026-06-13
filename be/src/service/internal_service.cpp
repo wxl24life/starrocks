@@ -1364,6 +1364,20 @@ void PInternalServiceImplBase<T>::update_transaction_state(google::protobuf::Rpc
     _exec_env->batch_write_mgr()->update_transaction_state(request, response);
 }
 
+// R6 PoC — paimon-global-index evaluate direct bypass.
+// Stub for now: returns Unimplemented so the wiring compiles end-to-end. The real evaluator
+// (constructs PaimonFileSystem from TCloudConfiguration + drives PaimonGlobalIndexPredicate/TopN
+// visitors) lands in a follow-up patch once the proto + FE switch are validated.
+template <typename T>
+void PInternalServiceImplBase<T>::paimon_global_index_evaluate(google::protobuf::RpcController* /*controller*/,
+                                                                const PPaimonGlobalIndexEvaluateRequest* /*request*/,
+                                                                PPaimonGlobalIndexEvaluateResponse* response,
+                                                                google::protobuf::Closure* done) {
+    ClosureGuard closure_guard(done);
+    Status::NotSupported("paimon_global_index_evaluate not yet implemented (R6 PoC stub)")
+            .to_protobuf(response->mutable_status());
+}
+
 template class PInternalServiceImplBase<PInternalService>;
 
 } // namespace starrocks
