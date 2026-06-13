@@ -109,8 +109,11 @@ public interface PBackendService {
     Future<PUpdateTransactionStateResponse> updateTransactionState(PUpdateTransactionStateRequest request);
 
     // R6 PoC — direct paimon-global-index evaluate bypass (skips inner SQL parse/plan/dispatch).
+    // No attachmentHandler: the request is a self-contained protobuf message (cloud config and
+    // condition are carried in its bytes/string fields), so it does not implement AttachmentRequest
+    // and must not route through ThriftClientAttachmentHandler (which casts the request to it).
     @ProtobufRPC(serviceName = "PInternalService", methodName = "paimon_global_index_evaluate",
-            attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 60000)
+            onceTalkTimeout = 60000)
     Future<PPaimonGlobalIndexEvaluateResponse> paimonGlobalIndexEvaluateAsync(PPaimonGlobalIndexEvaluateRequest request);
 }
 
