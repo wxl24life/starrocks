@@ -23,6 +23,7 @@
 
 #include <string>
 
+#include "cache/block_cache/cache_options.h"
 #include "common/config.h"
 #include "fs/paimon/paimon_file_system.h"
 #include "global_index_common.h"
@@ -32,6 +33,84 @@
 #include "util/uid_util.h"
 
 namespace starrocks {
+
+StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> EvaluatePaimonGlobalIndex(
+        const std::string& table_path, const TCloudConfiguration& cloud_conf,
+        const DataCacheOptions& datacache_options, std::string_view condition, int64_t range_from, int64_t range_to,
+        int64_t shard_id) {
+    // Push R11/R4/R5 toggles from BE configs into paimon-cpp static state on every entry —
+    // identical to PaimonGlobalIndexScanner::evaluateGlobalIndex so the bypass and SQL paths
+    // share the same cache behaviour.
+    const int32_t cache_cap_cfg = config::paimon_global_index_reader_cache_capacity;
+    const int32_t readahead_kb_cfg = config::paimon_lumina_file_reader_readahead_kb;
+    paimon::GlobalIndexReaderCache::Instance().SetCapacity(cache_cap_cfg > 0 ? static_cast<size_t>(cache_cap_cfg) : 0);
+    paimon::lumina::SetLuminaFileReaderReadAheadBytes(
+            readahead_kb_cfg > 0 ? static_cast<uint64_t>(readahead_kb_cfg) * 1024 : 0);
+    paimon::SetScanMetadataCacheTtlMs(config::paimon_scan_metadata_cache_ttl_ms);
+    paimon::SetManifestScanCacheTtlMs(config::paimon_manifest_scan_cache_ttl_ms);
+
+    rapidjson::Document document;
+    if (document.Parse(condition.data(), condition.size()).HasParseError()) {
+        return Status::InvalidArgument(fmt::format("Failed to parse condition JSON: {}", condition));
+    }
+    if (!document.IsObject()) {
+        return Status::InvalidArgument(fmt::format("Condition JSON is not an object: {}", condition));
+    }
+
+    // No fs_stats/app_stats: the bypass path doesn't surface a HdfsScanProfile, so the IO
+    // counters that PaimonFileSystem populates would be unread anyway. nullptr is allowed.
+    std::shared_ptr<PaimonFileSystem> paimon_fs =
+            std::make_shared<PaimonFileSystem>(table_path, cloud_conf, datacache_options, nullptr, nullptr);
+    std::shared_ptr<paimon::FileSystem> file_system = paimon_fs;
+    std::shared_ptr<paimon::MemoryPool> memory_pool = paimon::GetMemoryPool();
+
+    paimon::ScanCreateBreakdown scan_breakdown;
+    ASSIGN_OR_RETURN_WITH_MSG_PAIMON(const auto global_index_scan,
+                                     paimon::GlobalIndexScan::Create(table_path, std::nullopt, std::nullopt, {},
+                                                                     file_system, paimon::GetGlobalDefaultExecutor(),
+                                                                     memory_pool, &scan_breakdown),
+                                     fmt::format("create GlobalIndexScan fail, table_path:{}", table_path));
+
+    ASSIGN_OR_RETURN_WITH_MSG_PAIMON(
+            auto row_range_index, paimon::RowRangeIndex::Create({paimon::Range(range_from, range_to)}),
+            fmt::format("create RowRangeIndex fail, from:{}, to:{}", range_from, range_to));
+    const std::optional<paimon::RowRangeIndex> row_range(std::move(row_range_index));
+
+    auto column_readers_getter = [&](const std::string_view column_name)
+            -> StatusOr<std::vector<std::shared_ptr<paimon::GlobalIndexReader>>> {
+        ASSIGN_OR_RETURN_WITH_MSG_PAIMON(auto readers,
+                                         global_index_scan->CreateReaders(std::string(column_name), row_range),
+                                         fmt::format("create Readers fail, column:{}", column_name));
+        return readers;
+    };
+
+    std::shared_ptr<paimon::GlobalIndexResult> predicate_index_result;
+    if (document.HasMember("predicate")) {
+        PaimonGlobalIndexPredicateEvaluator evaluator(column_readers_getter);
+        ASSIGN_OR_RETURN(predicate_index_result, visitIndexConditionNode(document["predicate"], evaluator));
+    }
+
+    std::shared_ptr<paimon::GlobalIndexResult> global_index_result;
+    if (document.HasMember("scoreExpr")) {
+        if (!document.HasMember("n") || !document["n"].IsArray() || shard_id < 0 ||
+            shard_id >= static_cast<int64_t>(document["n"].Size())) {
+            return Status::InvalidArgument(
+                    fmt::format("topN n[] missing or shard_id out of range: shard_id={}, n_size={}", shard_id,
+                                document.HasMember("n") && document["n"].IsArray() ? document["n"].Size() : 0));
+        }
+        const int32_t topn_value = document["n"][shard_id].Get<int32_t>();
+        auto bitmap_result = std::dynamic_pointer_cast<paimon::BitmapGlobalIndexResult>(predicate_index_result);
+        PaimonGlobalIndexTopNEvaluator evaluator(column_readers_getter, bitmap_result, topn_value);
+        ASSIGN_OR_RETURN(global_index_result, visitIndexConditionNode(document["scoreExpr"], evaluator));
+    } else {
+        global_index_result = predicate_index_result;
+    }
+
+    if (global_index_result) {
+        ASSIGN_OR_RETURN_PAIMON(global_index_result, global_index_result->AddOffset(range_from));
+    }
+    return global_index_result;
+}
 
 Status PaimonGlobalIndexScanner::do_open(RuntimeState* runtime_state) {
     return Status::OK();

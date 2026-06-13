@@ -49,6 +49,8 @@ import com.starrocks.proto.PFetchDataResult;
 import com.starrocks.proto.PGetFileSchemaResult;
 import com.starrocks.proto.PListFailPointResponse;
 import com.starrocks.proto.PMVMaintenanceTaskResult;
+import com.starrocks.proto.PPaimonGlobalIndexEvaluateRequest;
+import com.starrocks.proto.PPaimonGlobalIndexEvaluateResponse;
 import com.starrocks.proto.PPlanFragmentCancelReason;
 import com.starrocks.proto.PProcessDictionaryCacheRequest;
 import com.starrocks.proto.PProcessDictionaryCacheResult;
@@ -306,6 +308,19 @@ public class BackendServiceClient {
 
         Preconditions.checkState(resultFuture != null);
         return resultFuture;
+    }
+
+    // R6 — direct paimon-global-index evaluate bypass (no inner SQL).
+    public Future<PPaimonGlobalIndexEvaluateResponse> paimonGlobalIndexEvaluateAsync(
+            TNetworkAddress address, PPaimonGlobalIndexEvaluateRequest request) throws RpcException {
+        try {
+            final PBackendService service = BrpcProxy.getBackendService(address);
+            return service.paimonGlobalIndexEvaluateAsync(request);
+        } catch (Throwable e) {
+            LOG.warn("paimon_global_index_evaluate exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
     }
 
     public Future<ExecuteCommandResultPB> executeCommand(TNetworkAddress address, ExecuteCommandRequestPB request)

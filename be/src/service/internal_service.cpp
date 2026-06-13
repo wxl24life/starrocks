@@ -52,7 +52,12 @@
 #include "common/config.h"
 #include "common/process_exit.h"
 #include "common/status.h"
+#include <paimon/global_index/global_index_result.h>
+
+#include "cache/block_cache/cache_options.h"
 #include "exec/file_scanner.h"
+#include "exec/paimon/paimon_global_index_scanner.h"
+#include "gen_cpp/CloudConfiguration_types.h"
 #include "exec/pipeline/fragment_context.h"
 #include "exec/pipeline/fragment_executor.h"
 #include "exec/pipeline/pipeline_driver_executor.h"
@@ -1364,18 +1369,68 @@ void PInternalServiceImplBase<T>::update_transaction_state(google::protobuf::Rpc
     _exec_env->batch_write_mgr()->update_transaction_state(request, response);
 }
 
-// R6 PoC — paimon-global-index evaluate direct bypass.
-// Stub for now: returns Unimplemented so the wiring compiles end-to-end. The real evaluator
-// (constructs PaimonFileSystem from TCloudConfiguration + drives PaimonGlobalIndexPredicate/TopN
-// visitors) lands in a follow-up patch once the proto + FE switch are validated.
+// R6 — paimon-global-index evaluate direct bypass.
+// Replaces the inner SQL "SELECT to_base64(index_result) FROM <table>$global_index WHERE args='...'"
+// with one brpc round-trip that drives EvaluatePaimonGlobalIndex() against the same paimon-cpp
+// evaluator code the SQL pipeline uses.
 template <typename T>
 void PInternalServiceImplBase<T>::paimon_global_index_evaluate(google::protobuf::RpcController* /*controller*/,
-                                                                const PPaimonGlobalIndexEvaluateRequest* /*request*/,
+                                                                const PPaimonGlobalIndexEvaluateRequest* request,
                                                                 PPaimonGlobalIndexEvaluateResponse* response,
                                                                 google::protobuf::Closure* done) {
     ClosureGuard closure_guard(done);
-    Status::NotSupported("paimon_global_index_evaluate not yet implemented (R6 PoC stub)")
-            .to_protobuf(response->mutable_status());
+
+    if (!request->has_cloud_configuration_thrift() || !request->has_table_path() ||
+        !request->has_index_condition_json()) {
+        Status::InvalidArgument("missing required fields for paimon_global_index_evaluate")
+                .to_protobuf(response->mutable_status());
+        return;
+    }
+
+    TCloudConfiguration cloud_conf;
+    {
+        const std::string& ser = request->cloud_configuration_thrift();
+        const auto* buf = reinterpret_cast<const uint8_t*>(ser.data());
+        uint32_t len = static_cast<uint32_t>(ser.size());
+        auto st = deserialize_thrift_msg(buf, &len, TProtocolType::BINARY, &cloud_conf);
+        if (!st.ok()) {
+            LOG(WARNING) << "paimon_global_index_evaluate: cloud_configuration deserialize failed: " << st;
+            st.to_protobuf(response->mutable_status());
+            return;
+        }
+    }
+
+    // PoC scope: don't plumb datacache here — bypass path skips block-cache integration.
+    // Production path would deserialize TDataCacheOptions from datacache_options_thrift.
+    DataCacheOptions datacache_options{};
+
+    auto result_or = EvaluatePaimonGlobalIndex(request->table_path(), cloud_conf, datacache_options,
+                                                request->index_condition_json(), request->range_from(),
+                                                request->range_to(), request->shard_id());
+    if (!result_or.ok()) {
+        LOG(WARNING) << "paimon_global_index_evaluate: EvaluatePaimonGlobalIndex failed: "
+                     << result_or.status();
+        result_or.status().to_protobuf(response->mutable_status());
+        return;
+    }
+
+    auto global_index_result = std::move(result_or).value();
+    if (!global_index_result) {
+        // No matches — leave index_result unset; FE-side visitor treats absent bytes as NULL.
+        Status::OK().to_protobuf(response->mutable_status());
+        return;
+    }
+
+    auto serialized_or = paimon::GlobalIndexResult::Serialize(global_index_result, paimon::GetDefaultPool());
+    if (!serialized_or.ok()) {
+        Status::InternalError(fmt::format("Serialize GlobalIndexResult failed: {}",
+                                          serialized_or.status().ToString()))
+                .to_protobuf(response->mutable_status());
+        return;
+    }
+    auto serialized = std::move(serialized_or).value();
+    response->set_index_result(std::string(reinterpret_cast<const char*>(serialized->data()), serialized->size()));
+    Status::OK().to_protobuf(response->mutable_status());
 }
 
 template class PInternalServiceImplBase<PInternalService>;

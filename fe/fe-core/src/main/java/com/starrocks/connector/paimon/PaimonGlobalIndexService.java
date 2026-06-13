@@ -17,20 +17,39 @@ package com.starrocks.connector.paimon;
 import com.starrocks.catalog.PaimonTable;
 import com.starrocks.common.profile.Timer;
 import com.starrocks.common.profile.Tracers;
+import com.starrocks.common.util.DlfUtil;
+import com.starrocks.connector.ConnectorMetadata;
+import com.starrocks.connector.index.IndexAnalyzer;
 import com.starrocks.connector.index.IndexCondition;
 import com.starrocks.connector.index.IndexTable;
+import com.starrocks.credential.CloudConfiguration;
+import com.starrocks.proto.PPaimonGlobalIndexEvaluateRequest;
+import com.starrocks.proto.PPaimonGlobalIndexEvaluateResponse;
+import com.starrocks.proto.StatusPB;
 import com.starrocks.qe.ConnectContext;
 import com.starrocks.qe.InternalSqlExecutor;
 import com.starrocks.qe.SessionVariable;
+import com.starrocks.rpc.BackendServiceClient;
+import com.starrocks.server.GlobalStateMgr;
+import com.starrocks.system.Backend;
+import com.starrocks.system.SystemInfoService;
+import com.starrocks.thrift.TCloudConfiguration;
+import com.starrocks.thrift.TNetworkAddress;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.globalindex.GlobalIndexResult;
 import org.apache.paimon.globalindex.GlobalIndexResultSerializer;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.utils.Range;
+import org.apache.thrift.TSerializer;
+import org.apache.thrift.protocol.TBinaryProtocol;
 import org.json.JSONObject;
 
 import java.io.IOException;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static com.starrocks.common.profile.Tracers.Module.INDEX;
 
@@ -103,20 +122,88 @@ public class PaimonGlobalIndexService {
     }
 
     /**
-     * R6 PoC stub. When the BE evaluator is wired (PInternalService.paimon_global_index_evaluate),
-     * this builds PPaimonGlobalIndexEvaluateRequest, picks an alive BE, awaits the RPC, and
-     * deserialises the response into a GlobalIndexResult.
+     * R6 — direct FE→BE bypass for the inner SQL "SELECT to_base64(index_result)
+     * FROM <table>$global_index" path. Resolves shard ranges via IndexAnalyzer, serialises the
+     * paimon cloud config + condition JSON, fires one brpc per shard to a single alive BE, and
+     * aggregates results through the same GlobalIndexResultAggregator the SQL path uses.
      *
-     * <p>Returns null to indicate "bypass not available" — caller falls back to the SQL path so
-     * functional correctness is preserved during PoC roll-out.
+     * <p>Returns null on any failure so the caller can transparently fall back to the SQL path.
+     * Returns an empty bitmap when no shards exist (consistent with PaimonUtils empty behaviour).
      */
     private Object evaluateViaBypass() {
-        // TODO(R6): implement once BE handler is no longer Unimplemented.
-        // 1. resolve target BE via systemInfoService.getBackendIds(true)
-        // 2. build PPaimonGlobalIndexEvaluateRequest from paimonTable + indexCondition + sessionVar
-        // 3. BackendServiceClient.getInstance().paimonGlobalIndexEvaluateAsync(beAddr, req).get(timeout)
-        // 4. deserialize index_result via GlobalIndexResultSerializer
-        return null;
+        try {
+            FileStoreTable nativeTable = (FileStoreTable) paimonTable.getNativeTable();
+            String tablePath = nativeTable.location().toString();
+
+            ConnectorMetadata metadata = GlobalStateMgr.getCurrentState().getConnectorMgr()
+                    .getConnector(paimonTable.getCatalogName()).getMetadata();
+            List<Range> shards = new IndexAnalyzer(paimonTable, metadata).getIndexShards(it -> (Range) it);
+            if (shards.isEmpty()) {
+                return PaimonUtils.createEmptyGlobalIndexResult(indexCondition);
+            }
+
+            CloudConfiguration cc = DlfUtil.buildPaimonCloudConfiguration(paimonTable);
+            TCloudConfiguration tCloudConf = new TCloudConfiguration();
+            if (cc != null) {
+                cc.toThrift(tCloudConf);
+            }
+            byte[] cloudConfBytes = new TSerializer(new TBinaryProtocol.Factory()).serialize(tCloudConf);
+
+            Map<String, Object> queryJson = indexCondition.toQueryJson();
+            String args = JSONObject.valueToString(queryJson);
+
+            SystemInfoService sysInfo = GlobalStateMgr.getCurrentState().getNodeMgr().getClusterInfo();
+            List<Long> beIds = sysInfo.getBackendIds(true);
+            if (beIds.isEmpty()) {
+                LOG.warn("evaluateViaBypass: no alive BE");
+                return null;
+            }
+            // PoC scope: route every shard to the first alive BE. Production should distribute via
+            // PaimonGlobalIndexBackendSelector's logic; the win we are measuring is RPC overhead,
+            // not placement, so single-BE is enough to validate the contention thesis.
+            Backend be = sysInfo.getBackend(beIds.get(0));
+            if (be == null) {
+                return null;
+            }
+            TNetworkAddress beAddr = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+
+            PaimonUtils.GlobalIndexResultAggregator agg = null;
+            for (int i = 0; i < shards.size(); i++) {
+                Range range = shards.get(i);
+                PPaimonGlobalIndexEvaluateRequest req = new PPaimonGlobalIndexEvaluateRequest();
+                req.indexConditionJson = args;
+                req.tablePath = tablePath;
+                req.cloudConfigurationThrift = cloudConfBytes;
+                req.rangeFrom = range.from;
+                req.rangeTo = range.to;
+                req.shardId = (long) i;
+
+                PPaimonGlobalIndexEvaluateResponse resp = BackendServiceClient.getInstance()
+                        .paimonGlobalIndexEvaluateAsync(beAddr, req).get(60, TimeUnit.SECONDS);
+
+                StatusPB status = resp.status;
+                if (status == null || (status.statusCode != null && status.statusCode != 0)) {
+                    LOG.warn("paimon GI evaluate RPC non-OK: shard={} status={} msgs={}",
+                            i, status == null ? "?" : status.statusCode,
+                            status == null ? "?" : status.errorMsgs);
+                    return null;
+                }
+
+                if (resp.indexResult != null && resp.indexResult.length > 0) {
+                    GlobalIndexResult partial = new GlobalIndexResultSerializer()
+                            .deserializeFromBytes(resp.indexResult);
+                    if (agg == null) {
+                        agg = PaimonUtils.createGlobalIndexResultAggregator(partial, indexCondition);
+                    } else {
+                        agg.iterate(partial);
+                    }
+                }
+            }
+            return agg == null ? null : agg.terminate();
+        } catch (Exception e) {
+            LOG.warn("evaluateViaBypass failed, will fall back to SQL", e);
+            return null;
+        }
     }
 
     // index_result is VARBINARY; HTTP_PROTOCAL ndjson is text-only, so we wrap it in to_base64()

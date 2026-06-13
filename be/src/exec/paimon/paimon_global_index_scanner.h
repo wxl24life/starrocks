@@ -22,6 +22,20 @@
 namespace starrocks {
 
 class PaimonFileSystem;
+struct DataCacheOptions;
+
+// R6 — standalone evaluator entry-point used by both the SQL pipeline scanner
+// (PaimonGlobalIndexScanner::evaluateGlobalIndex below) and the direct brpc bypass
+// in PInternalServiceImplBase::paimon_global_index_evaluate. Mirrors the work the
+// scanner does but takes its inputs as plain arguments so it can run outside a
+// fragment / pipeline driver.
+//
+// Returns nullptr (with OK Status) if the index produced no matches; an InvalidArgument
+// status if the condition JSON is malformed; or InternalError on paimon-cpp failures.
+StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> EvaluatePaimonGlobalIndex(
+        const std::string& table_path, const TCloudConfiguration& cloud_conf,
+        const DataCacheOptions& datacache_options, std::string_view condition,
+        int64_t range_from, int64_t range_to, int64_t shard_id);
 
 class PaimonGlobalIndexScanner final : public HdfsScanner {
 public:
