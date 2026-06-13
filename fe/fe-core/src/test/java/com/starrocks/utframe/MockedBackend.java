@@ -54,6 +54,8 @@ import com.starrocks.proto.PFetchDataResult;
 import com.starrocks.proto.PGetFileSchemaResult;
 import com.starrocks.proto.PListFailPointResponse;
 import com.starrocks.proto.PMVMaintenanceTaskResult;
+import com.starrocks.proto.PPaimonGlobalIndexEvaluateRequest;
+import com.starrocks.proto.PPaimonGlobalIndexEvaluateResponse;
 import com.starrocks.proto.PProcessDictionaryCacheRequest;
 import com.starrocks.proto.PProcessDictionaryCacheResult;
 import com.starrocks.proto.PProxyRequest;
@@ -578,6 +580,12 @@ public class MockedBackend {
 
         @Override
         public Future<PUpdateTransactionStateResponse> updateTransactionState(PUpdateTransactionStateRequest request) {
+            throw new NotImplementedException("TODO");
+        }
+
+        @Override
+        public Future<PPaimonGlobalIndexEvaluateResponse> paimonGlobalIndexEvaluateAsync(
+                PPaimonGlobalIndexEvaluateRequest request) {
             throw new NotImplementedException("TODO");
         }
     }
