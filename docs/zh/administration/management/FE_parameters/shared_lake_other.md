@@ -659,6 +659,33 @@ ADMIN SET FRONTEND CONFIG ("key" = "value");
 - 描述: 在单次查询的 `PaimonMetadata` 实例生命周期内，是否复用 Paimon 全局索引的元数据（index shard 列表与 global index 映射）。开启后，Optimizer 中 `ApplyTopNIndexRule` 的 `check` 和 `transform` 两个阶段会共享同一次 `SnapshotManager.latestSnapshot()` 的结果，避免每次都触发 `RESTCatalog` → `DLFAuthProvider` → ECS metadata token HTTP 拉取，将每个 query 约 4 次 REST roundtrip 缩减为 1 次，消除并发 ANN 场景下针对 DLF REST catalog 的 planner 瓶颈。该 cache 仅存活一次 query（按 query id 由 `MetadataMgr.metadataCacheByQueryId` 管理），不存在跨 query 的脏读问题。设为 `false` 可回滚行为或做 A/B 对照。
 - 引入版本: v3.5.16
 
+### `enable_paimon_snapshot_id_cache`
+
+- 默认值: false
+- 类型: Boolean
+- 单位: -
+- 是否动态: 是
+- 描述: 是否按表在进程级缓存已解析的 Paimon snapshot id，缓存时长为 `paimon_snapshot_id_cache_ttl_ms`。与仅在单次查询内复用元数据的 `enable_paimon_global_index_metadata_query_cache` 不同，该 cache 跨 query 存活，使得 `PaimonMetadata.resolveSnapshotId()`（由 `getRemoteFiles` 驱动）在 TTL 窗口内跳过对 DLF REST catalog 的 `SnapshotManager.latestSnapshot()` REST roundtrip。代价：写入端提交的新 snapshot 在 TTL 内对读取端不可见。在可接受秒级 snapshot 新鲜度的读密集并发 ANN 场景下建议设为 `true`。
+- 引入版本: v3.5.16
+
+### `paimon_snapshot_id_cache_ttl_ms`
+
+- 默认值: 5000
+- 类型: Long
+- 单位: 毫秒
+- 是否动态: 是
+- 描述: Paimon snapshot id 缓存（`enable_paimon_snapshot_id_cache`）与全局索引 shard 列表缓存（`enable_paimon_global_index_shard_cache`）的存活时长（毫秒）。超过该窗口后缓存条目过期，下一次 query 会重新从 DLF REST catalog 拉取。值越大 REST 流量越少，但新提交 snapshot / 重建 index shard 的脏读窗口越长。
+- 引入版本: v3.5.16
+
+### `enable_paimon_global_index_shard_cache`
+
+- 默认值: false
+- 类型: Boolean
+- 单位: -
+- 是否动态: 是
+- 描述: 是否按表在进程级缓存 Paimon 全局索引元数据（shard range 列表 + global-index map 两者），缓存时长为 `paimon_snapshot_id_cache_ttl_ms`。`enable_paimon_global_index_metadata_query_cache` 只在单个 `PaimonMetadata` 实例内缓存，但每次 query 都会新建实例，因此 planner 的 `IndexAnalyzer` 会反复触发 `getIndexShardList` → `computeIndexShardList` 与 `getGlobalIndexes` → `computeGlobalIndexes`，每次都做一次 index-manifest `scanEntries()`，而该扫描在 DLF REST catalog 模式下内部会经 HTTP 解析 `SnapshotManager.latestSnapshot()`。开启后两个结果都跨 query 缓存（按 catalog/db/table 为 key）并在 TTL 内复用，消除并发 ANN 场景下每个 query 的这些 REST roundtrip 与 manifest 扫描。代价：与 `enable_paimon_snapshot_id_cache` 相同——写入端新增或重建 index shard 在 TTL 内对读取端不可见。建议与 `enable_paimon_snapshot_id_cache` 同时设为 `true`，以消除高并发下吃掉 planner CPU 的 FE 侧 `latestSnapshot()` HTTP 调用点。
+- 引入版本: v3.5.16
+
 ### `enable_iceberg_commit_queue`
 
 - 默认值: true

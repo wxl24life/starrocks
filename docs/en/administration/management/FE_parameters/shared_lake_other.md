@@ -660,6 +660,33 @@ This topic introduces the following types of FE configurations:
 - Description: Whether to reuse Paimon global-index metadata (index shard list and global index map) within a single query's `PaimonMetadata` instance. With this enabled, the planner rule `ApplyTopNIndexRule`'s `check` and `transform` phases share one `SnapshotManager.latestSnapshot()` result instead of each driving a fresh `RESTCatalog` → `DLFAuthProvider` → ECS metadata token HTTP fetch. This collapses roughly four REST roundtrips per query down to one, and removes a planner bottleneck observed under concurrent ANN workloads against DLF REST catalogs. The cache lives exactly one query (keyed by query id via `MetadataMgr.metadataCacheByQueryId`), so there is no cross-query staleness. Set to `false` to roll back behavior or perform A/B comparisons.
 - Introduced in: v3.5.16
 
+### `enable_paimon_snapshot_id_cache`
+
+- Default: false
+- Type: Boolean
+- Unit: -
+- Is mutable: Yes
+- Description: Whether to cache the resolved Paimon snapshot id process-wide, keyed by table, for `paimon_snapshot_id_cache_ttl_ms`. Unlike `enable_paimon_global_index_metadata_query_cache`, which only reuses metadata within a single query, this cache survives across queries so that `PaimonMetadata.resolveSnapshotId()` (driven by `getRemoteFiles`) skips its `SnapshotManager.latestSnapshot()` REST roundtrip to the DLF REST catalog on every query during the TTL window. Trade-off: a writer that commits a new snapshot is invisible to readers for up to the TTL. Set to `true` for read-heavy concurrent ANN workloads where snapshot freshness within a few seconds is acceptable.
+- Introduced in: v3.5.16
+
+### `paimon_snapshot_id_cache_ttl_ms`
+
+- Default: 5000
+- Type: Long
+- Unit: Milliseconds
+- Is mutable: Yes
+- Description: Time-to-live, in milliseconds, for both the Paimon snapshot-id cache (`enable_paimon_snapshot_id_cache`) and the global-index shard-list cache (`enable_paimon_global_index_shard_cache`). After this window a cached entry expires and the next query refetches from the DLF REST catalog. Larger values reduce REST traffic but widen the staleness window for newly committed snapshots / rebuilt index shards.
+- Introduced in: v3.5.16
+
+### `enable_paimon_global_index_shard_cache`
+
+- Default: false
+- Type: Boolean
+- Unit: -
+- Is mutable: Yes
+- Description: Whether to cache the per-table Paimon global-index metadata (both the shard range list and the global-index map) process-wide for `paimon_snapshot_id_cache_ttl_ms`. `enable_paimon_global_index_metadata_query_cache` only caches within a single `PaimonMetadata` instance, but a fresh instance is created per query, so the planner's `IndexAnalyzer` repeatedly drives `getIndexShardList` → `computeIndexShardList` and `getGlobalIndexes` → `computeGlobalIndexes`, each performing an index-manifest `scanEntries()` that (under DLF REST catalog mode) internally resolves `SnapshotManager.latestSnapshot()` over HTTP on every query. When enabled, both results are cached across queries (keyed by catalog/db/table) and reused for the TTL, eliminating those per-query REST roundtrips and manifest scans under concurrent ANN workloads. Trade-off: same as `enable_paimon_snapshot_id_cache` — a writer that adds or rebuilds index shards is invisible to readers for up to the TTL. Set to `true` together with `enable_paimon_snapshot_id_cache` to remove the FE-side `latestSnapshot()` HTTP call sites that dominate planner CPU under high concurrency.
+- Introduced in: v3.5.16
+
 ### `enable_iceberg_commit_queue`
 
 - Default: true

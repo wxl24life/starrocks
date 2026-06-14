@@ -2909,6 +2909,20 @@ public class Config extends ConfigBase {
     public static long paimon_snapshot_id_cache_ttl_ms = 5000;
 
     /**
+     * Cross-query cache for the per-table global-index shard range list. Default OFF.
+     * The existing enable_paimon_global_index_metadata_query_cache only caches within a
+     * single PaimonMetadata instance, but a fresh instance is created per query, so the
+     * shard list (getIndexShardList -> computeIndexShardList) still does a latestSnapshot()
+     * REST round-trip plus an index-manifest scanEntries() on every query. When enabled,
+     * the shard list is cached process-wide keyed by table, reused for
+     * paimon_snapshot_id_cache_ttl_ms, eliminating that per-query REST + manifest scan.
+     * Same freshness trade-off as enable_paimon_snapshot_id_cache: a writer that adds or
+     * rebuilds index shards is invisible to readers for up to the TTL.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_paimon_global_index_shard_cache = false;
+
+    /**
      * enable lake optimizer, default false
      */
     @ConfField(mutable = true)

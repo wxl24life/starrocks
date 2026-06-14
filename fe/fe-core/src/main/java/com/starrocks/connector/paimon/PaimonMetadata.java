@@ -332,9 +332,59 @@ public class PaimonMetadata implements ConnectorMetadata {
     private static final class CachedSnapshotEntry {
         final long snapshotId;
         final long expireAtMs;
+        // Single-flight guard: on TTL expiry exactly one thread (the CAS winner) re-fetches
+        // while concurrent callers serve this stale value, avoiding a thundering-herd of
+        // ~conc simultaneous REST round-trips every paimon_snapshot_id_cache_ttl_ms window.
+        final java.util.concurrent.atomic.AtomicBoolean refreshing =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
 
         CachedSnapshotEntry(long snapshotId, long ttlMs) {
             this.snapshotId = snapshotId;
+            this.expireAtMs = System.currentTimeMillis() + ttlMs;
+        }
+    }
+
+    // Process-wide cache for the global-index shard range list (gated by
+    // Config.enable_paimon_global_index_shard_cache). Unlike indexShardListCache, which is
+    // per-instance and therefore misses every query, this survives across queries so the
+    // per-query latestSnapshot() REST round-trip + index-manifest scanEntries() in
+    // computeIndexShardList() collapse to one fetch per TTL window.
+    private static final java.util.concurrent.ConcurrentMap<String, CachedShardListEntry>
+            SHARED_INDEX_SHARD_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static final class CachedShardListEntry {
+        final List<Range> shards;
+        final long expireAtMs;
+        // See CachedSnapshotEntry.refreshing — single-flight guard against TTL-expiry herd.
+        final java.util.concurrent.atomic.AtomicBoolean refreshing =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        CachedShardListEntry(List<Range> shards, long ttlMs) {
+            this.shards = shards;
+            this.expireAtMs = System.currentTimeMillis() + ttlMs;
+        }
+    }
+
+    // Process-wide cache for the per-table global-index map (gated by
+    // Config.enable_paimon_global_index_shard_cache, shared with SHARED_INDEX_SHARD_CACHE).
+    // computeGlobalIndexes() runs an index-manifest scanEntries() which, under DLF REST
+    // catalog mode, internally resolves latestSnapshot() over HTTP. globalIndexesCache only
+    // caches within one PaimonMetadata instance, but a fresh instance is created per query,
+    // so every planning pass (IndexAnalyzer.setupColumnIndexes -> getGlobalIndexes) repeats
+    // that scan + REST round-trip. This survives across queries so it collapses to one fetch
+    // per TTL window.
+    private static final java.util.concurrent.ConcurrentMap<String, CachedGlobalIndexesEntry>
+            SHARED_GLOBAL_INDEXES_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static final class CachedGlobalIndexesEntry {
+        final Map<String, Set<String>> globalIndexes;
+        final long expireAtMs;
+        // See CachedSnapshotEntry.refreshing — single-flight guard against TTL-expiry herd.
+        final java.util.concurrent.atomic.AtomicBoolean refreshing =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        CachedGlobalIndexesEntry(Map<String, Set<String>> globalIndexes, long ttlMs) {
+            this.globalIndexes = globalIndexes;
             this.expireAtMs = System.currentTimeMillis() + ttlMs;
         }
     }
@@ -347,18 +397,31 @@ public class PaimonMetadata implements ConnectorMetadata {
             String key = paimonTable.getCatalogName() + "::"
                     + paimonTable.getCatalogDBName() + "::"
                     + paimonTable.getCatalogTableName();
-            CachedSnapshotEntry cached = SHARED_SNAPSHOT_CACHE.get(key);
             long now = System.currentTimeMillis();
+            CachedSnapshotEntry cached = SHARED_SNAPSHOT_CACHE.get(key);
             if (cached != null && cached.expireAtMs > now) {
                 return cached.snapshotId;
             }
-            long fresh = fetchLatestSnapshotIdOnce(paimonTable);
-            if (fresh > 0) {
-                long ttl = Math.max(0L,
-                        com.starrocks.common.Config.paimon_snapshot_id_cache_ttl_ms);
-                SHARED_SNAPSHOT_CACHE.put(key, new CachedSnapshotEntry(fresh, ttl));
+            if (cached != null && !cached.refreshing.compareAndSet(false, true)) {
+                return cached.snapshotId;
             }
-            return fresh;
+            // Cold (cached == null) or we won the single-flight refresh CAS.
+            boolean published = false;
+            try {
+                long fresh = fetchLatestSnapshotIdOnce(paimonTable);
+                if (fresh > 0) {
+                    long ttl = Math.max(0L,
+                            com.starrocks.common.Config.paimon_snapshot_id_cache_ttl_ms);
+                    SHARED_SNAPSHOT_CACHE.put(key, new CachedSnapshotEntry(fresh, ttl));
+                    published = true;
+                    return fresh;
+                }
+                return cached != null ? cached.snapshotId : fresh;
+            } finally {
+                if (!published && cached != null) {
+                    cached.refreshing.set(false);
+                }
+            }
         }
         return fetchLatestSnapshotIdOnce(paimonTable);
     }
@@ -660,6 +723,31 @@ public class PaimonMetadata implements ConnectorMetadata {
      * Returns null if the table does not have a paimon-native FileStoreTable.
      */
     private List<Range> getIndexShardList(Table table) {
+        if (com.starrocks.common.Config.enable_paimon_global_index_shard_cache) {
+            String key = table.getCatalogName() + "::"
+                    + table.getCatalogDBName() + "::"
+                    + table.getCatalogTableName();
+            long now = System.currentTimeMillis();
+            CachedShardListEntry cached = SHARED_INDEX_SHARD_CACHE.get(key);
+            if (cached != null && cached.expireAtMs > now) {
+                return cached.shards;
+            }
+            if (cached != null && !cached.refreshing.compareAndSet(false, true)) {
+                return cached.shards;
+            }
+            boolean published = false;
+            try {
+                List<Range> fresh = computeIndexShardList(table);
+                long ttl = Math.max(0L, com.starrocks.common.Config.paimon_snapshot_id_cache_ttl_ms);
+                SHARED_INDEX_SHARD_CACHE.put(key, new CachedShardListEntry(fresh, ttl));
+                published = true;
+                return fresh;
+            } finally {
+                if (!published && cached != null) {
+                    cached.refreshing.set(false);
+                }
+            }
+        }
         if (!com.starrocks.common.Config.enable_paimon_global_index_metadata_query_cache) {
             return computeIndexShardList(table);
         }
@@ -713,6 +801,31 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public Map<String, Set<String>> getGlobalIndexes(Table table) {
+        if (com.starrocks.common.Config.enable_paimon_global_index_shard_cache) {
+            String key = table.getCatalogName() + "::"
+                    + table.getCatalogDBName() + "::"
+                    + table.getCatalogTableName();
+            long now = System.currentTimeMillis();
+            CachedGlobalIndexesEntry cached = SHARED_GLOBAL_INDEXES_CACHE.get(key);
+            if (cached != null && cached.expireAtMs > now) {
+                return cached.globalIndexes;
+            }
+            if (cached != null && !cached.refreshing.compareAndSet(false, true)) {
+                return cached.globalIndexes;
+            }
+            boolean published = false;
+            try {
+                Map<String, Set<String>> fresh = computeGlobalIndexes(table);
+                long ttl = Math.max(0L, com.starrocks.common.Config.paimon_snapshot_id_cache_ttl_ms);
+                SHARED_GLOBAL_INDEXES_CACHE.put(key, new CachedGlobalIndexesEntry(fresh, ttl));
+                published = true;
+                return fresh;
+            } finally {
+                if (!published && cached != null) {
+                    cached.refreshing.set(false);
+                }
+            }
+        }
         if (!com.starrocks.common.Config.enable_paimon_global_index_metadata_query_cache) {
             return computeGlobalIndexes(table);
         }
