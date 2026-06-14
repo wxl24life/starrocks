@@ -76,9 +76,11 @@ public class DlfUtil {
                 return qualifiedUser;
             }
         }
-        // Some background threads may not have created a ConnectContext or set a user
-        // In such cases, we use ROOT_USER, and add logging for observability.
-        LOG.warn("User is not set when accessing dlf, use ROOT_USER, stack: {}", LogUtil.getCurrentStackTrace());
+        // Background threads (stats-cache-refresher, checkpoint, txn-timeout-checker, ...) routinely
+        // access DLF without a ConnectContext; the ROOT_USER fallback is by design, not an anomaly.
+        // Log at DEBUG without a stack trace: full-stack WARN here filled fe.warn.log at ~5MB/s under
+        // stats-refresher fanout, blowing /mnt/disk1 to 100% and crashing FE.
+        LOG.debug("User is not set when accessing dlf, use ROOT_USER");
         return AuthenticationMgr.ROOT_USER;
     }
 

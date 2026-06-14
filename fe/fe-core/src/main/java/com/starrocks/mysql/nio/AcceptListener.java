@@ -77,7 +77,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             context.resetConnectionStartTime();
             int connectionId = context.getConnectionId();
             SocketAddress remoteAddr = connection.getPeerAddress();
-            LOG.info("Connection established. remote={}, connectionId={}", remoteAddr, connectionId);
+            LOG.debug("Connection established. remote={}, connectionId={}", remoteAddr, connectionId);
 
             try {
                 channel.getWorker().execute(() -> {

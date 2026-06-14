@@ -86,7 +86,7 @@ public class InternalSqlExecutor {
         String innerQueryId = DebugUtil.printId(innerUuid);
         String redactedSql = SqlCredentialRedactor.redact(sql);
 
-        LOG.info("InternalSqlExecutor: outer_query_id={} inner_query_id={} sql={}",
+        LOG.debug("InternalSqlExecutor: outer_query_id={} inner_query_id={} sql={}",
                 outerQueryId, innerQueryId, redactedSql);
 
         List<TResultBatch> batches = runDQL(sql, innerUuid, outer, outerQueryId, innerQueryId, redactedSql);

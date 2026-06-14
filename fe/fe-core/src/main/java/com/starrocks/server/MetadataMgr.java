@@ -209,7 +209,7 @@ public class MetadataMgr {
             if (queryMetadatas != null) {
                 queryMetadatas.metadatas.values().forEach(ConnectorMetadata::clear);
                 metadataCacheByQueryId.invalidate(queryId.get());
-                LOG.info("Succeed to deregister query level connector metadata on query id: {}", queryId);
+                LOG.debug("Succeed to deregister query level connector metadata on query id: {}", queryId);
             }
         }
     }

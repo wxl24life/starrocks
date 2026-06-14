@@ -232,7 +232,7 @@ public class ConnectScheduler {
                         connCountByUser.remove(ctx.getQualifiedUser());
                     }
                 }
-                LOG.info("Connection closed. remote={}, connectionId={}, qualifiedUser={}, user.currConn={}",
+                LOG.debug("Connection closed. remote={}, connectionId={}, qualifiedUser={}, user.currConn={}",
                         ctx.getMysqlChannel().getRemoteHostPortString(), ctx.getConnectionId(),
                         ctx.getQualifiedUser(), conns != null ? Integer.toString(conns.get()) : "nil");
             }

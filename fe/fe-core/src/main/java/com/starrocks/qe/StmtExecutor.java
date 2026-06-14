@@ -988,7 +988,14 @@ public class StmtExecutor {
             }
         } catch (Throwable e) {
             String sql = originStmt != null ? originStmt.originStmt : "";
-            LOG.warn("execute Exception, sql: {}", SqlCredentialRedactor.redact(sql), e);
+            String redacted = SqlCredentialRedactor.redact(sql);
+            // Truncate SQL to cap WARN size. ANN queries embed 7KB+ vector literals; if BE crashes
+            // every query fails → without cap, 50-conc bench produced ~4 MB/s fe.warn.log growth and
+            // filled /mnt/disk1 in minutes (root cause of repeated FE OOM during R5 outage).
+            String capped = redacted.length() > 1000
+                    ? redacted.substring(0, 1000) + " ...[truncated " + (redacted.length() - 1000) + " chars]"
+                    : redacted;
+            LOG.warn("execute Exception, sql: {}", capped, e);
             context.getState().setError(e.getMessage());
             context.getState().setErrType(QueryState.ErrType.INTERNAL_ERR);
         } finally {
