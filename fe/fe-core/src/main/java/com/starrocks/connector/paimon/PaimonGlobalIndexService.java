@@ -50,7 +50,6 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.starrocks.common.profile.Tracers.Module.INDEX;
 
@@ -69,10 +68,6 @@ import static com.starrocks.common.profile.Tracers.Module.INDEX;
 public class PaimonGlobalIndexService {
 
     private static final Logger LOG = LogManager.getLogger(PaimonGlobalIndexService.class);
-
-    // Rotates the base BE index across bypass evaluate calls so the wait-bound RPC load fans out
-    // across all alive BEs instead of pinning a single one.
-    private static final AtomicInteger BYPASS_BE_ROTATION = new AtomicInteger(0);
 
     private final PaimonTable paimonTable;
     private final IndexCondition indexCondition;
@@ -163,21 +158,18 @@ public class PaimonGlobalIndexService {
                 LOG.warn("evaluateViaBypass: no alive BE");
                 return null;
             }
-            // The evaluate RPC runs the ANN search inline on the target BE's brpc worker and is
-            // wait-bound (idle CPU). Pinning every query to one BE caps throughput at that single
-            // BE's worker pool. Spread shards across alive BEs and rotate the base per query so the
-            // wait-bound evaluate load fans out over the whole cluster.
-            int base = Math.floorMod(BYPASS_BE_ROTATION.getAndIncrement(), beIds.size());
+            // PoC scope: route every shard to the first alive BE. Production should distribute via
+            // PaimonGlobalIndexBackendSelector's logic; the win we are measuring is RPC overhead,
+            // not placement, so single-BE is enough to validate the contention thesis.
+            Backend be = sysInfo.getBackend(beIds.get(0));
+            if (be == null) {
+                return null;
+            }
+            TNetworkAddress beAddr = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             PaimonUtils.GlobalIndexResultAggregator agg = null;
             for (int i = 0; i < shards.size(); i++) {
                 Range range = shards.get(i);
-                Backend be = sysInfo.getBackend(beIds.get((base + i) % beIds.size()));
-                if (be == null) {
-                    return null;
-                }
-                TNetworkAddress beAddr = new TNetworkAddress(be.getHost(), be.getBrpcPort());
-
                 PPaimonGlobalIndexEvaluateRequest req = new PPaimonGlobalIndexEvaluateRequest();
                 req.indexConditionJson = args;
                 req.tablePath = tablePath;
