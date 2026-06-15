@@ -954,6 +954,16 @@ CONF_mInt32(lumina_diskann_search_beam_width, "4");
 // LuminaSearcher::Open + quantizer zero-init seen at 4% CPU in R10 perf. Safe to
 // enable cluster-wide once validated by sweep; memory cost ~100 MB per entry.
 CONF_mInt32(paimon_global_index_reader_cache_capacity, "0");
+// Max concurrent cold loads (lumina searcher Open + quantizer codebook alloc) in
+// paimon-cpp's GlobalIndexReaderCache, across all distinct index files. 0 = unlimited
+// (pre-existing behavior). The reader-cache single-flight only coalesces concurrent
+// misses on the SAME index file; concurrent misses on DISTINCT files each allocate a
+// multi-GB quantizer at once, so transient native RSS scales with query concurrency.
+// This memory is not tracked by the BE mem_tracker, so on 10M-row tables high
+// concurrency drives a global kernel OOM-kill (see paimon-ann-oom-rootcause-runbook
+// §7.20). Set > 0 (e.g. 4) to bound concurrent loads so transient footprint stays
+// bounded regardless of query concurrency. Mutable; takes effect on next query.
+CONF_mInt32(paimon_global_index_max_concurrent_loads, "0");
 // Read-ahead buffer size (KiB) for paimon-cpp's LuminaFileReader sync Read(). 0
 // disables read-ahead (passthrough = pre-R11 behavior). When > 0, sync Read() fills
 // an internal buffer with max(size, this) bytes per refill (capped at 16 MiB) and

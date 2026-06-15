@@ -42,8 +42,11 @@ StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> EvaluatePaimonGlobalIndex(
     // identical to PaimonGlobalIndexScanner::evaluateGlobalIndex so the bypass and SQL paths
     // share the same cache behaviour.
     const int32_t cache_cap_cfg = config::paimon_global_index_reader_cache_capacity;
+    const int32_t max_loads_cfg = config::paimon_global_index_max_concurrent_loads;
     const int32_t readahead_kb_cfg = config::paimon_lumina_file_reader_readahead_kb;
     paimon::GlobalIndexReaderCache::Instance().SetCapacity(cache_cap_cfg > 0 ? static_cast<size_t>(cache_cap_cfg) : 0);
+    paimon::GlobalIndexReaderCache::Instance().SetMaxConcurrentLoads(
+            max_loads_cfg > 0 ? static_cast<size_t>(max_loads_cfg) : 0);
     paimon::lumina::SetLuminaFileReaderReadAheadBytes(
             readahead_kb_cfg > 0 ? static_cast<uint64_t>(readahead_kb_cfg) * 1024 : 0);
     paimon::SetScanMetadataCacheTtlMs(config::paimon_scan_metadata_cache_ttl_ms);
@@ -168,8 +171,11 @@ StatusOr<std::shared_ptr<paimon::GlobalIndexResult>> PaimonGlobalIndexScanner::e
     // query entry. Cheap (atomic store) and lets ADMIN SET tweak behaviour live without
     // BE restart. SetCapacity / SetReadAheadBytes are idempotent; calling per-query is safe.
     const int32_t cache_cap_cfg = config::paimon_global_index_reader_cache_capacity;
+    const int32_t max_loads_cfg = config::paimon_global_index_max_concurrent_loads;
     const int32_t readahead_kb_cfg = config::paimon_lumina_file_reader_readahead_kb;
     paimon::GlobalIndexReaderCache::Instance().SetCapacity(cache_cap_cfg > 0 ? static_cast<size_t>(cache_cap_cfg) : 0);
+    paimon::GlobalIndexReaderCache::Instance().SetMaxConcurrentLoads(
+            max_loads_cfg > 0 ? static_cast<size_t>(max_loads_cfg) : 0);
     paimon::lumina::SetLuminaFileReaderReadAheadBytes(
             readahead_kb_cfg > 0 ? static_cast<uint64_t>(readahead_kb_cfg) * 1024 : 0);
     // R4: turn on paimon-cpp Schema+Snapshot cache. Default 0 = off, no behavior change.

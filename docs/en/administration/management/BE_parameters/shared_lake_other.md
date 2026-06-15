@@ -456,6 +456,15 @@ This topic introduces the following types of FE configurations:
 - Description: LRU capacity (number of entries) of paimon-cpp's `GlobalIndexReaderCache`. When `> 0`, each opened lumina reader (graph + quantizer + InputStream) is cached and reused across queries with the same `(root_path, field_id, range, index_file_path)`. Eliminates the per-query `LuminaSearcher::Open` + quantizer zero-init cost (~4% CPU per query per perf data). When `0` (default), the cache is disabled — each query reopens the reader from scratch (pre-R11 behaviour). Memory cost is approximately 100 MiB per entry; set to `16-64` for clusters serving a handful of vector tables, larger for dense multi-tenant deployments.
 - Introduced in: v3.5.16
 
+### paimon_global_index_max_concurrent_loads
+
+- Default: 0
+- Type: Int
+- Unit: concurrent loads
+- Is mutable: Yes
+- Description: Maximum number of concurrent cold loads (lumina `LuminaSearcher::Open` + quantizer codebook allocation) allowed inside paimon-cpp's `GlobalIndexReaderCache`, counted across all distinct index files. When `0` (default), loads are unlimited (pre-existing behaviour). The reader-cache single-flight only coalesces concurrent misses on the **same** index file; concurrent misses on **distinct** files each allocate a multi-GiB quantizer at the same time, so transient native memory scales with query concurrency. That memory is not tracked by the BE memory tracker, so on large (e.g. 10M-row) vector tables high concurrency can trigger a global kernel OOM that kills the BE. Set this to a small positive value (e.g. `4`) to bound concurrent loads, keeping the transient native footprint bounded regardless of query concurrency, at the cost of serializing some cold-start queries. Has no effect on cache hits (warm queries). Best paired with `paimon_global_index_reader_cache_capacity > 0`.
+- Introduced in: v3.5.16
+
 ### paimon_lumina_file_reader_readahead_kb
 
 - Default: 0
